@@ -539,9 +539,11 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
                         </TableCell>
                         <TableCell>
                           <Input
+                            className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             type="number"
                             min="1"
                             value={item.quantity}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
                           />
                         </TableCell>
@@ -551,6 +553,7 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
                             min="0"
                             step="0.01"
                             value={item.unit_price}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
                           />
                         </TableCell>
