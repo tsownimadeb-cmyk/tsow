@@ -3,22 +3,22 @@
 import { useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Download, Upload } from "lucide-react"
-import Papa from "papaparse"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 
 type PurchaseCsvRow = {
   order_no: string
-  purchase_date: string
-  vendor_code: string
-  supplier_name: string
   item_code: string
-  product_name: string
-  spec: string
   quantity: number
   unit_price: number
-  amount: number
+  purchase_date: string
+  vendor_code: string
+}
+
+type ParsedPurchaseRow = PurchaseCsvRow & {
+  row_no: number
+  subtotal: number
 }
 
 type OrderRow = {
@@ -30,57 +30,12 @@ type OrderRow = {
 
 const CSV_COLUMNS: Array<keyof PurchaseCsvRow> = [
   "order_no",
-  "purchase_date",
-  "vendor_code",
-  "supplier_name",
   "item_code",
-  "product_name",
-  "spec",
   "quantity",
   "unit_price",
-  "amount",
+  "purchase_date",
+  "vendor_code",
 ]
-
-async function queryProductsForExport(supabase: ReturnType<typeof createClient>): Promise<Map<string, { name: string; spec: string }>> {
-  const attempts = [
-    "code,name,spec",
-    "pno,pname,spec",
-  ]
-
-  for (const selectText of attempts) {
-    const result = await supabase.from("products").select(selectText)
-    if (!result.error) {
-      const rows = (result.data || []) as any[]
-      const productMap = new Map<string, { name: string; spec: string }>()
-      for (const row of rows) {
-        const code = String(row.code ?? row.pno ?? "").trim()
-        if (!code) continue
-        productMap.set(code, {
-          name: String(row.name ?? row.pname ?? "").trim(),
-          spec: String(row.spec ?? "").trim(),
-        })
-      }
-      return productMap
-    }
-  }
-
-  return new Map<string, { name: string; spec: string }>()
-}
-
-async function querySuppliersForExport(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
-  const { data, error } = await supabase.from("suppliers").select("id,name")
-  if (error) {
-    return new Map<string, string>()
-  }
-
-  const supplierMap = new Map<string, string>()
-  for (const row of (data || []) as any[]) {
-    const id = String(row.id ?? "").trim()
-    if (!id) continue
-    supplierMap.set(id, String(row.name ?? "").trim())
-  }
-  return supplierMap
-}
 
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
@@ -122,16 +77,9 @@ function parseCsvLine(line: string) {
   return values
 }
 
-function normalizeKey(key: string) {
-  return String(key || "")
-    .replace(/^\uFEFF/g, "")
-    .trim()
-    .toLowerCase()
-}
-
 function sanitizeCsvHeader(header: string) {
   return String(header || "")
-    .replace(/\uFEFF/g, "")
+    .replace(/^\uFEFF/g, "")
     .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060]/g, "")
     .trim()
 }
@@ -140,6 +88,40 @@ function toNumberOrZero(value: string) {
   if (!value?.trim()) return 0
   const parsed = Number(value)
   return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function normalizeDateInput(value: string) {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+
+  const normalized = raw.replace(/[.]/g, "-").replace(/[\/]/g, "-")
+  const parts = normalized.split("-").map((part) => part.trim()).filter(Boolean)
+  if (parts.length !== 3) return raw
+
+  const [year, month, day] = parts
+  if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month) || !/^\d{1,2}$/.test(day)) {
+    return raw
+  }
+
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
+}
+
+function formatSupabaseError(error: any, fallbackMessage: string) {
+  const message = String(error?.message || fallbackMessage)
+  const details = String(error?.details || "").trim()
+  return details ? `${message}（${details}）` : message
+}
+
+function createUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === "x" ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
 }
 
 async function queryOrders(supabase: ReturnType<typeof createClient>) {
@@ -184,34 +166,68 @@ async function querySupplierIds(supabase: ReturnType<typeof createClient>) {
   return new Set((data || []).map((row: any) => String(row.id ?? "").trim()).filter(Boolean))
 }
 
+async function createPurchaseOrderByOrderNo(
+  supabase: ReturnType<typeof createClient>,
+  orderNo: string,
+  orderDate: string,
+  supplierId: string | null,
+) {
+  const normalizedOrderNo = String(orderNo || "").trim()
+  if (!normalizedOrderNo) {
+    throw new Error("建立進貨單失敗：order_no 不可為空")
+  }
+
+  const payloadBase = {
+    order_date: orderDate || null,
+    supplier_id: supplierId,
+    total_amount: 0,
+    status: "pending",
+    is_paid: false,
+  }
+
+  const attempts = [
+    { ...payloadBase, order_no: normalizedOrderNo },
+    { ...payloadBase, order_number: normalizedOrderNo },
+  ]
+
+  let lastError: any = null
+
+  for (const payload of attempts) {
+    const { error } = await supabase.from("purchase_orders").insert(payload)
+    if (!error) {
+      return
+    }
+    if (String(error?.code || "") === "23505") {
+      return
+    }
+    lastError = error
+  }
+
+  throw new Error(formatSupabaseError(lastError, `建立進貨單 ${normalizedOrderNo} 失敗`))
+}
+
 async function queryExistingItemIdsByOrderAndCode(
   supabase: ReturnType<typeof createClient>,
   ordersById: Map<string, OrderRow>,
 ) {
-  const attempts = [
-    "id,order_no,code",
-    "id,purchase_order_id,code",
-    "id,order_no,product_pno",
-    "id,purchase_order_id,product_pno",
-  ]
+  const { data, error } = await supabase
+    .from("purchase_order_items")
+    .select("id,purchase_order_id,code")
 
-  for (const selectText of attempts) {
-    const result = await supabase.from("purchase_order_items").select(selectText)
-    if (!result.error) {
-      const keyToId = new Map<string, string>()
-      const rows = (result.data || []) as any[]
-      for (const row of rows) {
-        const orderNo = String(row.order_no ?? ordersById.get(String(row.purchase_order_id ?? ""))?.order_no ?? "").trim()
-        const itemCode = String(row.code ?? row.product_pno ?? "").trim()
-        const id = String(row.id ?? "").trim()
-        if (!orderNo || !itemCode || !id) continue
-        keyToId.set(`${orderNo}::${itemCode}`, id)
-      }
-      return keyToId
-    }
+  if (error) {
+    throw new Error(formatSupabaseError(error, "讀取進貨明細失敗"))
   }
 
-  throw new Error("讀取進貨明細失敗")
+  const keyToId = new Map<string, string>()
+  for (const row of (data || []) as any[]) {
+    const orderNo = String(ordersById.get(String(row.purchase_order_id ?? ""))?.order_no ?? "").trim()
+    const itemCode = String(row.code ?? "").trim()
+    const id = String(row.id ?? "").trim()
+    if (!orderNo || !itemCode || !id) continue
+    keyToId.set(`${orderNo}::${itemCode}`, id)
+  }
+
+  return keyToId
 }
 
 async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClient>) {
@@ -292,71 +308,52 @@ export function PurchasesBatchActions() {
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
+  const toastApi = {
+    success: (message: string) =>
+      toast({
+        title: "成功",
+        description: message,
+      }),
+    error: (message: string) =>
+      toast({
+        title: "錯誤",
+        description: message,
+        variant: "destructive",
+      }),
+  }
+
   const handleExportCsv = async () => {
     try {
       setIsExporting(true)
       const supabase = createClient()
       const orders = await queryOrders(supabase)
       const orderById = new Map(orders.map((order) => [order.id, order]))
-      const orderByNo = new Map(orders.map((order) => [order.order_no, order]))
-      const productByCode = await queryProductsForExport(supabase)
-      const supplierNameById = await querySuppliersForExport(supabase)
 
-      const itemAttempts = [
-        "id,order_no,purchase_order_id,code,quantity,unit_price,subtotal",
-        "id,order_no,purchase_order_id,product_pno,quantity,unit_price,subtotal",
-        "id,purchase_order_id,code,quantity,unit_price,subtotal",
-        "id,purchase_order_id,product_pno,quantity,unit_price,subtotal",
-      ]
+      const { data, error } = await supabase
+        .from("purchase_order_items")
+        .select("purchase_order_id,code,quantity,unit_price")
 
-      let itemRows: any[] = []
-      let loaded = false
+      if (error) throw error
 
-      for (const selectText of itemAttempts) {
-        const result = await supabase.from("purchase_order_items").select(selectText)
-        if (!result.error) {
-          itemRows = result.data || []
-          loaded = true
-          break
-        }
-      }
-
-      if (!loaded) {
-        throw new Error("讀取進貨明細失敗")
-      }
-
-      const exportRows: PurchaseCsvRow[] = itemRows.map((item) => {
-        const orderNo = String(item.order_no ?? orderById.get(String(item.purchase_order_id ?? ""))?.order_no ?? "").trim()
-        const order = orderByNo.get(orderNo)
-        const itemCode = String(item.code ?? item.product_pno ?? "").trim()
-        const product = productByCode.get(itemCode)
-        const quantity = Number(item.quantity ?? 0)
-        const unitPrice = Number(item.unit_price ?? 0)
-        const amount = Number(item.subtotal ?? (quantity * unitPrice))
-        const vendorCode = String(order?.supplier_id ?? "")
-
+      const exportRows: PurchaseCsvRow[] = ((data || []) as any[]).map((item) => {
+        const order = orderById.get(String(item.purchase_order_id ?? ""))
         return {
-          order_no: orderNo,
+          order_no: String(order?.order_no ?? "").trim(),
+          item_code: String(item.code ?? "").trim(),
+          quantity: Number(item.quantity ?? 0),
+          unit_price: Number(item.unit_price ?? 0),
           purchase_date: String(order?.order_date ?? ""),
-          vendor_code: vendorCode,
-          supplier_name: supplierNameById.get(vendorCode) || "",
-          item_code: itemCode,
-          product_name: product?.name || "",
-          spec: product?.spec || "",
-          quantity,
-          unit_price: unitPrice,
-          amount,
+          vendor_code: String(order?.supplier_id ?? ""),
         }
       })
 
       const header = CSV_COLUMNS.join(",")
-      const bodyRows = exportRows.map((row) => CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
-      const csvContent = `\uFEFF${[header, ...bodyRows].join("\n")}`
+      const rows = exportRows.map((row) => CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
+      const csvContent = `\uFEFF${[header, ...rows].join("\n")}`
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
-
       link.href = url
       link.download = `purchase_items_${new Date().toISOString().slice(0, 10)}.csv`
       document.body.appendChild(link)
@@ -364,11 +361,7 @@ export function PurchasesBatchActions() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
     } catch (error: any) {
-      toast({
-        title: "錯誤",
-        description: error?.message || "匯出進貨明細 CSV 失敗",
-        variant: "destructive",
-      })
+      toastApi.error(error?.message || "匯出進貨明細 CSV 失敗")
     } finally {
       setIsExporting(false)
     }
@@ -383,239 +376,211 @@ export function PurchasesBatchActions() {
     event.target.value = ""
     if (!file) return
 
-    const isConfirmed = window.confirm("這將根據單號與商品編號覆蓋進貨明細，確定執行嗎？")
+    const isConfirmed = window.confirm("這將根據單號與商品編號覆蓋現有資料，確定執行嗎？")
     if (!isConfirmed) return
 
     try {
       setIsImporting(true)
-      const supabase = createClient()
 
       const rawText = await file.text()
       const text = rawText.replace(/^\uFEFF/, "")
-      const results = await new Promise<Papa.ParseResult<Record<string, unknown>>>((resolve, reject) => {
-        Papa.parse<Record<string, unknown>>(text, {
-          header: true,
-          skipEmptyLines: true,
-          dynamicTyping: true,
-          transformHeader: (header) => sanitizeCsvHeader(header),
-          complete: (parsedResults) => resolve(parsedResults),
-          error: (error: Error) => reject(error),
-        })
-      })
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
 
-      if (results.errors.length > 0) {
-        console.warn("[PurchasesBatchActions][Import] CSV parse warnings:", results.errors)
-      }
-
-      const rawRows = (results.data || []) as Record<string, unknown>[]
-      if (rawRows.length === 0) {
+      if (lines.length < 2) {
         throw new Error("CSV 內容不足，至少需要標題列與一筆資料")
       }
 
-      const firstRow = (results.data?.[0] || {}) as Record<string, unknown>
-      const detectedHeaders = Object.keys(firstRow)
-      const normalizedHeaderMap = new Map<string, string>()
-      for (const header of detectedHeaders) {
-        const normalized = normalizeKey(header)
-        if (!normalizedHeaderMap.has(normalized)) {
-          normalizedHeaderMap.set(normalized, header)
+      const headers = parseCsvLine(lines[0]).map((header) => sanitizeCsvHeader(header))
+      const requiredColumns = [...CSV_COLUMNS]
+      for (const requiredColumn of requiredColumns) {
+        if (!headers.includes(requiredColumn)) {
+          throw new Error(`CSV 缺少必要欄位：${requiredColumn}`)
         }
       }
 
-      if (!normalizedHeaderMap.has("order_no") && detectedHeaders[0]) {
-        normalizedHeaderMap.set("order_no", detectedHeaders[0])
-      }
+      const parsedRows: ParsedPurchaseRow[] = []
+      lines.slice(1).forEach((line, index) => {
+        const values = parseCsvLine(line)
+        const valueByColumn = headers.reduce<Record<string, string>>((accumulator, header, columnIndex) => {
+          accumulator[header] = values[columnIndex] ?? ""
+          return accumulator
+        }, {})
 
-      const mappedRows = rawRows.map((row) => {
-        const mapped: Record<string, unknown> = {}
-        normalizedHeaderMap.forEach((sourceHeader, normalizedKey) => {
-          mapped[normalizedKey] = row[sourceHeader]
-        })
-        return mapped
-      })
+        const orderNo = String(valueByColumn.order_no ?? "").trim()
 
-      const parsedRows = mappedRows.flatMap((row) => {
-        const rowAny = row as Record<string, unknown>
-        if (!rowAny.order_no && !rowAny[Object.keys(rowAny)[0]]) return []
+        const itemCode = String(valueByColumn.item_code ?? "").trim()
+        const purchaseDate = String(valueByColumn.purchase_date ?? "").trim()
+        const vendorCode = String(valueByColumn.vendor_code ?? "").trim()
+        const quantityText = String(valueByColumn.quantity ?? "").trim()
+        const unitPriceText = String(valueByColumn.unit_price ?? "").trim()
 
-        const orderNo = (rowAny["order_no"] ?? "").toString().trim()
+        const isCompletelyEmpty = !orderNo && !itemCode && !purchaseDate && !vendorCode && !quantityText && !unitPriceText
+        if (isCompletelyEmpty) return
+
         if (!orderNo) {
-          const firstKey = Object.keys(rowAny)[0] || ""
-          if (firstKey) {
-            const hexEncoded = Array.from(firstKey)
-              .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-              .join(" ")
-            console.log("[PurchasesBatchActions][Import][order_no debug]", {
-              firstKey,
-              length: firstKey.length,
-              hex: hexEncoded,
-            })
-          }
-          return []
+          throw new Error(`第 ${index + 2} 列缺少 order_no，請填入你要的新單號`)
         }
-
-        const purchaseDate = String(rowAny["purchase_date"] ?? "").trim()
-        const vendorCode = String(rowAny["vendor_code"] ?? "").trim()
-        const itemCode = String(rowAny["item_code"] ?? "").trim()
-        const quantityText = String(rowAny["quantity"] ?? "").trim()
-        const unitPriceText = String(rowAny["unit_price"] ?? "").trim()
-        const amountText = String(rowAny["amount"] ?? "").trim()
 
         const quantity = toNumberOrZero(quantityText)
         const unitPrice = toNumberOrZero(unitPriceText)
-        const amount = amountText ? toNumberOrZero(amountText) : quantity * unitPrice
 
-        return [{
+        parsedRows.push({
+          row_no: index + 2,
           order_no: orderNo,
-          purchase_date: purchaseDate,
-          vendor_code: vendorCode,
           item_code: itemCode,
           quantity,
           unit_price: unitPrice,
-          amount,
-        }]
+          purchase_date: purchaseDate,
+          vendor_code: vendorCode,
+          subtotal: quantity * unitPrice,
+        })
       })
 
       if (parsedRows.length === 0) {
-        throw new Error("欄位解析成功，但內容為空。請檢查 Excel 第一列下方是否有資料。")
+        throw new Error("沒有可匯入的資料，請確認 item_code 欄位")
       }
 
-      const orders = await queryOrders(supabase)
-      const orderByNo = new Map(orders.map((order) => [order.order_no, order]))
-      const orderById = new Map(orders.map((order) => [order.id, order]))
-      const productCodes = await queryProductsCodes(supabase)
-      const supplierIds = await querySupplierIds(supabase)
+      const supabase = createClient()
+      const [initialOrders, productCodes, supplierIds] = await Promise.all([
+        queryOrders(supabase),
+        queryProductsCodes(supabase),
+        querySupplierIds(supabase),
+      ])
 
-      const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null }>()
+      const orderByNo = new Map(initialOrders.map((order) => [order.order_no, order]))
+      const missingOrderNos = new Set<string>()
 
       for (const row of parsedRows) {
-        if (!row.order_no) {
-          throw new Error("匯入資料缺少 order_no")
-        }
-
-        const order = orderByNo.get(row.order_no)
-        if (!order) {
-          throw new Error(`order_no ${row.order_no} 不存在`) 
-        }
-
         if (!row.item_code || !productCodes.has(row.item_code)) {
-          throw new Error(`order_no ${row.order_no} 的 item_code ${row.item_code || "(空白)"} 不存在`)
+          throw new Error(`第 ${row.row_no} 列失敗：item_code ${row.item_code || "(空白)"} 不存在`)
         }
 
         if (row.vendor_code && !supplierIds.has(row.vendor_code)) {
-          throw new Error(`order_no ${row.order_no} 的 vendor_code ${row.vendor_code} 不存在`)
+          throw new Error(`第 ${row.row_no} 列失敗：vendor_code ${row.vendor_code} 不存在`)
         }
 
-        const orderDate = row.purchase_date || String(order.order_date || "")
-        const supplierId = row.vendor_code || String(order.supplier_id || "") || null
+        if (!orderByNo.has(row.order_no)) {
+          missingOrderNos.add(row.order_no)
+        }
+      }
+
+      for (const missingOrderNo of missingOrderNos) {
+        const sampleRow = parsedRows.find((row) => row.order_no === missingOrderNo)
+        if (!sampleRow) continue
+
+        await createPurchaseOrderByOrderNo(
+          supabase,
+          missingOrderNo,
+          normalizeDateInput(sampleRow.purchase_date),
+          String(sampleRow.vendor_code || "").trim() || null,
+        )
+      }
+
+      const orders = await queryOrders(supabase)
+      const latestOrderByNo = new Map(orders.map((order) => [order.order_no, order]))
+      const orderById = new Map(orders.map((order) => [order.id, order]))
+      const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null }>()
+
+      for (const row of parsedRows) {
+        const order = latestOrderByNo.get(row.order_no)
+        if (!order) {
+          throw new Error(`第 ${row.row_no} 列失敗：order_no ${row.order_no} 不存在`)
+        }
+
         const current = headerUpdates.get(row.order_no)
+        const mergedOrderDate =
+          normalizeDateInput(row.purchase_date) ||
+          current?.order_date ||
+          normalizeDateInput(String(order.order_date || "")) ||
+          ""
+        const mergedSupplierId =
+          String(row.vendor_code || "").trim() ||
+          current?.supplier_id ||
+          (String(order.supplier_id || "").trim() || null)
 
-        if (current && (current.order_date !== orderDate || String(current.supplier_id || "") !== String(supplierId || ""))) {
-          throw new Error(`order_no ${row.order_no} 的單頭資料不一致，請確認 purchase_date / vendor_code`)
+        headerUpdates.set(row.order_no, {
+          order_date: mergedOrderDate,
+          supplier_id: mergedSupplierId,
+        })
+      }
+
+      for (const [orderNo, header] of headerUpdates.entries()) {
+        const { error: updateError } = await supabase
+          .from("purchase_orders")
+          .update({
+            order_date: header.order_date || null,
+            supplier_id: header.supplier_id,
+          })
+          .eq("order_no", orderNo)
+
+        if (!updateError) continue
+
+        const { error: fallbackError } = await supabase
+          .from("purchase_orders")
+          .update({
+            order_date: header.order_date || null,
+            supplier_id: header.supplier_id,
+          })
+          .eq("order_number", orderNo)
+
+        if (fallbackError) {
+          throw new Error(`order_no ${orderNo} 單頭更新失敗：${formatSupabaseError(fallbackError, updateError.message)}`)
         }
-
-        headerUpdates.set(row.order_no, { order_date: orderDate, supplier_id: supplierId })
       }
 
       const existingItemIdByKey = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
 
-      for (const [orderNo, header] of headerUpdates.entries()) {
-        const { error: orderUpdateError } = await supabase
-          .from("purchase_orders")
-          .update({ order_date: header.order_date || null, supplier_id: header.supplier_id })
-          .eq("order_no", orderNo)
+      const upsertPayloadByKey = new Map<string, {
+        id: string
+        purchase_order_id: string
+        code: string
+        quantity: number
+        unit_price: number
+        subtotal: number
+      }>()
 
-        if (orderUpdateError) {
-          const { error: fallbackUpdateError } = await supabase
-            .from("purchase_orders")
-            .update({ order_date: header.order_date || null, supplier_id: header.supplier_id })
-            .eq("order_number", orderNo)
-
-          if (fallbackUpdateError) {
-            throw new Error(`order_no ${orderNo} 單頭更新失敗：${fallbackUpdateError.message || orderUpdateError.message}`)
-          }
-        }
-      }
-
-      const baseRows = parsedRows.map((row) => {
-        const id = existingItemIdByKey.get(`${row.order_no}::${row.item_code}`)
-        const order = orderByNo.get(row.order_no)
+      for (const row of parsedRows) {
+        const order = latestOrderByNo.get(row.order_no)
         if (!order) {
-          throw new Error(`order_no ${row.order_no} 不存在`)
+          throw new Error(`第 ${row.row_no} 列失敗：order_no ${row.order_no} 不存在`)
         }
 
-        return {
-          id,
-          order_no: row.order_no,
+        const existingId = existingItemIdByKey.get(`${row.order_no}::${row.item_code}`)
+        const payload = {
+          id: existingId || createUuid(),
           purchase_order_id: order.id,
           code: row.item_code,
-          product_pno: row.item_code,
-          quantity: row.quantity,
-          unit_price: row.unit_price,
-          subtotal: row.amount,
-        }
-      })
-
-      const payloadAttempts = [
-        baseRows.map((row) => ({
-          ...(row.id ? { id: row.id } : {}),
-          order_no: row.order_no,
-          code: row.code,
-          quantity: row.quantity,
-          unit_price: row.unit_price,
-          subtotal: row.subtotal,
-        })),
-        baseRows.map((row) => ({
-          ...(row.id ? { id: row.id } : {}),
-          purchase_order_id: row.purchase_order_id,
-          code: row.code,
-          quantity: row.quantity,
-          unit_price: row.unit_price,
-          subtotal: row.subtotal,
-        })),
-        baseRows.map((row) => ({
-          ...(row.id ? { id: row.id } : {}),
-          purchase_order_id: row.purchase_order_id,
-          product_pno: row.product_pno,
-          quantity: row.quantity,
-          unit_price: row.unit_price,
-          subtotal: row.subtotal,
-        })),
-      ]
-
-      let upsertSuccess = false
-      let lastUpsertError: any = null
-
-      for (const payload of payloadAttempts) {
-        const result = await supabase
-          .from("purchase_order_items")
-          .upsert(payload, { onConflict: "id" })
-
-        if (!result.error) {
-          upsertSuccess = true
-          break
+          quantity: Number(row.quantity),
+          unit_price: Number(row.unit_price),
+          subtotal: Number(row.subtotal),
         }
 
-        lastUpsertError = result.error
+        const dedupeKey = existingId
+          ? `id:${existingId}`
+          : `new:${order.id}::${row.item_code}`
+
+        upsertPayloadByKey.set(dedupeKey, payload)
       }
 
-      if (!upsertSuccess) {
-        throw new Error(lastUpsertError?.message || "進貨明細 upsert 失敗")
+      const upsertPayload = Array.from(upsertPayloadByKey.values())
+
+      const { error: upsertError } = await supabase
+        .from("purchase_order_items")
+        .upsert(upsertPayload, { onConflict: "id", on_conflict: "id" } as any)
+
+      if (upsertError) {
+        throw new Error(formatSupabaseError(upsertError, "匯入進貨明細失敗"))
       }
 
       await recalculatePurchaseStocks(supabase)
 
-      toast({
-        title: "成功",
-        description: "進貨資料批次更新完成",
-      })
+      toastApi.success("進貨資料批次更新完成")
       router.refresh()
     } catch (error: any) {
-      toast({
-        title: "錯誤",
-        description: error?.message || "匯入批次修改失敗",
-        variant: "destructive",
-      })
+      toastApi.error(error?.message || "匯入失敗")
     } finally {
       setIsImporting(false)
     }
