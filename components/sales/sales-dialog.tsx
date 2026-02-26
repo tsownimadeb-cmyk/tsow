@@ -233,7 +233,7 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-[1400px] sm:max-w-[1400px] max-h-[95vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>新增銷貨單</DialogTitle>
           <DialogDescription>填寫銷貨單資料與明細</DialogDescription>
@@ -308,15 +308,15 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
               </Button>
             </div>
 
-            <div className="rounded-lg border">
-              <Table>
+            <div className="rounded-lg border overflow-x-hidden">
+              <Table className="w-full table-auto">
                 <TableHeader>
                   <TableRow>
                     <TableHead>商品</TableHead>
-                    <TableHead className="w-24">數量</TableHead>
-                    <TableHead className="w-32">單價</TableHead>
-                    <TableHead className="w-32 text-right">小計</TableHead>
-                    <TableHead className="w-12"></TableHead>
+                    <TableHead className="w-20">數量</TableHead>
+                    <TableHead className="w-24">單價</TableHead>
+                    <TableHead className="w-24 text-right">小計</TableHead>
+                    <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -329,10 +329,10 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
                   ) : (
                     items.map((item, index) => (
                       <TableRow key={index}>
-                        <TableCell>
+                        <TableCell className="min-w-0 pr-2">
                           <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="選擇商品" />
+                            <SelectTrigger className="w-full min-w-0">
+                              <SelectValue placeholder="選擇商品" className="truncate" />
                             </SelectTrigger>
                             <SelectContent>
                               {products.map((product) => (
@@ -343,16 +343,18 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
                             </SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="px-2">
                           <Input
+                            className="min-w-0"
                             type="number"
                             min="1"
                             value={item.quantity}
                             onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="px-2">
                           <Input
+                            className="min-w-0"
                             type="number"
                             min="0"
                             step="0.01"
@@ -360,7 +362,7 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
                             onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
                           />
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right whitespace-nowrap px-2">
                           ${(item.quantity * item.unit_price).toLocaleString()}
                         </TableCell>
                         <TableCell>
