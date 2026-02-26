@@ -15,9 +15,11 @@ import {
   ChevronDown,
   CreditCard,
   Plus,
+  Lock,
 } from "lucide-react"
 import { useState, type ComponentType, type ReactNode, type SVGProps } from "react"
 import { Button } from "@/components/ui/button"
+import { useRouter } from "next/navigation"
 
 interface NavItem {
   name: string
@@ -52,9 +54,16 @@ const navigation: NavItem[] = [
 ]
 
 export function Sidebar() {
+  const router = useRouter()
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedItems, setExpandedItems] = useState<string[]>([])
+
+  const handleLockSystem = async () => {
+    await fetch("/api/auth/logout", { method: "POST" })
+    router.replace("/login")
+    router.refresh()
+  }
 
   const toggleExpanded = (name: string) => {
     setExpandedItems((prev) =>
@@ -141,7 +150,16 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 p-2">
         {navigation.map((item) => renderNavItem(item))}
       </nav>
-      <div className="border-t border-border p-4">
+      <div className="border-t border-border p-4 space-y-2">
+        <Button
+          variant="outline"
+          className={cn("w-full", collapsed && "px-2")}
+          onClick={handleLockSystem}
+          title={collapsed ? "鎖定系統" : undefined}
+        >
+          <Lock className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>鎖定系統</span>}
+        </Button>
         {!collapsed && <p className="text-xs text-muted-foreground text-center">v1.0.0</p>}
       </div>
     </aside>
