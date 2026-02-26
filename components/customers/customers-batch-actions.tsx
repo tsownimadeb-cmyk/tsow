@@ -66,74 +66,89 @@ function sanitizeCsvHeader(header: string) {
     .trim()
 }
 
-async function queryCustomersForExport(supabase: ReturnType<typeof createClient>) {
-  const orderAttempts = ["code", "cno", "created_at"]
+function pickFirstValue(valueByColumn: Record<string, string>, aliases: string[]) {
+  for (const alias of aliases) {
+    const value = valueByColumn[alias]
+    if (value !== undefined) return String(value)
+  }
+  return ""
+}
 
-  for (const orderBy of orderAttempts) {
-    const result = await supabase
-      .from("customers")
-      .select("*")
-      .order(orderBy, { ascending: true })
-    if (!result.error) {
-      return (result.data || []) as any[]
-    }
+function generateAutoCustomerCode(rowNo: number) {
+  const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "")
+  return `AUTO${dateTag}${String(rowNo).padStart(4, "0")}`
+}
+
+async function queryCustomersForExport(supabase: ReturnType<typeof createClient>) {
+  const result = await supabase.from("customers").select("*")
+  if (result.error) {
+    throw new Error(result.error.message || "讀取客戶資料失敗")
   }
 
-  throw new Error("讀取客戶資料失敗")
+  const rows = ((result.data || []) as any[]).slice()
+  rows.sort((left, right) => {
+    const leftKey = String(left.code ?? left.cno ?? left.name ?? left.compy ?? "")
+    const rightKey = String(right.code ?? right.cno ?? right.name ?? right.compy ?? "")
+    return leftKey.localeCompare(rightKey, "zh-Hant")
+  })
+
+  return rows
 }
 
 async function upsertCustomers(supabase: ReturnType<typeof createClient>, rows: CustomerCsvRow[]) {
-  const attempts = [
-    {
-      payload: rows.map((row) => ({
-        code: row.code,
-        name: row.name,
-        tel1: row.tel1 || null,
-        tel2: row.tel2 || null,
-        fax: row.tel3 || null,
-        addr: row.address || null,
-        notes: row.notes || null,
-      })),
-      conflict: "code",
-    },
-    {
-      payload: rows.map((row) => ({
-        code: row.code,
-        name: row.name,
-        tel1: row.tel1 || null,
-        tel2: row.tel2 || null,
-        tel3: row.tel3 || null,
-        addr: row.address || null,
-        notes: row.notes || null,
-      })),
-      conflict: "code",
-    },
-    {
-      payload: rows.map((row) => ({
-        cno: row.code,
-        compy: row.name,
-        tel1: row.tel1 || null,
-        tel11: row.tel2 || null,
-        tel12: row.tel3 || null,
-        addr: row.address || null,
-        notes: row.notes || null,
-      })),
-      conflict: "cno",
-    },
-  ]
-
-  let lastError: any = null
-
-  for (const attempt of attempts) {
-    const result = await supabase
-      .from("customers")
-      .upsert(attempt.payload, { onConflict: attempt.conflict, on_conflict: attempt.conflict } as any)
-
-    if (!result.error) return
-    lastError = result.error
+  const sampleResult = await supabase.from("customers").select("*").limit(1)
+  if (sampleResult.error) {
+    throw new Error(sampleResult.error.message || "讀取 customers 欄位失敗")
   }
 
-  throw new Error(lastError?.message || "匯入客戶資料失敗")
+  const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
+
+  const hasColumn = (column: string) => existingColumns.has(column)
+
+  const keyColumn = hasColumn("code") ? "code" : hasColumn("cno") ? "cno" : "code"
+  const nameColumn = hasColumn("name") ? "name" : hasColumn("compy") ? "compy" : "name"
+
+  const tel1Column = hasColumn("tel1") ? "tel1" : null
+  const tel2Column = hasColumn("tel2") ? "tel2" : hasColumn("tel11") ? "tel11" : null
+  const tel3Column = hasColumn("tel3") ? "tel3" : hasColumn("fax") ? "fax" : hasColumn("tel12") ? "tel12" : null
+  const addressColumn = hasColumn("address") ? "address" : hasColumn("addr") ? "addr" : null
+  const notesColumn = hasColumn("notes") ? "notes" : null
+
+  for (const row of rows) {
+    const payload: Record<string, any> = {
+      [nameColumn]: row.name,
+    }
+
+    if (tel1Column) payload[tel1Column] = row.tel1 || null
+    if (tel2Column) payload[tel2Column] = row.tel2 || null
+    if (tel3Column) payload[tel3Column] = row.tel3 || null
+    if (addressColumn) payload[addressColumn] = row.address || null
+    if (notesColumn) payload[notesColumn] = row.notes || null
+
+    const insertPayload: Record<string, any> = {
+      [keyColumn]: row.code,
+      ...payload,
+    }
+
+    const updateResult = await supabase
+      .from("customers")
+      .update(payload)
+      .eq(keyColumn, row.code)
+      .select(keyColumn)
+
+    if (updateResult.error) {
+      throw new Error(updateResult.error.message || `客戶 ${row.code} 更新失敗`)
+    }
+
+    if ((updateResult.data || []).length > 0) {
+      continue
+    }
+
+    const insertResult = await supabase.from("customers").insert(insertPayload)
+    if (insertResult.error) {
+      throw new Error(insertResult.error.message || `客戶 ${row.code} 新增失敗`)
+    }
+  }
 }
 
 export function CustomersBatchActions() {
@@ -220,11 +235,6 @@ export function CustomersBatchActions() {
       }
 
       const headers = parseCsvLine(lines[0]).map((header) => sanitizeCsvHeader(header))
-      for (const requiredColumn of CSV_COLUMNS) {
-        if (!headers.includes(requiredColumn)) {
-          throw new Error(`CSV 缺少必要欄位：${requiredColumn}`)
-        }
-      }
 
       const rows: CustomerCsvRow[] = lines
         .slice(1)
@@ -235,28 +245,46 @@ export function CustomersBatchActions() {
             return accumulator
           }, {})
 
-          const code = String(valueByColumn.code || "").trim()
-          const name = String(valueByColumn.name || "").trim()
+          const rawCode = pickFirstValue(valueByColumn, ["code", "cno"])
+          const rawName = pickFirstValue(valueByColumn, ["name", "compy"])
+          const rawTel1 = pickFirstValue(valueByColumn, ["tel1"])
+          const rawTel2 = pickFirstValue(valueByColumn, ["tel2", "tel11"])
+          const rawTel3 = pickFirstValue(valueByColumn, ["tel3", "fax", "tel12"])
+          const rawAddress = pickFirstValue(valueByColumn, ["address", "addr"])
+          const rawNotes = pickFirstValue(valueByColumn, ["notes"])
 
-          if (!code) {
-            throw new Error(`第 ${index + 2} 列失敗：code 不可為空`)
+          const hasAnyValue = [rawCode, rawName, rawTel1, rawTel2, rawTel3, rawAddress, rawNotes]
+            .some((value) => String(value || "").trim().length > 0)
+          if (!hasAnyValue) {
+            return null
           }
 
-          if (!name) {
-            throw new Error(`第 ${index + 2} 列失敗：name 不可為空`)
-          }
+          const code = String(rawCode || "").trim() || generateAutoCustomerCode(index + 2)
+          const name = String(rawName || "").trim() || "姓名不詳"
 
           return {
             code,
             name,
-            tel1: String(valueByColumn.tel1 || "").trim(),
-            tel2: String(valueByColumn.tel2 || "").trim(),
-            tel3: String(valueByColumn.tel3 || "").trim(),
-            address: String(valueByColumn.address || "").trim(),
-            notes: String(valueByColumn.notes || "").trim(),
+            tel1: String(rawTel1 || "").trim(),
+            tel2: String(rawTel2 || "").trim(),
+            tel3: String(rawTel3 || "").trim(),
+            address: String(rawAddress || "").trim(),
+            notes: String(rawNotes || "").trim(),
           }
         })
-        .filter((row) => row.code && row.name)
+        .filter((row): row is CustomerCsvRow => Boolean(row))
+
+      const usedCodes = new Set<string>()
+      for (const row of rows) {
+        let nextCode = String(row.code || "").trim()
+        let suffix = 1
+        while (usedCodes.has(nextCode)) {
+          nextCode = `${row.code}-${suffix}`
+          suffix += 1
+        }
+        row.code = nextCode
+        usedCodes.add(nextCode)
+      }
 
       if (!rows.length) {
         throw new Error("沒有可匯入的客戶資料")
