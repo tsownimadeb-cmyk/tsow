@@ -211,10 +211,17 @@ async function createPurchaseOrderByOrderNo(
 async function queryExistingItemIdsByOrderAndCode(
   supabase: ReturnType<typeof createClient>,
   ordersById: Map<string, OrderRow>,
+  targetOrderIds?: string[],
 ) {
-  const { data, error } = await supabase
+  let query = supabase
     .from("purchase_order_items")
     .select("id,purchase_order_id,code")
+
+  if (targetOrderIds && targetOrderIds.length > 0) {
+    query = query.in("purchase_order_id", targetOrderIds)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     throw new Error(formatSupabaseError(error, "讀取進貨明細失敗"))
@@ -232,17 +239,26 @@ async function queryExistingItemIdsByOrderAndCode(
   return keyToId
 }
 
-async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClient>) {
+async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClient>, targetCodes: string[]) {
+  const normalizedCodes = Array.from(new Set((targetCodes || []).map((code) => String(code || "").trim()).filter(Boolean)))
+  if (normalizedCodes.length === 0) {
+    return
+  }
+
   const itemAttempts = [
-    "code,quantity",
-    "product_pno,quantity",
+    { select: "code,quantity", keyColumn: "code" },
+    { select: "product_pno,quantity", keyColumn: "product_pno" },
   ]
 
   let codeTotals = new Map<string, number>()
   let itemsLoaded = false
 
-  for (const selectText of itemAttempts) {
-    const itemsResult = await supabase.from("purchase_order_items").select(selectText)
+  for (const attempt of itemAttempts) {
+    const itemsResult = await supabase
+      .from("purchase_order_items")
+      .select(attempt.select)
+      .in(attempt.keyColumn, normalizedCodes)
+
     if (itemsResult.error) continue
 
     const nextTotals = new Map<string, number>()
@@ -264,14 +280,18 @@ async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClien
   }
 
   const productAttempts = [
-    "code,stock_qty,purchase_qty_total",
-    "code,stock_qty",
-    "pno,stock_quantity,purchase_qty_total",
-    "pno,stock_quantity",
+    { select: "code,stock_qty,purchase_qty_total", keyColumn: "code", stockColumn: "stock_qty" },
+    { select: "code,stock_qty", keyColumn: "code", stockColumn: "stock_qty" },
+    { select: "pno,stock_quantity,purchase_qty_total", keyColumn: "pno", stockColumn: "stock_quantity" },
+    { select: "pno,stock_quantity", keyColumn: "pno", stockColumn: "stock_quantity" },
   ]
 
-  for (const selectText of productAttempts) {
-    const productsResult = await supabase.from("products").select(selectText)
+  for (const attempt of productAttempts) {
+    const productsResult = await supabase
+      .from("products")
+      .select(attempt.select)
+      .in(attempt.keyColumn, normalizedCodes)
+
     if (productsResult.error) continue
 
     const productRows = (productsResult.data || []) as any[]
@@ -281,17 +301,16 @@ async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClien
 
       const nextPurchaseTotal = Number(codeTotals.get(itemCode) || 0)
       const currentPurchaseTotal = Number(productRow.purchase_qty_total ?? 0)
-      const currentStockQty = Number(productRow.stock_qty ?? productRow.stock_quantity ?? 0)
+      const currentStockQty = Number(productRow[attempt.stockColumn] ?? 0)
       const delta = nextPurchaseTotal - currentPurchaseTotal
       const nextStockQty = Math.max(0, currentStockQty + delta)
 
       const payload =
-        productRow.code !== undefined
+        attempt.stockColumn === "stock_qty"
           ? { stock_qty: nextStockQty, purchase_qty_total: nextPurchaseTotal }
           : { stock_quantity: nextStockQty, purchase_qty_total: nextPurchaseTotal }
 
-      const eqColumn = productRow.code !== undefined ? "code" : "pno"
-      const { error: updateError } = await supabase.from("products").update(payload).eq(eqColumn, itemCode)
+      const { error: updateError } = await supabase.from("products").update(payload).eq(attempt.keyColumn, itemCode)
       if (updateError) {
         throw new Error(updateError.message || `商品 ${itemCode} 庫存重算失敗`)
       }
@@ -446,6 +465,8 @@ export function PurchasesBatchActions() {
         throw new Error("沒有可匯入的資料，請確認 item_code 欄位")
       }
 
+      const affectedCodes = new Set(parsedRows.map((row) => String(row.item_code || "").trim()).filter(Boolean))
+
       if (syncDeleteMissing) {
         const secondConfirm = window.confirm(
           "已啟用同步刪除：系統將刪除所有不在 CSV 內的進貨明細（order_no + item_code）。此操作無法復原，確定繼續嗎？",
@@ -492,6 +513,13 @@ export function PurchasesBatchActions() {
       const orders = await queryOrders(supabase)
       const latestOrderByNo = new Map(orders.map((order) => [order.order_no, order]))
       const orderById = new Map(orders.map((order) => [order.id, order]))
+      const targetOrderIds = Array.from(
+        new Set(
+          parsedRows
+            .map((row) => String(latestOrderByNo.get(row.order_no)?.id || "").trim())
+            .filter(Boolean),
+        ),
+      )
       const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null }>()
 
       for (const row of parsedRows) {
@@ -541,7 +569,7 @@ export function PurchasesBatchActions() {
         }
       }
 
-      const existingItemIdByKey = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
+      const existingItemIdByKey = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
 
       const upsertPayloadByKey = new Map<string, {
         id: string
@@ -587,12 +615,16 @@ export function PurchasesBatchActions() {
 
       if (syncDeleteMissing) {
         const csvItemKeys = new Set(parsedRows.map((row) => `${row.order_no}::${row.item_code}`))
-        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
+        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
         const idsToDelete: string[] = []
 
         for (const [itemKey, itemId] of existingRows.entries()) {
           if (!csvItemKeys.has(itemKey)) {
             idsToDelete.push(itemId)
+            const deletedCode = String(itemKey.split("::")[1] || "").trim()
+            if (deletedCode) {
+              affectedCodes.add(deletedCode)
+            }
           }
         }
 
@@ -604,7 +636,7 @@ export function PurchasesBatchActions() {
         }
       }
 
-      await recalculatePurchaseStocks(supabase)
+      await recalculatePurchaseStocks(supabase, Array.from(affectedCodes))
 
       toastApi.success("進貨資料批次更新完成")
       router.refresh()

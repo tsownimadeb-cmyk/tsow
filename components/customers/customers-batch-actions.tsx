@@ -116,40 +116,27 @@ async function upsertCustomers(supabase: ReturnType<typeof createClient>, rows: 
   const addressColumn = hasColumn("address") ? "address" : hasColumn("addr") ? "addr" : null
   const notesColumn = hasColumn("notes") ? "notes" : null
 
-  for (const row of rows) {
-    const payload: Record<string, any> = {
+  const payload = rows.map((row) => {
+    const rowPayload: Record<string, any> = {
+      [keyColumn]: row.code,
       [nameColumn]: row.name,
     }
 
-    if (tel1Column) payload[tel1Column] = row.tel1 || null
-    if (tel2Column) payload[tel2Column] = row.tel2 || null
-    if (tel3Column) payload[tel3Column] = row.tel3 || null
-    if (addressColumn) payload[addressColumn] = row.address || null
-    if (notesColumn) payload[notesColumn] = row.notes || null
+    if (tel1Column) rowPayload[tel1Column] = row.tel1 || null
+    if (tel2Column) rowPayload[tel2Column] = row.tel2 || null
+    if (tel3Column) rowPayload[tel3Column] = row.tel3 || null
+    if (addressColumn) rowPayload[addressColumn] = row.address || null
+    if (notesColumn) rowPayload[notesColumn] = row.notes || null
 
-    const insertPayload: Record<string, any> = {
-      [keyColumn]: row.code,
-      ...payload,
-    }
+    return rowPayload
+  })
 
-    const updateResult = await supabase
-      .from("customers")
-      .update(payload)
-      .eq(keyColumn, row.code)
-      .select(keyColumn)
+  const { error } = await supabase
+    .from("customers")
+    .upsert(payload, { onConflict: keyColumn, on_conflict: keyColumn } as any)
 
-    if (updateResult.error) {
-      throw new Error(updateResult.error.message || `客戶 ${row.code} 更新失敗`)
-    }
-
-    if ((updateResult.data || []).length > 0) {
-      continue
-    }
-
-    const insertResult = await supabase.from("customers").insert(insertPayload)
-    if (insertResult.error) {
-      throw new Error(insertResult.error.message || `客戶 ${row.code} 新增失敗`)
-    }
+  if (error) {
+    throw new Error(error.message || "客戶批次更新失敗")
   }
 }
 
