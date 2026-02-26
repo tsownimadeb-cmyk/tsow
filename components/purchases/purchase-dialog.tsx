@@ -426,7 +426,7 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-[1400px] sm:max-w-[1400px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>新增進貨單</DialogTitle>
           <DialogDescription>填寫進貨單資料與明細</DialogDescription>
