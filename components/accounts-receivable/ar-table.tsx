@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search } from "lucide-react"
+import { Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
@@ -19,6 +19,7 @@ export function ARTable({ records }: ARTableProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState("")
+  const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllCustomers, setShowAllCustomers] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [processingCustomerKey, setProcessingCustomerKey] = useState<string | null>(null)
@@ -33,6 +34,14 @@ export function ARTable({ records }: ARTableProps) {
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
   const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
   const outstandingAmount = totalAmount - paidAmount
+
+  const renderAmount = (value: number) => {
+    if (isPrivacyMode) {
+      return <span className="text-muted-foreground tracking-widest">****</span>
+    }
+
+    return `$${value.toLocaleString()}`
+  }
 
   const customerSummaryMap = filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
@@ -277,6 +286,16 @@ export function ARTable({ records }: ARTableProps) {
             className="pl-10"
           />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setIsPrivacyMode((prev) => !prev)}
+          aria-label={isPrivacyMode ? "顯示金額" : "隱藏金額"}
+          title={isPrivacyMode ? "顯示金額" : "隱藏金額"}
+        >
+          {isPrivacyMode ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
         <div className="flex items-center gap-2">
           <Button
             variant={showAllCustomers ? "outline" : "default"}
@@ -298,15 +317,17 @@ export function ARTable({ records }: ARTableProps) {
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應收合計</p>
-          <p className="text-2xl font-semibold">${totalAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold">{renderAmount(totalAmount)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">已收金額</p>
-          <p className="text-2xl font-semibold">${paidAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold">{renderAmount(paidAmount)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應收未付</p>
-          <p className="text-2xl font-semibold text-destructive">${outstandingAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold text-destructive">
+            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : `$${outstandingAmount.toLocaleString()}`}
+          </p>
         </div>
       </div>
 
@@ -330,10 +351,10 @@ export function ARTable({ records }: ARTableProps) {
                       <p className="text-xs text-muted-foreground">{summary.customerCno}・{summary.orderCount} 筆單據</p>
                     </div>
                     <div className="col-span-4 text-right text-sm text-muted-foreground">
-                      應收合計 ${summary.totalDue.toLocaleString()}
+                      應收合計 {renderAmount(summary.totalDue)}
                     </div>
                     <div className="col-span-4 text-right text-base font-semibold text-destructive">
-                      總欠款 ${summary.totalOutstanding.toLocaleString()}
+                      總欠款 {renderAmount(summary.totalOutstanding)}
                     </div>
                   </div>
                 </AccordionTrigger>

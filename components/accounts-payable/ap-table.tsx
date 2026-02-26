@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search } from "lucide-react"
+import { Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
@@ -19,6 +19,7 @@ export function APTable({ records }: APTableProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState("")
+  const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllSuppliers, setShowAllSuppliers] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [processingSupplierKey, setProcessingSupplierKey] = useState<string | null>(null)
@@ -32,6 +33,14 @@ export function APTable({ records }: APTableProps) {
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
   const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
   const outstandingAmount = totalAmount - paidAmount
+
+  const renderAmount = (value: number) => {
+    if (isPrivacyMode) {
+      return <span className="text-muted-foreground tracking-widest">****</span>
+    }
+
+    return `$${value.toLocaleString()}`
+  }
 
   const supplierSummaryMap = filteredRecords.reduce((map, record) => {
     const supplierId = record.supplier_id || "未指定"
@@ -248,6 +257,16 @@ export function APTable({ records }: APTableProps) {
             className="pl-10"
           />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setIsPrivacyMode((prev) => !prev)}
+          aria-label={isPrivacyMode ? "顯示金額" : "隱藏金額"}
+          title={isPrivacyMode ? "顯示金額" : "隱藏金額"}
+        >
+          {isPrivacyMode ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
         <div className="flex items-center gap-2">
           <Button variant={showAllSuppliers ? "outline" : "default"} size="sm" onClick={() => setShowAllSuppliers(false)}>
             只看欠款供應商
@@ -261,15 +280,17 @@ export function APTable({ records }: APTableProps) {
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應付合計</p>
-          <p className="text-2xl font-semibold">${totalAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold">{renderAmount(totalAmount)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">已付金額</p>
-          <p className="text-2xl font-semibold">${paidAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold">{renderAmount(paidAmount)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應付未付</p>
-          <p className="text-2xl font-semibold text-destructive">${outstandingAmount.toLocaleString()}</p>
+          <p className="text-2xl font-semibold text-destructive">
+            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : `$${outstandingAmount.toLocaleString()}`}
+          </p>
         </div>
       </div>
 
@@ -290,8 +311,8 @@ export function APTable({ records }: APTableProps) {
                         <p className="font-medium">{summary.supplierName}</p>
                         <p className="text-xs text-muted-foreground">{summary.supplierId}・{summary.orderCount} 筆單據</p>
                       </div>
-                      <div className="col-span-4 text-right text-sm text-muted-foreground">應付合計 ${summary.totalDue.toLocaleString()}</div>
-                      <div className="col-span-4 text-right text-base font-semibold text-destructive">總欠款 ${summary.totalOutstanding.toLocaleString()}</div>
+                      <div className="col-span-4 text-right text-sm text-muted-foreground">應付合計 {renderAmount(summary.totalDue)}</div>
+                      <div className="col-span-4 text-right text-base font-semibold text-destructive">總欠款 {renderAmount(summary.totalOutstanding)}</div>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4">
