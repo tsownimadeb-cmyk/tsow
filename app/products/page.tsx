@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { ProductsTable } from "@/components/products/products-table"
 import { ProductDialog } from "@/components/products/product-dialog"
+import { ProductsBatchActions } from "@/components/products/products-batch-actions"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { unstable_noStore as noStore } from "next/cache"
@@ -25,12 +26,15 @@ export default async function ProductsPage() {
           <h1 className="text-2xl font-bold text-foreground">商品管理</h1>
           <p className="text-muted-foreground">管理您的商品與庫存</p>
         </div>
-        <ProductDialog mode="create">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            新增商品
-          </Button>
-        </ProductDialog>
+        <div className="flex items-center gap-2">
+          <ProductsBatchActions />
+          <ProductDialog mode="create">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              新增商品
+            </Button>
+          </ProductDialog>
+        </div>
       </div>
 
       <ProductsTable products={products} />
