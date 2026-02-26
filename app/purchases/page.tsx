@@ -1,9 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { PurchasesTable } from "@/components/purchases/purchases-table"
 import PurchaseDialogWrapper from "@/components/purchases/purchase-dialog-wrapper"
+import { PurchasesBatchActions } from "@/components/purchases/purchases-batch-actions"
 import { ErrorToast } from "@/components/ui/error-toast"
-import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
 import type { Product, PurchaseOrderItem } from "@/lib/types"
 
 function normalizeProductRow(row: any): Product {
@@ -83,7 +82,7 @@ async function fetchPurchaseItemsForOrders(
 
   if (!tryNew.error) {
     return {
-      data: (tryNew.data || []).map((item) => ({
+      data: (tryNew.data || []).map((item: any) => ({
         id: String(item.id ?? ""),
         purchase_order_id: "",
         order_no: String(item.order_no ?? ""),
@@ -106,7 +105,7 @@ async function fetchPurchaseItemsForOrders(
 
   if (!tryLegacy.error) {
     return {
-      data: (tryLegacy.data || []).map((item) => ({
+      data: (tryLegacy.data || []).map((item: any) => ({
         id: String(item.id ?? ""),
         purchase_order_id: String(item.purchase_order_id ?? ""),
         order_no: String(orderNoById.get(String(item.purchase_order_id ?? "")) ?? ""),
@@ -163,7 +162,7 @@ export default async function PurchasesPage() {
     itemsWarning,
   ].filter((message): message is string => Boolean(message))
 
-  const productNameByCode = new Map((products || []).map((product) => [String(product.code || ""), String(product.name || "")]))
+  const productNameByCode = new Map((products || []).map((product: Product) => [String(product.code || ""), String(product.name || "")]))
 
   const itemsByOrderNo = new Map<string, any[]>()
   for (const item of itemsRaw || []) {
@@ -177,7 +176,7 @@ export default async function PurchasesPage() {
     itemsByOrderNo.set(orderNo, current)
   }
 
-  const purchases = (purchasesRaw || []).map((purchase) => ({
+  const purchases = (purchasesRaw || []).map((purchase: any) => ({
     ...purchase,
     items: itemsByOrderNo.get(String(purchase.order_no || "").trim()) || [],
   }))
@@ -193,7 +192,10 @@ export default async function PurchasesPage() {
           </div>
           <p className="text-muted-foreground">管理進貨單與進貨紀錄</p>
         </div>
-        <PurchaseDialogWrapper suppliers={suppliers || []} products={products || []} />
+        <div className="flex items-center gap-2">
+          <PurchasesBatchActions />
+          <PurchaseDialogWrapper suppliers={suppliers || []} products={products || []} />
+        </div>
       </div>
 
       <PurchasesTable purchases={purchases || []} suppliers={suppliers || []} products={products || []} />
