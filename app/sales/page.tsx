@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { SalesTable } from "@/components/sales/sales-table"
 import SalesDialogWrapper from "@/components/sales/sales-dialog-wrapper"
+import { SalesBatchActions } from "@/components/sales/sales-batch-actions"
 import type { SalesOrder as SalesOrderType, SalesOrderItem as SalesOrderItemType, Product as ProductType } from "@/lib/types"
 
 type SalesRow = Pick<
@@ -144,7 +145,10 @@ export default async function SalesPage() {
           <h1 className="text-2xl font-bold text-foreground">銷貨管理</h1>
           <p className="text-muted-foreground">管理銷貨單與銷售紀錄</p>
         </div>
-        <SalesDialogWrapper customers={customers || []} products={products || []} />
+        <div className="flex items-center gap-2">
+          <SalesBatchActions />
+          <SalesDialogWrapper customers={customers || []} products={products || []} />
+        </div>
       </div>
 
       <SalesTable sales={sales || []} customers={customers || []} products={products || []} />
