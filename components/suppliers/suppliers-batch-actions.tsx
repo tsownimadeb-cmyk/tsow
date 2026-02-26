@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { Download, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 
 type SupplierCsvRow = {
@@ -84,6 +86,7 @@ export function SuppliersBatchActions() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
 
   const toastApi = {
     success: (message: string) =>
@@ -199,6 +202,13 @@ export function SuppliersBatchActions() {
         })
         .filter((row) => row.name)
 
+      if (syncDeleteMissing) {
+        const secondConfirm = window.confirm(
+          "已啟用同步刪除：系統將刪除所有不在 CSV 內的供應商（id）。此操作無法復原，確定繼續嗎？",
+        )
+        if (!secondConfirm) return
+      }
+
       if (!payload.length) {
         throw new Error("沒有可匯入的供應商資料")
       }
@@ -206,6 +216,21 @@ export function SuppliersBatchActions() {
       const supabase = createClient()
       const { error } = await supabase.from("suppliers").upsert(payload, { onConflict: "id", on_conflict: "id" } as any)
       if (error) throw error
+
+      if (syncDeleteMissing) {
+        const csvIds = new Set(payload.map((row) => String(row.id || "").trim()).filter(Boolean))
+        const { data: existingRows, error: existingError } = await supabase.from("suppliers").select("id")
+        if (existingError) throw existingError
+
+        const idsToDelete = (existingRows || [])
+          .map((row: any) => String(row.id || "").trim())
+          .filter((id) => id && !csvIds.has(id))
+
+        if (idsToDelete.length > 0) {
+          const { error: deleteError } = await supabase.from("suppliers").delete().in("id", idsToDelete)
+          if (deleteError) throw deleteError
+        }
+      }
 
       toastApi.success("供應商資料批次更新完成")
       router.refresh()
@@ -217,7 +242,7 @@ export function SuppliersBatchActions() {
   }
 
   return (
-    <>
+    <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
       <Button variant="outline" onClick={handleExportCsv} disabled={isExporting || isImporting}>
         <Download className="mr-2 h-4 w-4" />
@@ -227,6 +252,17 @@ export function SuppliersBatchActions() {
         <Upload className="mr-2 h-4 w-4" />
         {isImporting ? "匯入中..." : "匯入批次修改"}
       </Button>
-    </>
+      <div className="flex items-center gap-2 pl-1">
+        <Checkbox
+          id="sync-delete-missing-suppliers"
+          checked={syncDeleteMissing}
+          onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
+          disabled={isExporting || isImporting}
+        />
+        <Label htmlFor="sync-delete-missing-suppliers" className="text-sm cursor-pointer">
+          同步刪除缺少 id
+        </Label>
+      </div>
+    </div>
   )
 }

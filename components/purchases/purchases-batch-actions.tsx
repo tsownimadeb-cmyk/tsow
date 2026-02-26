@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { Download, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 
 type PurchaseCsvRow = {
@@ -307,6 +309,7 @@ export function PurchasesBatchActions() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
 
   const toastApi = {
     success: (message: string) =>
@@ -443,6 +446,13 @@ export function PurchasesBatchActions() {
         throw new Error("沒有可匯入的資料，請確認 item_code 欄位")
       }
 
+      if (syncDeleteMissing) {
+        const secondConfirm = window.confirm(
+          "已啟用同步刪除：系統將刪除所有不在 CSV 內的進貨明細（order_no + item_code）。此操作無法復原，確定繼續嗎？",
+        )
+        if (!secondConfirm) return
+      }
+
       const supabase = createClient()
       const [initialOrders, productCodes, supplierIds] = await Promise.all([
         queryOrders(supabase),
@@ -575,6 +585,25 @@ export function PurchasesBatchActions() {
         throw new Error(formatSupabaseError(upsertError, "匯入進貨明細失敗"))
       }
 
+      if (syncDeleteMissing) {
+        const csvItemKeys = new Set(parsedRows.map((row) => `${row.order_no}::${row.item_code}`))
+        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
+        const idsToDelete: string[] = []
+
+        for (const [itemKey, itemId] of existingRows.entries()) {
+          if (!csvItemKeys.has(itemKey)) {
+            idsToDelete.push(itemId)
+          }
+        }
+
+        if (idsToDelete.length > 0) {
+          const { error: deleteError } = await supabase.from("purchase_order_items").delete().in("id", idsToDelete)
+          if (deleteError) {
+            throw new Error(formatSupabaseError(deleteError, "刪除缺少進貨明細失敗"))
+          }
+        }
+      }
+
       await recalculatePurchaseStocks(supabase)
 
       toastApi.success("進貨資料批次更新完成")
@@ -587,7 +616,7 @@ export function PurchasesBatchActions() {
   }
 
   return (
-    <>
+    <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
       <Button variant="outline" onClick={handleExportCsv} disabled={isExporting || isImporting}>
         <Download className="mr-2 h-4 w-4" />
@@ -597,6 +626,17 @@ export function PurchasesBatchActions() {
         <Upload className="mr-2 h-4 w-4" />
         {isImporting ? "匯入中..." : "匯入批次修改"}
       </Button>
-    </>
+      <div className="flex items-center gap-2 pl-1">
+        <Checkbox
+          id="sync-delete-missing-purchases"
+          checked={syncDeleteMissing}
+          onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
+          disabled={isExporting || isImporting}
+        />
+        <Label htmlFor="sync-delete-missing-purchases" className="text-sm cursor-pointer">
+          同步刪除缺少單號+商品編號
+        </Label>
+      </div>
+    </div>
   )
 }

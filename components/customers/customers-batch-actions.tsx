@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { Download, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 
 type CustomerCsvRow = {
@@ -151,12 +153,34 @@ async function upsertCustomers(supabase: ReturnType<typeof createClient>, rows: 
   }
 }
 
+async function queryCustomerKeyColumnAndValues(supabase: ReturnType<typeof createClient>) {
+  const sampleResult = await supabase.from("customers").select("*").limit(1)
+  if (sampleResult.error) {
+    throw new Error(sampleResult.error.message || "讀取 customers 欄位失敗")
+  }
+
+  const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
+  const keyColumn = existingColumns.has("code") ? "code" : existingColumns.has("cno") ? "cno" : "code"
+
+  const listResult = await supabase.from("customers").select(keyColumn)
+  if (listResult.error) {
+    throw new Error(listResult.error.message || "讀取客戶代碼失敗")
+  }
+
+  const values = (listResult.data || [])
+    .map((row: any) => String(row[keyColumn] || "").trim())
+    .filter(Boolean)
+
+  return { keyColumn, values }
+}
+
 export function CustomersBatchActions() {
   const router = useRouter()
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
 
   const toastApi = {
     success: (message: string) =>
@@ -274,6 +298,13 @@ export function CustomersBatchActions() {
         })
         .filter((row): row is CustomerCsvRow => Boolean(row))
 
+      if (syncDeleteMissing) {
+        const secondConfirm = window.confirm(
+          "已啟用同步刪除：系統將刪除所有不在 CSV 內的客戶（code/cno）。此操作無法復原，確定繼續嗎？",
+        )
+        if (!secondConfirm) return
+      }
+
       const usedCodes = new Set<string>()
       for (const row of rows) {
         let nextCode = String(row.code || "").trim()
@@ -293,6 +324,19 @@ export function CustomersBatchActions() {
       const supabase = createClient()
       await upsertCustomers(supabase, rows)
 
+      if (syncDeleteMissing) {
+        const csvCodes = new Set(rows.map((row) => String(row.code || "").trim()).filter(Boolean))
+        const { keyColumn, values } = await queryCustomerKeyColumnAndValues(supabase)
+        const codesToDelete = values.filter((value) => !csvCodes.has(value))
+
+        if (codesToDelete.length > 0) {
+          const { error: deleteError } = await supabase.from("customers").delete().in(keyColumn, codesToDelete)
+          if (deleteError) {
+            throw new Error(deleteError.message || "刪除缺少客戶資料失敗")
+          }
+        }
+      }
+
       toastApi.success("客戶資料批次更新完成")
       router.refresh()
     } catch (error: any) {
@@ -303,7 +347,7 @@ export function CustomersBatchActions() {
   }
 
   return (
-    <>
+    <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
       <Button variant="outline" onClick={handleExportCsv} disabled={isExporting || isImporting}>
         <Download className="mr-2 h-4 w-4" />
@@ -313,6 +357,17 @@ export function CustomersBatchActions() {
         <Upload className="mr-2 h-4 w-4" />
         {isImporting ? "匯入中..." : "匯入批次修改"}
       </Button>
-    </>
+      <div className="flex items-center gap-2 pl-1">
+        <Checkbox
+          id="sync-delete-missing-customers"
+          checked={syncDeleteMissing}
+          onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
+          disabled={isExporting || isImporting}
+        />
+        <Label htmlFor="sync-delete-missing-customers" className="text-sm cursor-pointer">
+          同步刪除缺少 code
+        </Label>
+      </div>
+    </div>
   )
 }
