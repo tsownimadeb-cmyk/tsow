@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -17,53 +16,73 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client" // 請確認此路徑與客戶表一致
 import { useToast } from "@/hooks/use-toast"
+import type { Product as ProductType } from "@/lib/types"
 
-interface Product {
-  pno: string
-  pname: string
-  spec?: string
-  unit?: string
-  category?: string
-  price?: number
-  cost?: number
-  sale_price?: number
+type EditableProduct = Pick<ProductType, "code" | "name" | "spec" | "unit" | "category" | "price" | "cost" | "sale_price"> & {
+  stock_qty?: number | null
+  purchase_qty_total?: number | null
+  safety_stock?: number | null
+}
+
+interface ProductFormData {
+  code: string
+  name: string
+  spec: string
+  unit: string
+  category: string
+  price: number
+  cost: number
+  sale_price: number
+  stock_qty: number
+  purchase_qty_total: number
+  safety_stock: number
+}
+
+function toFormData(product?: EditableProduct): ProductFormData {
+  return {
+    code: product?.code || "",
+    name: product?.name || "",
+    spec: product?.spec || "",
+    unit: product?.unit || "",
+    category: product?.category || "",
+    price: Number(product?.price || 0),
+    cost: Number(product?.cost || 0),
+    sale_price: Number(product?.sale_price || 0),
+    stock_qty: Number(product?.stock_qty || 0),
+    purchase_qty_total: Number(product?.purchase_qty_total || 0),
+    safety_stock: Number(product?.safety_stock || 0),
+  }
 }
 
 interface ProductDialogProps {
   mode: "create" | "edit"
-  product?: Product
+  product?: EditableProduct
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
 
 export function ProductDialog({ mode, product, children, open, onOpenChange }: ProductDialogProps) {
-  const router = useRouter()
   const { toast } = useToast()
-  const [isPending, startTransition] = useTransition()
+  const [isPending, setIsPending] = useState(false)
   const [internalOpen, setInternalOpen] = useState(false)
 
   const isOpen = open !== undefined ? open : internalOpen
   const setIsOpen = onOpenChange || setInternalOpen
 
-  const [formData, setFormData] = useState({
-    pno: product?.pno || "",
-    pname: product?.pname || "",
-    spec: product?.spec || "",
-    unit: product?.unit || "",
-    category: product?.category || "",
-    price: product?.price || 0,
-    cost: product?.cost || 0,
-    sale_price: product?.sale_price || 0,
-  })
+  const [formData, setFormData] = useState<ProductFormData>(toFormData(product))
+
+  useEffect(() => {
+    setFormData(toFormData(product))
+  }, [product])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
 
-    const data = {
-      pno: formData.pno,
-      pname: formData.pname,
+    const basePayload = {
+      code: formData.code,
+      name: formData.name,
       spec: formData.spec || null,
       unit: formData.unit || null,
       category: formData.category || null,
@@ -72,29 +91,42 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
       sale_price: Number(formData.sale_price),
     }
 
-    startTransition(async () => {
-      try {
-        let error
-        if (mode === "create") {
-          const result = await supabase.from("products").insert(data)
-          error = result.error
-        } else {
-          const result = await supabase.from("products").update(data).eq("pno", product?.pno)
-          error = result.error
+    const payloadNewSchema = {
+      ...basePayload,
+      stock_qty: Number(formData.stock_qty),
+      purchase_qty_total: Number(formData.purchase_qty_total),
+      safety_stock: Number(formData.safety_stock),
+    }
+
+    try {
+      setIsPending(true)
+
+      if (mode === "create") {
+        const createNew = await supabase.from("products").insert(payloadNewSchema)
+        if (createNew.error) throw createNew.error
+      } else {
+        if (!product?.code) {
+          throw new Error("缺少 product.code，無法更新")
         }
 
-        if (error) throw error
-
-        toast({ title: "成功", description: mode === "create" ? "商品新增成功" : "商品更新成功" })
-        setIsOpen(false)
-        router.refresh()
-      } catch (error: any) {
-        toast({ title: "錯誤", description: error.message, variant: "destructive" })
+        const updateNew = await supabase
+          .from("products")
+          .update(payloadNewSchema)
+          .eq("code", formData.code.trim())
+        if (updateNew.error) throw updateNew.error
       }
-    })
+
+      toast({ title: "成功", description: mode === "create" ? "新增成功" : "更新成功" })
+      window.location.reload()
+      setIsOpen(false)
+    } catch (error: any) {
+      toast({ title: "錯誤", description: error.message, variant: "destructive" })
+    } finally {
+      setIsPending(false)
+    }
   }
 
-  return (
+  return (  
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent>
@@ -106,7 +138,7 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>商品編號 *</Label>
-              <Input value={formData.pno} onChange={(e) => setFormData({...formData, pno: e.target.value})} disabled={mode === "edit"} required />
+              <Input value={formData.code} onChange={(e) => setFormData({...formData, code: e.target.value})} disabled={mode === "edit"} required />
             </div>
             <div className="space-y-2">
               <Label>種類</Label>
@@ -115,7 +147,7 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
           </div>
           <div className="space-y-2">
             <Label>商品名稱 *</Label>
-            <Input value={formData.pname} onChange={(e) => setFormData({...formData, pname: e.target.value})} required />
+            <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} required />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -141,8 +173,22 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
               <Input type="number" value={formData.cost} onChange={(e) => setFormData({...formData, cost: Number(e.target.value)})} />
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>初始庫存</Label>
+              <Input type="number" value={formData.stock_qty} onChange={(e) => setFormData({...formData, stock_qty: Number(e.target.value)})} />
+            </div>
+            <div className="space-y-2">
+              <Label>進貨總量</Label>
+              <Input type="number" value={formData.purchase_qty_total} onChange={(e) => setFormData({...formData, purchase_qty_total: Number(e.target.value)})} />
+            </div>
+            <div className="space-y-2">
+              <Label>安全庫存</Label>
+              <Input type="number" value={formData.safety_stock} onChange={(e) => setFormData({...formData, safety_stock: Number(e.target.value)})} />
+            </div>
+          </div>
           <DialogFooter>
-            <Button type="submit" disabled={isPending}>{isPending ? "儲 log 中..." : "儲存"}</Button>
+            <Button type="submit" disabled={isPending}>{isPending ? "儲存中..." : "儲存"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

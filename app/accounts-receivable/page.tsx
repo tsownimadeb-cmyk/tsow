@@ -11,7 +11,7 @@ export default async function ARPage() {
   const supabase = await createClient()
   const { data: salesOrders, error: salesError } = await supabase
     .from("sales_orders")
-    .select("*")
+    .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
     .order("created_at", { ascending: false })
 
   if (salesError) {
@@ -29,7 +29,7 @@ export default async function ARPage() {
 
   const customerCnos = (salesOrders || [])
     .map((so) => so.customer_cno)
-    .filter((cno): cno is string => Boolean(cno))
+    .filter((code): code is string => Boolean(code))
 
   const salesOrderIds = (salesOrders || []).map((so) => so.id)
 
@@ -37,30 +37,37 @@ export default async function ARPage() {
     ? await supabase.from("sales_order_items").select("*").in("sales_order_id", salesOrderIds)
     : { data: [] }
 
-  const productPnos = Array.from(
+  const productCodes = Array.from(
     new Set(
       (salesOrderItems || [])
-        .map((item) => item.product_pno)
-        .filter((pno): pno is string => Boolean(pno)),
+        .map((item) => item.code ?? item.product_code)
+        .filter((code): code is string => Boolean(code)),
     ),
   )
 
-  const { data: products } = productPnos.length
-    ? await supabase.from("products").select("*").in("pno", productPnos)
+  const { data: products } = productCodes.length
+    ? await supabase.from("products").select("*").in("code", productCodes)
     : { data: [] }
 
   const { data: customers } = customerCnos.length
-    ? await supabase.from("customers").select("*").in("cno", customerCnos)
+    ? await supabase.from("customers").select("*").in("code", customerCnos)
     : { data: [] }
 
-  const customerMap = new Map((customers || []).map((customer) => [customer.cno, customer]))
-  const productMap = new Map((products || []).map((product) => [product.pno, product]))
+  const customerMap = new Map(
+    (customers || []).flatMap((customer) => [
+      [customer.code, customer] as const,
+      [customer.cno || customer.code, customer] as const,
+    ]),
+  )
+  const productMap = new Map((products || []).map((product) => [product.code, product]))
 
   const salesOrderItemsMap = (salesOrderItems || []).reduce((map, item) => {
+    const productCode = item.code ?? item.product_code
     const current = map.get(item.sales_order_id) || []
     current.push({
       ...item,
-      product: item.product_pno ? productMap.get(item.product_pno) : undefined,
+      code: productCode ?? null,
+      product: productCode ? productMap.get(productCode) : undefined,
     })
     map.set(item.sales_order_id, current)
     return map
@@ -82,6 +89,7 @@ export default async function ARPage() {
 
   const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
     const existing = arMap.get(so.id)
+    const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
     const existingAmountDue = existing
       ? Number(existing.amount_due ?? existing.total_amount ?? so.total_amount)
       : Number(so.total_amount)
@@ -100,7 +108,7 @@ export default async function ARPage() {
     return {
       id: existing?.id || `virtual-${so.id}`,
       sales_order_id: so.id,
-      customer_cno: so.customer_cno,
+      customer_cno: effectiveCustomerCno,
       amount_due: amountDue,
       paid_amount: paidAmount,
       due_date: existing?.due_date || so.order_date,
@@ -112,7 +120,7 @@ export default async function ARPage() {
         ...so,
         items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
       },
-      customer: so.customer_cno ? customerMap.get(so.customer_cno) : undefined,
+      customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
     }
   })
 

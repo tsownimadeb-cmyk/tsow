@@ -4,7 +4,7 @@ import { StatsCard } from "@/components/dashboard/stats-card"
 import { RevenueTrendChart } from "@/components/dashboard/revenue-trend-chart"
 
 interface SalesOrderItemRow {
-  product_pno: string | null
+  product_code: string | null
   quantity: number
 }
 
@@ -17,7 +17,7 @@ interface SalesOrderRow {
 }
 
 interface PurchaseOrderItemRow {
-  product_pno: string | null
+  product_code: string | null
   quantity: number
   unit_price: number | string | null
 }
@@ -50,8 +50,8 @@ export default async function DashboardPage() {
   const supabase = await createClient()
 
   const [{ data: salesData }, { data: purchaseData }, { data: receivableData }] = await Promise.all([
-    supabase.from("sales_orders").select("order_date,total_amount,is_paid,status,sales_order_items(product_pno,quantity)"),
-    supabase.from("purchase_orders").select("status,items:purchase_order_items(product_pno,quantity,unit_price)"),
+    supabase.from("sales_orders").select("order_date,total_amount,is_paid,status,sales_order_items(product_code,quantity)"),
+    supabase.from("purchase_orders").select("status,items:purchase_order_items(product_code,quantity,unit_price)"),
     supabase.from("accounts_receivable").select("amount_due").eq("status", "unpaid"),
   ])
 
@@ -81,19 +81,19 @@ export default async function DashboardPage() {
   for (const purchase of purchaseOrders) {
     if (!isActiveOrder(purchase.status)) continue
     for (const item of purchase.items || []) {
-      if (!item.product_pno) continue
-      const current = purchaseCostSummary.get(item.product_pno) || { totalCost: 0, totalQty: 0 }
+      if (!item.product_code) continue
+      const current = purchaseCostSummary.get(item.product_code) || { totalCost: 0, totalQty: 0 }
       current.totalCost += safeNumber(item.unit_price) * safeNumber(item.quantity)
       current.totalQty += safeNumber(item.quantity)
-      purchaseCostSummary.set(item.product_pno, current)
+      purchaseCostSummary.set(item.product_code, current)
     }
   }
 
   let monthlyEstimatedCost = 0
   for (const order of monthlySalesOrders) {
     for (const item of order.sales_order_items || []) {
-      if (!item.product_pno) continue
-      const purchaseCost = purchaseCostSummary.get(item.product_pno)
+      if (!item.product_code) continue
+      const purchaseCost = purchaseCostSummary.get(item.product_code)
       if (!purchaseCost || purchaseCost.totalQty === 0) continue
       const avgCost = purchaseCost.totalCost / purchaseCost.totalQty
       monthlyEstimatedCost += avgCost * safeNumber(item.quantity)

@@ -26,7 +26,7 @@ export function APTable({ records }: APTableProps) {
   const filteredRecords = records.filter(
     (record) =>
       record.supplier?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      record.purchase_order?.order_number?.toLowerCase().includes(search.toLowerCase()),
+      record.purchase_order?.order_no?.toLowerCase().includes(search.toLowerCase()),
   )
 
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
@@ -43,11 +43,11 @@ export function APTable({ records }: APTableProps) {
     const orderData = {
       id: record.id,
       purchaseOrderId: record.purchase_order_id,
-      orderNumber: record.purchase_order?.order_number || "-",
+      orderNumber: record.purchase_order?.order_no || "-",
       orderDate: record.purchase_order?.order_date || record.due_date || null,
       products:
         record.purchase_order?.items
-          ?.map((item) => item.product?.pname || item.product_pno || "-")
+          ?.map((item) => item.product?.name || item.code || "-")
           .filter(Boolean)
           .join("、") || "-",
       amountDue: record.amount_due,

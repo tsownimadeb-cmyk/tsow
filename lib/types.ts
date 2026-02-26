@@ -19,8 +19,10 @@ export interface Supplier {
 }
 
 export interface Customer {
-  cno: string
-  compy: string
+  code: string
+  name: string
+  cno?: string
+  compy?: string
   contact_person: string | null
   tel1: string | null
   tel11: string | null
@@ -32,23 +34,27 @@ export interface Customer {
 }
 
 export interface Product {
-  pno: string
-  pname: string
+  code: string
+  name: string
   spec: string | null
   unit: string | null
   category: string | null
   cost: number
   price: number
   sale_price: number | null
-  stock_quantity: number | null
-  min_stock_level: number | null
+  stock_qty: number | null
+  purchase_qty_total: number | null
+  safety_stock: number | null
+  stock_quantity?: number | null
+  min_stock_level?: number | null
   created_at: string
   updated_at: string
 }
 
 export interface PurchaseOrder {
   id: string
-  order_number: string
+  order_no?: string
+  purno?: string
   supplier_id: string | null
   order_date: string
   total_amount: number
@@ -63,8 +69,9 @@ export interface PurchaseOrder {
 
 export interface PurchaseOrderItem {
   id: string
-  purchase_order_id: string
-  product_pno: string | null
+  purchase_order_id?: string
+  order_no?: string
+  code: string | null
   quantity: number
   unit_price: number
   subtotal: number
@@ -74,8 +81,10 @@ export interface PurchaseOrderItem {
 
 export interface SalesOrder {
   id: string
-  order_number: string
+  order_no: string
+  salno?: string
   customer_cno: string | null
+  customer_code?: string | null
   order_date: string
   total_amount: number
   status: "pending" | "completed" | "cancelled"
@@ -91,7 +100,7 @@ export interface SalesOrder {
 export interface SalesOrderItem {
   id: string
   sales_order_id: string
-  product_pno: string | null
+  code: string | null
   quantity: number
   unit_price: number
   subtotal: number
@@ -102,7 +111,7 @@ export interface SalesOrderItem {
 export interface AccountsReceivable {
   id: string
   sales_order_id: string | null
-  customer_cno: string | null
+  customer_cno?: string | null
   amount_due: number
   total_amount?: number | null
   paid_amount: number

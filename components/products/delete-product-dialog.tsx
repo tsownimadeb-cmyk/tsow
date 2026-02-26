@@ -28,7 +28,7 @@ export function DeleteProductDialog({ product, open, onOpenChange }: DeleteProdu
   const handleDelete = () => {
     const supabase = createClient()
     startTransition(async () => {
-      await supabase.from("products").delete().eq("pno", product.pno)
+      await supabase.from("products").delete().eq("code", product.code)
       onOpenChange(false)
       router.refresh()
     })
@@ -39,7 +39,7 @@ export function DeleteProductDialog({ product, open, onOpenChange }: DeleteProdu
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>確認刪除商品</AlertDialogTitle>
-          <AlertDialogDescription>您確定要刪除商品「{product.pname}」嗎？此操作無法復原。</AlertDialogDescription>
+          <AlertDialogDescription>您確定要刪除商品「{product.name}」嗎？此操作無法復原。</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>取消</AlertDialogCancel>

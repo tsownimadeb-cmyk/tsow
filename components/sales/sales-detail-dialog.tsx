@@ -121,14 +121,14 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>銷貨單明細</DialogTitle>
-          <DialogDescription>單號：{sales.order_number}</DialogDescription>
+          <DialogDescription>單號：{sales.order_no}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">客戶：</span>
-              <span className="ml-2 font-medium">{sales.customer?.compy || "-"}</span>
+              <span className="ml-2 font-medium">{sales.customer?.name || "-"}</span>
             </div>
             <div>
               <span className="text-muted-foreground">日期：</span>
@@ -191,7 +191,7 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
               <TableBody>
                 {sales.items?.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.product?.pname || "-"}</TableCell>
+                    <TableCell>{item.product?.name || item.code || "-"}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
                     <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
                     <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>

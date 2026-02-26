@@ -37,11 +37,11 @@ export default async function APPage() {
     ? await supabase.from("purchase_order_items").select("*").in("purchase_order_id", purchaseOrderIds)
     : { data: [] }
 
-  const productPnos = Array.from(
+  const productCodes = Array.from(
     new Set(
       (purchaseOrderItems || [])
-        .map((item) => item.product_pno)
-        .filter((pno): pno is string => Boolean(pno)),
+        .map((item) => item.product_code)
+        .filter((code): code is string => Boolean(code)),
     ),
   )
 
@@ -49,19 +49,19 @@ export default async function APPage() {
     supplierIds.length > 0
       ? supabase.from("suppliers").select("*").in("id", supplierIds)
       : Promise.resolve({ data: [] }),
-    productPnos.length > 0
-      ? supabase.from("products").select("*").in("pno", productPnos)
+    productCodes.length > 0
+      ? supabase.from("products").select("*").in("code", productCodes)
       : Promise.resolve({ data: [] }),
   ])
 
   const supplierMap = new Map((suppliers || []).map((supplier) => [supplier.id, supplier]))
-  const productMap = new Map((products || []).map((product) => [product.pno, product]))
+  const productMap = new Map((products || []).map((product) => [product.code, product]))
 
   const purchaseOrderItemsMap = (purchaseOrderItems || []).reduce((map, item) => {
     const current = map.get(item.purchase_order_id) || []
     current.push({
       ...item,
-      product: item.product_pno ? productMap.get(item.product_pno) : undefined,
+      product: item.product_code ? productMap.get(item.product_code) : undefined,
     })
     map.set(item.purchase_order_id, current)
     return map

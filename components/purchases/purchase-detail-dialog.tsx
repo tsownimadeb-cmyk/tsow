@@ -124,7 +124,7 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>進貨單明細</DialogTitle>
-          <DialogDescription>單號：{purchase.order_number}</DialogDescription>
+          <DialogDescription>單號：{purchase.order_no || "-"}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -194,7 +194,7 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
               <TableBody>
                 {purchase.items?.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.product?.pname || "-"}</TableCell>
+                    <TableCell>{item.product?.name || item.code || "-"}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
                     <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
                     <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>

@@ -2,7 +2,6 @@
 
 import type React from "react"
 import { useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -15,21 +14,26 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { Customer } from "@/lib/types"
 
+type EditableCustomer = Customer & {
+  addr?: string | null
+  tel2?: string | null
+  tel3?: string | null
+  fax?: string | null
+}
+
 interface CustomerDialogProps {
   mode: "create" | "edit"
-  customer?: Customer
+  customer?: EditableCustomer
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
 
 export function CustomerDialog({ mode, customer, children, open, onOpenChange }: CustomerDialogProps) {
-  const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [internalOpen, setInternalOpen] = useState(false)
@@ -39,39 +43,34 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
   const setIsOpen = isControlled ? onOpenChange! : setInternalOpen
 
   const [formData, setFormData] = useState({
-    cno: customer?.cno || "",
-    compy: customer?.compy || "",
-    contact_person: customer?.contact_person || "",
+    code: customer?.code || "",
+    name: customer?.name || "",
     tel1: customer?.tel1 || "",
-    tel11: customer?.tel11 || "",
-    tel12: customer?.tel12 || "",
-    addr: customer?.addr || "",
-    notes: customer?.notes || "",
+    tel2: customer?.tel2 || customer?.tel11 || "",
+    tel3: customer?.fax || customer?.tel3 || customer?.tel12 || "",
+    address: customer?.addr || "",
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
 
-    const data = {
-      cno: formData.cno,
-      compy: formData.compy,
-      contact_person: formData.contact_person || null,
+    const payload = {
+      name: formData.name,
+      addr: formData.address || null,
       tel1: formData.tel1 || null,
-      tel11: formData.tel11 || null,
-      tel12: formData.tel12 || null,
-      addr: formData.addr || null,
-      notes: formData.notes || null,
+      tel2: formData.tel2 || null,
+      fax: formData.tel3 || null,
     }
 
     startTransition(async () => {
       try {
         let error
         if (mode === "create") {
-          const result = await supabase.from("customers").insert(data)
+          const result = await supabase.from("customers").insert({ code: formData.code, ...payload })
           error = result.error
         } else if (customer) {
-          const result = await supabase.from("customers").update(data).eq("cno", customer.cno)
+          const result = await supabase.from("customers").update(payload).eq("code", formData.code)
           error = result.error
         }
 
@@ -86,8 +85,8 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
             title: "成功",
             description: mode === "create" ? "客戶新增成功" : "客戶更新成功",
           })
+          window.location.reload()
           setIsOpen(false)
-          router.refresh()
         }
       } catch (error) {
         toast({
@@ -110,78 +109,59 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="cno">客戶編號 *</Label>
+              <Label htmlFor="code">客戶編號 *</Label>
               <Input
-                id="cno"
-                value={formData.cno}
-                onChange={(e) => setFormData({ ...formData, cno: e.target.value })}
+                id="code"
+                value={formData.code}
+                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                 disabled={mode === "edit"}
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="compy">公司名稱 *</Label>
+              <Label htmlFor="name">公司名稱 *</Label>
               <Input
-                id="compy"
-                value={formData.compy}
-                onChange={(e) => setFormData({ ...formData, compy: e.target.value })}
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="contact_person">聯絡人</Label>
+            <Label htmlFor="tel1">電話1</Label>
             <Input
-              id="contact_person"
-              value={formData.contact_person}
-              onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+              id="tel1"
+              value={formData.tel1}
+              onChange={(e) => setFormData({ ...formData, tel1: e.target.value })}
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="tel1">電話1</Label>
-              <Input
-                id="tel1"
-                value={formData.tel1}
-                onChange={(e) => setFormData({ ...formData, tel1: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tel11">電話2</Label>
-              <Input
-                id="tel11"
-                value={formData.tel11}
-                onChange={(e) => setFormData({ ...formData, tel11: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tel12">電話3</Label>
-              <Input
-                id="tel12"
-                value={formData.tel12}
-                onChange={(e) => setFormData({ ...formData, tel12: e.target.value })}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="tel2">電話2</Label>
+            <Input
+              id="tel2"
+              value={formData.tel2}
+              onChange={(e) => setFormData({ ...formData, tel2: e.target.value })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tel3">電話3</Label>
+            <Input
+              id="tel3"
+              value={formData.tel3}
+              onChange={(e) => setFormData({ ...formData, tel3: e.target.value })}
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="addr">地址</Label>
             <Input
               id="addr"
-              value={formData.addr}
-              onChange={(e) => setFormData({ ...formData, addr: e.target.value })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">備註</Label>
-            <Textarea
-              id="notes"
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={2}
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             />
           </div>
 

@@ -26,8 +26,8 @@ export function ARTable({ records }: ARTableProps) {
   const filteredRecords = records.filter(
     (record) =>
       record.customer_cno?.toLowerCase().includes(search.toLowerCase()) ||
-      record.customer?.compy?.toLowerCase().includes(search.toLowerCase()) ||
-      record.sales_order?.order_number?.toLowerCase().includes(search.toLowerCase()),
+      record.customer?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      record.sales_order?.order_no?.toLowerCase().includes(search.toLowerCase()),
   )
 
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
@@ -36,7 +36,7 @@ export function ARTable({ records }: ARTableProps) {
 
   const customerSummaryMap = filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
-    const customerName = record.customer?.compy || "未指定客戶"
+    const customerName = record.customer?.name || "未指定客戶"
     const key = `${customerCno}-${customerName}`
     const outstanding = record.amount_due - record.paid_amount
     const current = map.get(key)
@@ -49,11 +49,11 @@ export function ARTable({ records }: ARTableProps) {
       current.orders.push({
         id: record.id,
         salesOrderId: record.sales_order_id,
-        orderNumber: record.sales_order?.order_number || "-",
+        orderNumber: record.sales_order?.order_no || "-",
         orderDate: record.sales_order?.order_date || record.due_date || null,
         products:
           record.sales_order?.items
-            ?.map((item) => item.product?.pname || item.product_pno || "-")
+            ?.map((item) => item.product?.name || item.code || "-")
             .filter(Boolean)
             .join("、") || "-",
         amountDue: record.amount_due,
@@ -72,11 +72,11 @@ export function ARTable({ records }: ARTableProps) {
           {
             id: record.id,
             salesOrderId: record.sales_order_id,
-            orderNumber: record.sales_order?.order_number || "-",
+            orderNumber: record.sales_order?.order_no || "-",
             orderDate: record.sales_order?.order_date || record.due_date || null,
             products:
               record.sales_order?.items
-                ?.map((item) => item.product?.pname || item.product_pno || "-")
+                ?.map((item) => item.product?.name || item.code || "-")
                 .filter(Boolean)
                 .join("、") || "-",
             amountDue: record.amount_due,

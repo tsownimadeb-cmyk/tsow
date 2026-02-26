@@ -6,7 +6,7 @@ import { Plus } from "lucide-react"
 
 export default async function CustomersPage() {
   const supabase = await createClient()
-const { data: customers } = await supabase.from("customers").select("*").order("cno", { ascending: true })
+const { data: customers } = await supabase.from("customers").select("*").order("code", { ascending: true })
  
 
   return (

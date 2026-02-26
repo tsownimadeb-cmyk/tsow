@@ -1,22 +1,45 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Phone, MapPin, User, Trash2 } from "lucide-react"
 import { CustomerDialog } from "./customer-dialog"
 import { DeleteCustomerDialog } from "./delete-customer-dialog"
+import { createClient } from "@/lib/supabase/client"
 
 export function CustomersTable({ customers }: { customers: any[] }) {
+  const supabase = createClient()
   const [search, setSearch] = useState("")
+  const [rows, setRows] = useState<any[]>(customers || [])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingCustomer, setEditingCustomer] = useState<any>(null)
 
-  const filtered = (customers || []).filter(
+  useEffect(() => {
+    setRows(customers || [])
+  }, [customers])
+
+  const fetchCustomers = async () => {
+    const { data, error } = await supabase.from("customers").select("*").order("code", { ascending: true })
+    if (!error) {
+      setRows(data || [])
+    }
+  }
+
+  const handleEditOpenChange = (open: boolean) => {
+    setEditOpen(open)
+    if (!open) {
+      fetchCustomers()
+    }
+  }
+
+  const filtered = (rows || []).filter(
     (c) =>
-      c.compy?.toLowerCase().includes(search.toLowerCase()) ||
-      c.cno?.toLowerCase().includes(search.toLowerCase())
+      c.name?.toLowerCase().includes(search.toLowerCase()) ||
+      c.code?.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -50,12 +73,12 @@ export function CustomersTable({ customers }: { customers: any[] }) {
               </TableRow>
             ) : (
               filtered.map((c) => (
-                <TableRow key={c.cno} className="hover:bg-blue-50/30 transition-colors">
-                  <TableCell className="font-mono text-sm text-blue-600 font-medium">{c.cno}</TableCell>
+                <TableRow key={c.code} className="hover:bg-blue-50/30 transition-colors">
+                  <TableCell className="font-mono text-sm text-blue-600 font-medium">{c.code}</TableCell>
                   <TableCell className="font-semibold text-slate-800">
                     <div className="flex items-center gap-2">
                       <User className="h-3 w-3 text-slate-400" />
-                      {c.compy}
+                      {c.name}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -66,8 +89,8 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                           {c.tel1}
                         </div>
                       )}
-                      {c.tel11 && <div className="text-slate-500 text-xs pl-4">電話2: {c.tel11}</div>}
-                      {c.tel12 && <div className="text-slate-500 text-xs pl-4">電話3: {c.tel12}</div>}
+                      {(c.tel2 || c.tel11) && <div className="text-slate-500 text-xs pl-4">電話2: {c.tel2 || c.tel11}</div>}
+                      {c.fax && <div className="text-slate-500 text-xs pl-4">電話3: {c.fax}</div>}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-slate-500">
@@ -77,11 +100,16 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                     </div>
                   </TableCell>
                   <TableCell className="text-right space-x-2">
-                    <CustomerDialog mode="edit" customer={c}>
-                      <Button variant="outline" size="sm">
-                        編輯
-                      </Button>
-                    </CustomerDialog>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEditingCustomer(c)
+                        setEditOpen(true)
+                      }}
+                    >
+                      編輯
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -106,6 +134,15 @@ export function CustomersTable({ customers }: { customers: any[] }) {
           customer={selectedCustomer}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
+        />
+      )}
+
+      {editingCustomer && (
+        <CustomerDialog
+          mode="edit"
+          customer={editingCustomer}
+          open={editOpen}
+          onOpenChange={handleEditOpenChange}
         />
       )}
     </div>

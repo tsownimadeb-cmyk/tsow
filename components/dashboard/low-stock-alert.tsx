@@ -33,9 +33,9 @@ export function LowStockAlert({ products }: LowStockAlertProps) {
       </CardHeader>
       <CardContent className="space-y-3">
         {products.slice(0, 5).map((product) => (
-          <div key={product.pno} className="flex items-center justify-between text-sm">
+          <div key={product.code} className="flex items-center justify-between text-sm">
             <div>
-              <p className="font-medium">{product.pname}</p>
+              <p className="font-medium">{product.name}</p>
               <p className="text-xs text-muted-foreground">{product.category || "未分類"}</p>
             </div>
             <div className="text-right">

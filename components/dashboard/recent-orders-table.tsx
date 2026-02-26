@@ -39,7 +39,7 @@ export function RecentOrdersTable({ orders, type }: RecentOrdersTableProps) {
               type === "purchase" ? (order as PurchaseOrder).supplier?.name : (order as SalesOrder).customer?.name
             return (
               <TableRow key={order.id}>
-                <TableCell className="font-medium">{order.order_number}</TableCell>
+                <TableCell className="font-medium">{order.order_no}</TableCell>
                 <TableCell>{counterparty || "-"}</TableCell>
                 <TableCell>{new Date(order.order_date).toLocaleDateString("zh-TW")}</TableCell>
                 <TableCell className="text-right">${order.total_amount.toLocaleString()}</TableCell>

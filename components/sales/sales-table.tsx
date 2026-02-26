@@ -24,14 +24,20 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const [search, setSearch] = useState("")
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
 
-  const customerMap = new Map(customers.map((customer) => [customer.cno, customer]))
-  const productMap = new Map(products.map((product) => [product.pno, product]))
+  const customerMap = new Map(
+    customers.flatMap((customer) => [
+      [customer.code, customer] as const,
+      [customer.cno || customer.code, customer] as const,
+    ]),
+  )
+  const productMap = new Map(products.map((product) => [product.code, product]))
 
   const searchText = search.toLowerCase()
   const filteredSales = sales.filter((sale) => {
-    const orderNumber = (sale.order_number || "").toLowerCase()
-    const customerName = (customerMap.get(sale.customer_cno || "")?.compy || "").toLowerCase()
+    const orderNumber = (sale.order_no || "").toLowerCase()
+    const customerName = (customerMap.get(sale.customer_cno || "")?.name || "").toLowerCase()
     return orderNumber.includes(searchText) || customerName.includes(searchText)
   })
 
@@ -107,6 +113,85 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
     })
   }
 
+  const handleDeleteSale = async (sale: SalesOrder) => {
+    if (!window.confirm("確定要刪除此筆單據及其所有明細嗎？")) {
+      return
+    }
+
+    const saleId = String(sale.id ?? "").trim()
+    if (!saleId) {
+      toast({ title: "錯誤", description: "找不到主鍵 id，無法刪除", variant: "destructive" })
+      return
+    }
+
+    try {
+      setDeletingSaleId(saleId)
+      const supabase = createClient()
+
+      const quantityByCode = new Map<string, number>()
+      for (const item of sale.sales_order_items || []) {
+        const code = String(item.code || "").trim()
+        const quantity = Number(item.quantity ?? 0)
+        if (!code || !Number.isFinite(quantity) || quantity <= 0) continue
+        quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
+      }
+
+      await Promise.all(
+        Array.from(quantityByCode.entries()).map(async ([code, quantity]) => {
+          const { data: product, error: productError } = await supabase
+            .from("products")
+            .select("code,stock_qty")
+            .eq("code", code)
+            .single()
+
+          if (productError || !product) {
+            throw new Error(productError?.message || `找不到商品 ${code}`)
+          }
+
+          const coalescedStockQty = Number(product.stock_qty ?? 0)
+          const { error: updateInventoryError } = await supabase
+            .from("products")
+            .update({ stock_qty: coalescedStockQty + quantity })
+            .eq("code", code)
+
+          if (updateInventoryError) {
+            throw new Error(updateInventoryError.message)
+          }
+        }),
+      )
+
+      const { error: detailError } = await supabase.from("sales_order_items").delete().eq("sales_order_id", saleId)
+      if (detailError) {
+        toast({
+          title: "錯誤",
+          description: `刪除銷貨明細失敗（sales_order_items.sales_order_id）：${detailError.message}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      const { error: headerError } = await supabase.from("sales_orders").delete().eq("id", saleId)
+      if (headerError) {
+        toast({
+          title: "錯誤",
+          description: `刪除銷貨單頭失敗（sales_orders.id）：${headerError.message}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      window.location.reload()
+    } catch (error) {
+      toast({
+        title: "錯誤",
+        description: error instanceof Error ? `刪除銷貨單失敗：${error.message}` : "刪除銷貨單失敗",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingSaleId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
@@ -127,13 +212,13 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
         ) : (
           <Accordion type="single" collapsible className="w-full">
             {filteredSales.map((sale) => {
-              const customerName = customerMap.get(sale.customer_cno || "")?.compy || "-"
+              const customerName = customerMap.get(sale.customer_cno || "")?.name || "-"
               return (
                 <AccordionItem key={sale.id} value={sale.id}>
                   <AccordionTrigger className="px-4 hover:no-underline">
                     <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                       <div className="col-span-3">
-                        <p className="font-medium">{sale.order_number}</p>
+                        <p className="font-medium">{sale.order_no}</p>
                         <p className="text-xs text-muted-foreground">{customerName}</p>
                       </div>
                       <div className="col-span-2 text-sm">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</div>
@@ -153,15 +238,26 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4">
                     <div className="mb-3 flex justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleTogglePaid(sale)}
-                        disabled={isPending && updatingId === sale.id}
-                        className="h-8 px-2"
-                      >
-                        {sale.is_paid ? "標記為未付款" : "標記為已付款"}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleTogglePaid(sale)}
+                          disabled={isPending && updatingId === sale.id}
+                          className="h-8 px-2"
+                        >
+                          {sale.is_paid ? "標記為未付款" : "標記為已付款"}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteSale(sale)}
+                          disabled={deletingSaleId === String(sale.id ?? sale.order_no ?? "").trim()}
+                          className="h-8 px-2"
+                        >
+                          {deletingSaleId === String(sale.id ?? sale.order_no ?? "").trim() ? "刪除中..." : "刪除"}
+                        </Button>
+                      </div>
                     </div>
                     <div className="rounded-md border">
                       <Table>
@@ -176,7 +272,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                         <TableBody>
                           {sale.sales_order_items && sale.sales_order_items.length > 0 ? (
                             sale.sales_order_items.map((item) => {
-                              const productName = item.product_pno ? productMap.get(item.product_pno)?.pname || item.product_pno : "-"
+                              const itemCode = item.code || null
+                              const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
                               return (
                                 <TableRow key={item.id}>
                                   <TableCell>{productName}</TableCell>

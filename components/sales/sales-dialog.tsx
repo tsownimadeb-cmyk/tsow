@@ -32,7 +32,7 @@ interface SalesDialogProps {
 }
 
 interface OrderItem {
-  product_pno: string
+  code: string
   quantity: number
   unit_price: number
 }
@@ -44,7 +44,7 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
   const [open, setOpen] = useState(false)
 
   const [formData, setFormData] = useState({
-    order_number: "",
+    order_no: "",
     customer_cno: "",
     order_date: new Date().toISOString().split("T")[0],
     notes: "",
@@ -53,8 +53,16 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
 
   const [items, setItems] = useState<OrderItem[]>([])
 
+  const toastError = (message: string) => {
+    toast({
+      title: "錯誤",
+      description: message,
+      variant: "destructive",
+    })
+  }
+
   const addItem = () => {
-    setItems([...items, { product_pno: "", quantity: 1, unit_price: 0 }])
+    setItems([...items, { code: "", quantity: 1, unit_price: 0 }])
   }
 
   const removeItem = (index: number) => {
@@ -63,11 +71,11 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
 
   const updateItem = (index: number, field: keyof OrderItem, value: string | number) => {
     const newItems = [...items]
-    if (field === "product_pno") {
-      const product = products.find((p) => p.pno === value)
+    if (field === "code") {
+      const product = products.find((p) => p.code === value)
       newItems[index] = {
         ...newItems[index],
-        product_pno: value as string,
+        code: value as string,
         unit_price: product ? Number(product.price) : 0,
       }
     } else {
@@ -81,11 +89,7 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (items.length === 0) {
-      toast({
-        title: "錯誤",
-        description: "請至少新增一項商品",
-        variant: "destructive",
-      })
+      toastError("請至少新增一項商品")
       return
     }
 
@@ -101,14 +105,31 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
       return `${prefix}${dateStr}${random}`
     }
 
-    const finalOrderNumber = formData.order_number.trim() || generateOrderNumber()
+    const finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
 
     startTransition(async () => {
       try {
+        const quantityByCode = new Map<string, number>()
+        for (const item of items) {
+          const code = String(item.code || "").trim()
+          const quantity = Number(item.quantity)
+
+          if (!code) {
+            toastError("銷貨明細缺少商品編號(code)")
+            return
+          }
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            toastError(`商品 ${code} 的數量無效，請輸入大於 0 的數字`)
+            return
+          }
+
+          quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
+        }
+
         const { data: order, error: orderError } = await supabase
           .from("sales_orders")
           .insert({
-            order_number: finalOrderNumber,
+            order_no: finalOrderNumber,
             customer_cno: formData.customer_cno || null,
             order_date: formData.order_date,
             total_amount: totalAmount,
@@ -120,17 +141,15 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
           .single()
 
         if (orderError || !order) {
-          toast({
-            title: "錯誤",
-            description: orderError?.message || "無法建立銷貨單，請稍後再試",
-            variant: "destructive",
-          })
+          const message = orderError?.message || "無法建立銷貨單，請稍後再試"
+          console.error("[SalesDialog] 建立銷貨單失敗:", orderError)
+          toastError(message)
           return
         }
 
         const orderItems = items.map((item) => ({
           sales_order_id: order.id,
-          product_pno: item.product_pno || null,
+          code: item.code || null,
           quantity: item.quantity,
           unit_price: item.unit_price,
           subtotal: item.quantity * item.unit_price,
@@ -139,13 +158,41 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
         const { error: itemsError } = await supabase.from("sales_order_items").insert(orderItems)
 
         if (itemsError) {
-          toast({
-            title: "錯誤",
-            description: itemsError.message || "無法新增銷貨明細，請稍後再試",
-            variant: "destructive",
-          })
+          const message = itemsError.message || "無法新增銷貨明細，請稍後再試"
+          console.error("[SalesDialog] 新增銷貨明細失敗:", itemsError)
+          toastError(message)
           return
         }
+
+        const inventoryItems = Array.from(quantityByCode.entries()).map(([code, quantity]) => ({ code, quantity }))
+
+        await Promise.all(
+          inventoryItems.map(async (item) => {
+            console.log("正在處理單據:", finalOrderNumber, "商品:", item.code)
+
+            const { data: currentProduct, error: currentProductError } = await supabase
+              .from("products")
+              .select("code,name,price,stock_qty")
+              .eq("code", item.code)
+              .single()
+
+            if (currentProductError || !currentProduct) {
+              console.error("[SalesDialog] 讀取商品失敗:", currentProductError)
+              throw new Error(currentProductError?.message || `找不到商品 ${item.code}`)
+            }
+
+            const coalescedStockQty = Number(currentProduct.stock_qty ?? 0)
+            const { error: updateInventoryError } = await supabase
+              .from("products")
+              .update({ stock_qty: Math.max(0, coalescedStockQty - item.quantity) })
+              .eq("code", item.code)
+
+            if (updateInventoryError) {
+              console.error("[SalesDialog] 更新庫存失敗:", updateInventoryError)
+              throw new Error(updateInventoryError.message)
+            }
+          }),
+        )
 
         const { error: arError } = await supabase.from("accounts_receivable").insert({
           sales_order_id: order.id,
@@ -158,6 +205,7 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
         })
 
         if (arError) {
+          console.error("[SalesDialog] 同步應收帳款失敗:", arError)
           toast({
             title: "警告",
             description: `銷貨單已建立，但同步應收帳款失敗：${arError.message}`,
@@ -171,15 +219,13 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
         })
 
         setOpen(false)
-        setFormData({ order_number: "", customer_cno: "", order_date: new Date().toISOString().split("T")[0], notes: "", is_paid: false })
+        setFormData({ order_no: "", customer_cno: "", order_date: new Date().toISOString().split("T")[0], notes: "", is_paid: false })
         setItems([])
         router.refresh()
       } catch (error) {
-        toast({
-          title: "錯誤",
-          description: error instanceof Error ? error.message : "發生未知錯誤",
-          variant: "destructive",
-        })
+        const message = error instanceof Error ? error.message : "發生未知錯誤"
+        console.error("[SalesDialog] 建立流程失敗:", error)
+        toastError(message)
       }
     })
   }
@@ -194,13 +240,13 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="order_number">單號</Label>
+            <Label htmlFor="order_no">單號</Label>
             <Input
-              id="order_number"
+              id="order_no"
               type="text"
               placeholder="輸入單號（可選）"
-              value={formData.order_number}
-              onChange={(e) => setFormData({ ...formData, order_number: e.target.value })}
+              value={formData.order_no}
+              onChange={(e) => setFormData({ ...formData, order_no: e.target.value })}
             />
           </div>
 
@@ -216,8 +262,8 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
                 </SelectTrigger>
                 <SelectContent>
                   {customers.map((customer) => (
-                    <SelectItem key={customer.cno} value={customer.cno}>
-                      {customer.cno} - {customer.compy}
+                    <SelectItem key={customer.code} value={customer.code}>
+                      {customer.code} - {customer.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -284,14 +330,14 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
                     items.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>
-                          <Select value={item.product_pno} onValueChange={(v) => updateItem(index, "product_pno", v)}>
+                          <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
                             <SelectTrigger>
                               <SelectValue placeholder="選擇商品" />
                             </SelectTrigger>
                             <SelectContent>
                               {products.map((product) => (
-                                <SelectItem key={product.pno} value={product.pno}>
-                                  {product.pno} - {product.pname}
+                                <SelectItem key={product.code} value={product.code}>
+                                  {product.code} - {product.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>

@@ -24,13 +24,14 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
   const [search, setSearch] = useState("")
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [deletingPurchaseId, setDeletingPurchaseId] = useState<string | null>(null)
 
   const supplierMap = new Map(suppliers.map((supplier) => [supplier.id, supplier]))
-  const productMap = new Map(products.map((product) => [product.pno, product]))
+  const productMap = new Map(products.map((product) => [product.code, product]))
 
   const searchText = search.toLowerCase()
   const filteredPurchases = purchases.filter((purchase) => {
-    const orderNumber = (purchase.order_number || "").toLowerCase()
+    const orderNumber = (purchase.order_no || "").toLowerCase()
     const supplierName = (supplierMap.get(purchase.supplier_id || "")?.name || "").toLowerCase()
     return orderNumber.includes(searchText) || supplierName.includes(searchText)
   })
@@ -130,7 +131,115 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
     })
   }
 
-  console.log("偵錯資料:", purchases[0])
+  const handleDeletePurchase = async (purchase: PurchaseOrder) => {
+    if (!window.confirm("確定要刪除此筆單據及其所有明細嗎？")) {
+      return
+    }
+
+    const normalizedPurchaseId = String(purchase.id ?? "").trim()
+    const normalizedOrderNo = String(purchase.order_no ?? "").trim()
+    if (!normalizedPurchaseId) {
+      toast({ title: "錯誤", description: "找不到進貨單 id，無法刪除", variant: "destructive" })
+      return
+    }
+
+    try {
+      setDeletingPurchaseId(normalizedPurchaseId)
+      const supabase = createClient()
+
+      const quantityByCode = new Map<string, number>()
+      for (const item of purchase.items || []) {
+        const code = String((item as any).code ?? "").trim()
+        const quantity = Number(item.quantity ?? 0)
+        if (!code || !Number.isFinite(quantity) || quantity <= 0) continue
+        quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
+      }
+
+      await Promise.all(
+        Array.from(quantityByCode.entries()).map(async ([code, quantity]) => {
+          const { data: product, error: productError } = await supabase
+            .from("products")
+            .select("code,stock_qty,purchase_qty_total")
+            .eq("code", code)
+            .single()
+
+          if (productError || !product) {
+            throw new Error(productError?.message || `找不到商品 ${code}`)
+          }
+
+          const coalescedStockQty = Number(product.stock_qty ?? 0)
+          const coalescedPurchaseTotal = Number(product.purchase_qty_total ?? 0)
+
+          const { error: updateInventoryError } = await supabase
+            .from("products")
+            .update({
+              stock_qty: Math.max(0, coalescedStockQty - quantity),
+              purchase_qty_total: Math.max(0, coalescedPurchaseTotal - quantity),
+            })
+            .eq("code", code)
+
+          if (updateInventoryError) {
+            throw new Error(updateInventoryError.message)
+          }
+        }),
+      )
+
+      let detailErrorMessage: string | null = null
+
+      if (normalizedOrderNo) {
+        const { error: detailByOrderNoError } = await supabase
+          .from("purchase_order_items")
+          .delete()
+          .eq("order_no", normalizedOrderNo)
+
+        if (detailByOrderNoError) {
+          detailErrorMessage = `order_no 刪除失敗：${detailByOrderNoError.message}`
+        }
+      }
+
+      if (!normalizedOrderNo || detailErrorMessage) {
+        const { error: detailByPurchaseIdError } = await supabase
+          .from("purchase_order_items")
+          .delete()
+          .eq("purchase_order_id", normalizedPurchaseId)
+
+        if (detailByPurchaseIdError) {
+          const fallbackMessage = `purchase_order_id 刪除失敗：${detailByPurchaseIdError.message}`
+          const message = detailErrorMessage ? `${detailErrorMessage}；${fallbackMessage}` : fallbackMessage
+          toast({
+            title: "錯誤",
+            description: `刪除進貨明細失敗：${message}`,
+            variant: "destructive",
+          })
+          return
+        }
+      }
+
+      const { error: headerError } = await supabase
+        .from("purchase_orders")
+        .delete()
+        .eq("id", normalizedPurchaseId)
+
+      if (headerError) {
+        toast({
+          title: "錯誤",
+          description: `刪除進貨單頭失敗（purchase_orders.id）：${headerError.message}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      window.location.reload()
+    } catch (error) {
+      toast({
+        title: "錯誤",
+        description: error instanceof Error ? `刪除進貨單失敗：${error.message}` : "刪除進貨單失敗",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingPurchaseId(null)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -158,7 +267,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                   <AccordionTrigger className="px-4 hover:no-underline">
                     <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                       <div className="col-span-3">
-                        <p className="font-medium">{purchase.order_number}</p>
+                        <p className="font-medium">{purchase.order_no || "-"}</p>
                         <p className="text-xs text-muted-foreground">{supplierName}</p>
                       </div>
                       <div className="col-span-2 text-sm">{new Date(purchase.order_date).toLocaleDateString("zh-TW")}</div>
@@ -178,15 +287,26 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4">
                     <div className="mb-3 flex justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleTogglePaid(purchase)}
-                        disabled={isPending && updatingId === purchase.id}
-                        className="h-8 px-2"
-                      >
-                        {purchase.is_paid ? "標記為未付款" : "標記為已付款"}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleTogglePaid(purchase)}
+                          disabled={isPending && updatingId === purchase.id}
+                          className="h-8 px-2"
+                        >
+                          {purchase.is_paid ? "標記為未付款" : "標記為已付款"}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeletePurchase(purchase)}
+                          disabled={deletingPurchaseId === purchase.id}
+                          className="h-8 px-2"
+                        >
+                          {deletingPurchaseId === purchase.id ? "刪除中..." : "刪除"}
+                        </Button>
+                      </div>
                     </div>
                     <div className="rounded-md border">
                       <Table>
@@ -201,9 +321,10 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                         <TableBody>
                           {purchase.items && purchase.items.length > 0 ? (
                             purchase.items.map((item) => {
-                              const productName = item.product_pno
-                                ? productMap.get(item.product_pno)?.pname || item.product_pno
-                                : "-"
+                              const itemCode = (item as any).code || null
+                              const productName = item.product?.name || (itemCode
+                                ? productMap.get(itemCode)?.name || itemCode
+                                : "-")
                               return (
                                 <TableRow key={item.id}>
                                   <TableCell>{productName}</TableCell>
