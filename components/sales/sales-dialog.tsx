@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -22,13 +22,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
-import type { Customer, Product } from "@/lib/types"
+import type { Customer, Product, SalesOrder } from "@/lib/types"
 
 interface SalesDialogProps {
   customers: Customer[]
   products: Product[]
-  mode: "create"
+  mode: "create" | "edit"
+  sales?: SalesOrder
   children?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 interface OrderItem {
@@ -37,21 +40,50 @@ interface OrderItem {
   unit_price: number
 }
 
-export function SalesDialog({ customers, products, mode, children }: SalesDialogProps) {
+export function SalesDialog({ customers, products, mode, sales, children, open, onOpenChange }: SalesDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
 
-  const [formData, setFormData] = useState({
-    order_no: "",
-    customer_cno: "",
-    order_date: new Date().toISOString().split("T")[0],
-    notes: "",
-    is_paid: false,
+  const isControlled = open !== undefined
+  const isOpen = isControlled ? open : internalOpen
+  const setIsOpen = isControlled ? onOpenChange! : setInternalOpen
+
+  const getInitialFormData = () => ({
+    order_no: sales?.order_no || "",
+    customer_cno: sales?.customer_cno || "",
+    order_date: sales?.order_date || new Date().toISOString().split("T")[0],
+    notes: sales?.notes || "",
+    is_paid: Boolean(sales?.is_paid),
   })
 
-  const [items, setItems] = useState<OrderItem[]>([])
+  const getInitialItems = (): OrderItem[] => {
+    if (!sales?.sales_order_items || sales.sales_order_items.length === 0) return []
+    return sales.sales_order_items
+      .map((item) => ({
+        code: String(item.code || "").trim(),
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.unit_price || 0),
+      }))
+      .filter((item) => item.code && item.quantity > 0)
+  }
+
+  const [formData, setFormData] = useState(getInitialFormData)
+  const [items, setItems] = useState<OrderItem[]>(getInitialItems)
+
+  useEffect(() => {
+    if (mode === "edit") {
+      setFormData(getInitialFormData())
+      setItems(getInitialItems())
+      return
+    }
+
+    if (!isOpen) {
+      setFormData(getInitialFormData())
+      setItems([])
+    }
+  }, [mode, sales, isOpen])
 
   const toastError = (message: string) => {
     toast({
@@ -86,6 +118,66 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
 
+  const generateOrderNumber = () => {
+    const date = new Date()
+    const prefix = "SO"
+    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "")
+    const random = Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0")
+    return `${prefix}${dateStr}${random}`
+  }
+
+  const syncAccountsReceivable = async (
+    salesOrderId: string,
+    customerCno: string | null,
+    amount: number,
+    dueDate: string,
+    paid: boolean,
+  ) => {
+    const supabase = createClient()
+
+    const { data: existingArRows, error: arQueryError } = await supabase
+      .from("accounts_receivable")
+      .select("id")
+      .eq("sales_order_id", salesOrderId)
+      .limit(1)
+
+    if (arQueryError) {
+      throw new Error(arQueryError.message || "無法查詢應收帳款")
+    }
+
+    const arPayload = {
+      customer_cno: customerCno,
+      amount_due: amount,
+      total_amount: amount,
+      paid_amount: paid ? amount : 0,
+      due_date: dueDate,
+      status: paid ? "paid" : "unpaid",
+    }
+
+    if (existingArRows && existingArRows.length > 0) {
+      const { error: arUpdateError } = await supabase
+        .from("accounts_receivable")
+        .update(arPayload)
+        .eq("id", existingArRows[0].id)
+
+      if (arUpdateError) {
+        throw new Error(arUpdateError.message || "無法更新應收帳款")
+      }
+      return
+    }
+
+    const { error: arInsertError } = await supabase.from("accounts_receivable").insert({
+      sales_order_id: salesOrderId,
+      ...arPayload,
+    })
+
+    if (arInsertError) {
+      throw new Error(arInsertError.message || "無法建立應收帳款")
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (items.length === 0) {
@@ -94,18 +186,6 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
     }
 
     const supabase = createClient()
-
-    const generateOrderNumber = () => {
-      const date = new Date()
-      const prefix = "SO"
-      const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "")
-      const random = Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0")
-      return `${prefix}${dateStr}${random}`
-    }
-
-    const finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
 
     startTransition(async () => {
       try {
@@ -125,6 +205,117 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
 
           quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
         }
+
+        if (mode === "edit") {
+          const saleId = String(sales?.id || "").trim()
+          const orderNo = String(sales?.order_no || "").trim()
+
+          if (!saleId) {
+            toastError("找不到銷貨單 id，無法更新")
+            return
+          }
+          if (!orderNo) {
+            toastError("找不到銷貨單號，無法更新")
+            return
+          }
+
+          const { error: updateError } = await supabase
+            .from("sales_orders")
+            .update({
+              order_no: orderNo,
+              customer_cno: formData.customer_cno || null,
+              order_date: formData.order_date,
+              total_amount: totalAmount,
+              status: "completed",
+              is_paid: formData.is_paid,
+              notes: formData.notes || null,
+            })
+            .eq("id", saleId)
+
+          if (updateError) {
+            toastError(updateError.message || "無法更新銷貨單")
+            return
+          }
+
+          const { error: deleteError } = await supabase.from("sales_order_items").delete().eq("sales_order_id", saleId)
+          if (deleteError) {
+            toastError(deleteError.message || "無法更新銷貨明細")
+            return
+          }
+
+          const orderItems = items.map((item) => ({
+            sales_order_id: saleId,
+            code: item.code || null,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            subtotal: item.quantity * item.unit_price,
+          }))
+
+          const { error: itemsError } = await supabase.from("sales_order_items").insert(orderItems)
+          if (itemsError) {
+            toastError(itemsError.message || "無法新增銷貨明細")
+            return
+          }
+
+          const oldQuantityByCode = new Map<string, number>()
+          for (const oldItem of sales?.sales_order_items || []) {
+            const code = String(oldItem.code || "").trim()
+            const quantity = Number(oldItem.quantity || 0)
+            if (!code || !Number.isFinite(quantity)) continue
+            oldQuantityByCode.set(code, (oldQuantityByCode.get(code) || 0) + quantity)
+          }
+
+          const allCodes = new Set<string>([
+            ...Array.from(oldQuantityByCode.keys()),
+            ...Array.from(quantityByCode.keys()),
+          ])
+
+          for (const code of allCodes) {
+            const oldQty = Number(oldQuantityByCode.get(code) || 0)
+            const newQty = Number(quantityByCode.get(code) || 0)
+            const delta = newQty - oldQty
+            if (delta === 0) continue
+
+            const { data: product, error: productError } = await supabase
+              .from("products")
+              .select("code,stock_qty")
+              .eq("code", code)
+              .single()
+
+            if (productError || !product) {
+              throw new Error(productError?.message || `找不到商品 ${code}`)
+            }
+
+            const coalescedStockQty = Number(product.stock_qty ?? 0)
+            const { error: updateInventoryError } = await supabase
+              .from("products")
+              .update({ stock_qty: Math.max(0, coalescedStockQty - delta) })
+              .eq("code", code)
+
+            if (updateInventoryError) {
+              throw new Error(updateInventoryError.message)
+            }
+          }
+
+          await syncAccountsReceivable(
+            saleId,
+            formData.customer_cno || null,
+            Number(totalAmount),
+            formData.order_date,
+            Boolean(formData.is_paid),
+          )
+
+          toast({
+            title: "成功",
+            description: "銷貨單更新成功",
+          })
+
+          setIsOpen(false)
+          router.refresh()
+          return
+        }
+
+        const finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
 
         const { data: order, error: orderError } = await supabase
           .from("sales_orders")
@@ -194,31 +385,20 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
           }),
         )
 
-        const { error: arError } = await supabase.from("accounts_receivable").insert({
-          sales_order_id: order.id,
-          customer_cno: order.customer_cno,
-          amount_due: Number(order.total_amount),
-          total_amount: Number(order.total_amount),
-          paid_amount: formData.is_paid ? Number(order.total_amount) : 0,
-          due_date: order.order_date,
-          status: formData.is_paid ? "paid" : "unpaid",
-        })
-
-        if (arError) {
-          console.error("[SalesDialog] 同步應收帳款失敗:", arError)
-          toast({
-            title: "警告",
-            description: `銷貨單已建立，但同步應收帳款失敗：${arError.message}`,
-            variant: "destructive",
-          })
-        }
+        await syncAccountsReceivable(
+          String(order.id),
+          order.customer_cno,
+          Number(order.total_amount),
+          order.order_date,
+          Boolean(formData.is_paid),
+        )
 
         toast({
           title: "成功",
           description: "銷貨單建立成功",
         })
 
-        setOpen(false)
+        setIsOpen(false)
         setFormData({ order_no: "", customer_cno: "", order_date: new Date().toISOString().split("T")[0], notes: "", is_paid: false })
         setItems([])
         router.refresh()
@@ -231,12 +411,12 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="w-[calc(100vw-1rem)] max-w-[1400px] sm:max-w-[1400px] max-h-[95vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
-          <DialogTitle>新增銷貨單</DialogTitle>
-          <DialogDescription>填寫銷貨單資料與明細</DialogDescription>
+          <DialogTitle>{mode === "create" ? "新增銷貨單" : "編輯銷貨單"}</DialogTitle>
+          <DialogDescription>{mode === "create" ? "填寫銷貨單資料與明細" : "修改已儲存的銷貨單資料與明細"}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -383,11 +563,11 @@ export function SalesDialog({ customers, products, mode, children }: SalesDialog
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
               取消
             </Button>
             <Button type="submit" disabled={isPending || items.length === 0}>
-              {isPending ? "儲存中..." : "建立銷貨單"}
+              {isPending ? "儲存中..." : mode === "create" ? "建立銷貨單" : "儲存變更"}
             </Button>
           </DialogFooter>
         </form>

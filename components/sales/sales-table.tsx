@@ -10,6 +10,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Search, Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { SalesDialog } from "@/components/sales/sales-dialog"
 import type { SalesOrder, Customer, Product } from "@/lib/types"
 
 interface SalesTableProps {
@@ -239,6 +240,11 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                   <AccordionContent className="px-4 pb-4">
                     <div className="mb-3 flex justify-end">
                       <div className="flex items-center gap-2">
+                        <SalesDialog customers={customers} products={products} mode="edit" sales={sale}>
+                          <Button variant="outline" size="sm" className="h-8 px-2">
+                            編輯
+                          </Button>
+                        </SalesDialog>
                         <Button
                           variant="ghost"
                           size="sm"

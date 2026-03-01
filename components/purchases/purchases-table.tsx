@@ -10,6 +10,7 @@ import { Search, Check, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { PurchaseDialog } from "@/components/purchases/purchase-dialog"
 import type { PurchaseOrder, Supplier, Product } from "@/lib/types"
 
 interface PurchasesTableProps {
@@ -288,6 +289,11 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                   <AccordionContent className="px-4 pb-4">
                     <div className="mb-3 flex justify-end">
                       <div className="flex items-center gap-2">
+                        <PurchaseDialog suppliers={suppliers} products={products} mode="edit" purchase={purchase}>
+                          <Button variant="outline" size="sm" className="h-8 px-2">
+                            編輯
+                          </Button>
+                        </PurchaseDialog>
                         <Button
                           variant="ghost"
                           size="sm"

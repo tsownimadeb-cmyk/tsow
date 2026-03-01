@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -22,13 +22,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
-import type { Supplier, Product } from "@/lib/types"
+import type { Supplier, Product, PurchaseOrder } from "@/lib/types"
 
 interface PurchaseDialogProps {
   suppliers: Supplier[]
   products: Product[]
-  mode: "create"
+  mode: "create" | "edit"
+  purchase?: PurchaseOrder
   children?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 interface OrderItem {
@@ -37,21 +40,50 @@ interface OrderItem {
   unit_price: number
 }
 
-export function PurchaseDialog({ suppliers, products, mode, children }: PurchaseDialogProps) {
+export function PurchaseDialog({ suppliers, products, mode, purchase, children, open, onOpenChange }: PurchaseDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
 
-  const [formData, setFormData] = useState({
-    supplier_id: "",
-    order_date: new Date().toISOString().split("T")[0],
-    notes: "",
-    shipping_fee: 0,
-    is_paid: false,
+  const isControlled = open !== undefined
+  const isOpen = isControlled ? open : internalOpen
+  const setIsOpen = isControlled ? onOpenChange! : setInternalOpen
+
+  const getInitialFormData = () => ({
+    supplier_id: purchase?.supplier_id || "",
+    order_date: purchase?.order_date || new Date().toISOString().split("T")[0],
+    notes: purchase?.notes || "",
+    shipping_fee: Number((purchase as any)?.shipping_fee ?? 0),
+    is_paid: Boolean(purchase?.is_paid),
   })
 
-  const [items, setItems] = useState<OrderItem[]>([])
+  const getInitialItems = (): OrderItem[] => {
+    if (!purchase?.items || purchase.items.length === 0) return []
+    return purchase.items
+      .map((item) => ({
+        code: String(item.code || "").trim(),
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.unit_price || 0),
+      }))
+      .filter((item) => item.code && item.quantity > 0)
+  }
+
+  const [formData, setFormData] = useState(getInitialFormData)
+  const [items, setItems] = useState<OrderItem[]>(getInitialItems)
+
+  useEffect(() => {
+    if (mode === "edit") {
+      setFormData(getInitialFormData())
+      setItems(getInitialItems())
+      return
+    }
+
+    if (!isOpen) {
+      setFormData(getInitialFormData())
+      setItems([])
+    }
+  }, [mode, purchase, isOpen])
 
   const toastApi = {
     error: (message: string) => {
@@ -100,6 +132,98 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
   const shippingFee = Number(formData.shipping_fee ?? 0)
   const totalAmount = totalGoodsAmount + shippingFee
 
+  const syncAccountsPayable = async (
+    purchaseOrderId: string,
+    supplierId: string | null,
+    amount: number,
+    dueDate: string,
+    paid: boolean,
+  ) => {
+    const supabase = createClient()
+
+    const { data: existingApRows, error: apQueryError } = await supabase
+      .from("accounts_payable")
+      .select("id")
+      .eq("purchase_order_id", purchaseOrderId)
+      .limit(1)
+
+    if (apQueryError) {
+      throw new Error(apQueryError.message || "無法查詢應付帳款")
+    }
+
+    const apPayload = {
+      supplier_id: supplierId,
+      amount_due: amount,
+      total_amount: amount,
+      paid_amount: paid ? amount : 0,
+      due_date: dueDate,
+      status: paid ? "paid" : "unpaid",
+    }
+
+    if (existingApRows && existingApRows.length > 0) {
+      const { error: apUpdateError } = await supabase
+        .from("accounts_payable")
+        .update(apPayload)
+        .eq("id", existingApRows[0].id)
+
+      if (apUpdateError) {
+        throw new Error(apUpdateError.message || "無法更新應付帳款")
+      }
+      return
+    }
+
+    const { error: apInsertError } = await supabase.from("accounts_payable").insert({
+      purchase_order_id: purchaseOrderId,
+      ...apPayload,
+    })
+
+    if (apInsertError) {
+      throw new Error(apInsertError.message || "無法建立應付帳款")
+    }
+  }
+
+  const insertPurchaseItems = async (
+    purchaseId: string,
+    orderNo: string,
+    orderItems: OrderItem[],
+    supabase: ReturnType<typeof createClient>,
+  ) => {
+    const orderItemsByOrderNo = orderItems.map((item) => ({
+      order_no: orderNo,
+      code: item.code || null,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      subtotal: item.quantity * item.unit_price,
+    }))
+
+    const insertByOrderNo = await supabase.from("purchase_order_items").insert(orderItemsByOrderNo)
+    if (!insertByOrderNo.error) return
+
+    const orderItemsByPurchaseId = orderItems.map((item) => ({
+      purchase_order_id: purchaseId,
+      code: item.code || null,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      subtotal: item.quantity * item.unit_price,
+    }))
+
+    const insertByPurchaseId = await supabase.from("purchase_order_items").insert(orderItemsByPurchaseId)
+    if (!insertByPurchaseId.error) return
+
+    const orderItemsLegacy = orderItems.map((item) => ({
+      purchase_order_id: purchaseId,
+      product_pno: item.code || null,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      subtotal: item.quantity * item.unit_price,
+    }))
+
+    const insertLegacy = await supabase.from("purchase_order_items").insert(orderItemsLegacy)
+    if (insertLegacy.error) {
+      throw new Error(insertLegacy.error.message || "無法新增進貨明細，請稍後再試")
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (items.length === 0) {
@@ -130,6 +254,120 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
 
           quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
           amountByCode.set(code, (amountByCode.get(code) || 0) + quantity * unitPrice)
+        }
+
+        if (mode === "edit") {
+          const purchaseId = String(purchase?.id || "").trim()
+          const orderNo = String(purchase?.order_no || "").trim()
+
+          if (!purchaseId) {
+            toastApi.error("找不到進貨單 id，無法更新")
+            return
+          }
+          if (!orderNo) {
+            toastApi.error("找不到進貨單號，無法更新")
+            return
+          }
+
+          const headerPayload = {
+            supplier_id: formData.supplier_id || null,
+            order_date: formData.order_date,
+            total_amount: totalAmount,
+            shipping_fee: shippingFee,
+            status: "completed",
+            is_paid: formData.is_paid,
+            notes: formData.notes || null,
+          }
+
+          const updateWithShipping = await supabase.from("purchase_orders").update(headerPayload).eq("id", purchaseId)
+          if (updateWithShipping.error) {
+            const fallbackPayload = {
+              supplier_id: formData.supplier_id || null,
+              order_date: formData.order_date,
+              total_amount: totalAmount,
+              status: "completed",
+              is_paid: formData.is_paid,
+              notes: formData.notes || null,
+            }
+            const updateFallback = await supabase.from("purchase_orders").update(fallbackPayload).eq("id", purchaseId)
+            if (updateFallback.error) {
+              toastApi.error(updateFallback.error.message || "無法更新進貨單")
+              return
+            }
+          }
+
+          const deleteByOrderNo = await supabase.from("purchase_order_items").delete().eq("order_no", orderNo)
+          if (deleteByOrderNo.error) {
+            const deleteByPurchaseId = await supabase
+              .from("purchase_order_items")
+              .delete()
+              .eq("purchase_order_id", purchaseId)
+            if (deleteByPurchaseId.error) {
+              toastApi.error(deleteByPurchaseId.error.message || "無法更新進貨明細")
+              return
+            }
+          }
+
+          await insertPurchaseItems(purchaseId, orderNo, items, supabase)
+
+          const oldQuantityByCode = new Map<string, number>()
+          for (const oldItem of purchase?.items || []) {
+            const code = String(oldItem.code || "").trim()
+            const quantity = Number(oldItem.quantity || 0)
+            if (!code || !Number.isFinite(quantity)) continue
+            oldQuantityByCode.set(code, (oldQuantityByCode.get(code) || 0) + quantity)
+          }
+
+          const allCodes = new Set<string>([...Array.from(oldQuantityByCode.keys()), ...Array.from(quantityByCode.keys())])
+
+          for (const code of allCodes) {
+            const oldQty = Number(oldQuantityByCode.get(code) || 0)
+            const newQty = Number(quantityByCode.get(code) || 0)
+            const delta = newQty - oldQty
+            if (delta === 0) continue
+
+            const { data: product, error: productError } = await supabase
+              .from("products")
+              .select("code,stock_qty,purchase_qty_total")
+              .eq("code", code)
+              .single()
+
+            if (productError || !product) {
+              throw new Error(productError?.message || `找不到商品 ${code}`)
+            }
+
+            const coalescedStockQty = Number(product.stock_qty ?? 0)
+            const coalescedPurchaseQtyTotal = Number(product.purchase_qty_total ?? 0)
+
+            const { error: updateInventoryError } = await supabase
+              .from("products")
+              .update({
+                stock_qty: Math.max(0, coalescedStockQty + delta),
+                purchase_qty_total: Math.max(0, coalescedPurchaseQtyTotal + delta),
+              })
+              .eq("code", code)
+
+            if (updateInventoryError) {
+              throw new Error(updateInventoryError.message)
+            }
+          }
+
+          await syncAccountsPayable(
+            purchaseId,
+            formData.supplier_id || null,
+            Number(totalAmount),
+            formData.order_date,
+            Boolean(formData.is_paid),
+          )
+
+          toast({
+            title: "成功",
+            description: "進貨單更新成功",
+          })
+
+          setIsOpen(false)
+          router.refresh()
+          return
         }
 
         const orderNo = generateOrderNumber()
@@ -166,57 +404,7 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
 
           if (!fallbackOrder.error && fallbackOrder.data) {
             const fallbackCreatedOrder = fallbackOrder.data
-            const orderItemsByOrderNo = items.map((item) => ({
-              order_no: orderNo,
-              code: item.code || null,
-              quantity: item.quantity,
-              unit_price: item.unit_price,
-              subtotal: item.quantity * item.unit_price,
-            }))
-
-            let itemsInsertError: any = null
-
-            const insertByOrderNo = await supabase.from("purchase_order_items").insert(orderItemsByOrderNo)
-            if (insertByOrderNo.error) {
-              itemsInsertError = insertByOrderNo.error
-
-              const orderItemsByPurchaseId = items.map((item) => ({
-                purchase_order_id: fallbackCreatedOrder.id,
-                code: item.code || null,
-                quantity: item.quantity,
-                unit_price: item.unit_price,
-                subtotal: item.quantity * item.unit_price,
-              }))
-
-              const insertByPurchaseId = await supabase.from("purchase_order_items").insert(orderItemsByPurchaseId)
-              if (insertByPurchaseId.error) {
-                itemsInsertError = insertByPurchaseId.error
-
-                const orderItemsLegacy = items.map((item) => ({
-                  purchase_order_id: fallbackCreatedOrder.id,
-                  product_pno: item.code || null,
-                  quantity: item.quantity,
-                  unit_price: item.unit_price,
-                  subtotal: item.quantity * item.unit_price,
-                }))
-
-                const insertLegacy = await supabase.from("purchase_order_items").insert(orderItemsLegacy)
-                if (insertLegacy.error) {
-                  itemsInsertError = insertLegacy.error
-                } else {
-                  itemsInsertError = null
-                }
-              } else {
-                itemsInsertError = null
-              }
-            }
-
-            if (itemsInsertError) {
-              const message = itemsInsertError.message || "無法新增進貨明細，請稍後再試"
-              console.error("[PurchaseDialog] 新增進貨明細失敗:", itemsInsertError)
-              toastApi.error(message)
-              return
-            }
+            await insertPurchaseItems(fallbackCreatedOrder.id, orderNo, items, supabase)
 
             const inventoryItems = Array.from(quantityByCode.entries()).map(([code, quantity]) => ({ code, quantity }))
 
@@ -262,27 +450,20 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
               }),
             )
 
-            const { error: apError } = await supabase.from("accounts_payable").insert({
-              purchase_order_id: fallbackCreatedOrder.id,
-              supplier_id: fallbackCreatedOrder.supplier_id,
-              amount_due: Number(fallbackCreatedOrder.total_amount),
-              total_amount: Number(fallbackCreatedOrder.total_amount),
-              paid_amount: formData.is_paid ? Number(fallbackCreatedOrder.total_amount) : 0,
-              due_date: fallbackCreatedOrder.order_date,
-              status: formData.is_paid ? "paid" : "unpaid",
-            })
-
-            if (apError) {
-              console.error("[PurchaseDialog] 同步應付帳款失敗:", apError)
-              toastApi.error(apError.message)
-            }
+            await syncAccountsPayable(
+              String(fallbackCreatedOrder.id),
+              fallbackCreatedOrder.supplier_id,
+              Number(fallbackCreatedOrder.total_amount),
+              fallbackCreatedOrder.order_date,
+              Boolean(formData.is_paid),
+            )
 
             toast({
               title: "成功",
               description: "進貨單建立成功",
             })
 
-            setOpen(false)
+            setIsOpen(false)
             setFormData({ supplier_id: "", order_date: new Date().toISOString().split("T")[0], notes: "", shipping_fee: 0, is_paid: false })
             setItems([])
             router.refresh()
@@ -295,57 +476,7 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
           return
         }
 
-        const orderItemsByOrderNo = items.map((item) => ({
-          order_no: orderNo,
-          code: item.code || null,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          subtotal: item.quantity * item.unit_price,
-        }))
-
-        let itemsInsertError: any = null
-
-        const insertByOrderNo = await supabase.from("purchase_order_items").insert(orderItemsByOrderNo)
-        if (insertByOrderNo.error) {
-          itemsInsertError = insertByOrderNo.error
-
-          const orderItemsByPurchaseId = items.map((item) => ({
-            purchase_order_id: order.id,
-            code: item.code || null,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            subtotal: item.quantity * item.unit_price,
-          }))
-
-          const insertByPurchaseId = await supabase.from("purchase_order_items").insert(orderItemsByPurchaseId)
-          if (insertByPurchaseId.error) {
-            itemsInsertError = insertByPurchaseId.error
-
-            const orderItemsLegacy = items.map((item) => ({
-              purchase_order_id: order.id,
-              product_pno: item.code || null,
-              quantity: item.quantity,
-              unit_price: item.unit_price,
-              subtotal: item.quantity * item.unit_price,
-            }))
-
-            const insertLegacy = await supabase.from("purchase_order_items").insert(orderItemsLegacy)
-            if (insertLegacy.error) {
-              itemsInsertError = insertLegacy.error
-            } else {
-              itemsInsertError = null
-            }
-          } else {
-            itemsInsertError = null
-          }
-        }
-
-        if (itemsInsertError) {
-          const message = itemsInsertError.message || "無法新增進貨明細，請稍後再試"
-          console.error("[PurchaseDialog] 新增進貨明細失敗:", itemsInsertError)
-          toastApi.error(message)
-          return
-        }
+        await insertPurchaseItems(order.id, orderNo, items, supabase)
 
         const inventoryItems = Array.from(quantityByCode.entries()).map(([code, quantity]) => ({ code, quantity }))
 
@@ -391,27 +522,20 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
           }),
         )
 
-        const { error: apError } = await supabase.from("accounts_payable").insert({
-          purchase_order_id: order.id,
-          supplier_id: order.supplier_id,
-          amount_due: Number(order.total_amount),
-          total_amount: Number(order.total_amount),
-          paid_amount: formData.is_paid ? Number(order.total_amount) : 0,
-          due_date: order.order_date,
-          status: formData.is_paid ? "paid" : "unpaid",
-        })
-
-        if (apError) {
-          console.error("[PurchaseDialog] 同步應付帳款失敗:", apError)
-          toastApi.error(apError.message)
-        }
+        await syncAccountsPayable(
+          String(order.id),
+          order.supplier_id,
+          Number(order.total_amount),
+          order.order_date,
+          Boolean(formData.is_paid),
+        )
 
         toast({
           title: "成功",
           description: "進貨單建立成功",
         })
 
-        setOpen(false)
+        setIsOpen(false)
         setFormData({ supplier_id: "", order_date: new Date().toISOString().split("T")[0], notes: "", shipping_fee: 0, is_paid: false })
         setItems([])
         router.refresh()
@@ -424,12 +548,12 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="w-[calc(100vw-1rem)] max-w-[1400px] sm:max-w-[1400px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
-          <DialogTitle>新增進貨單</DialogTitle>
-          <DialogDescription>填寫進貨單資料與明細</DialogDescription>
+          <DialogTitle>{mode === "create" ? "新增進貨單" : "編輯進貨單"}</DialogTitle>
+          <DialogDescription>{mode === "create" ? "填寫進貨單資料與明細" : "修改已儲存的進貨單資料與明細"}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -580,11 +704,11 @@ export function PurchaseDialog({ suppliers, products, mode, children }: Purchase
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
               取消
             </Button>
             <Button type="submit" disabled={isPending || items.length === 0}>
-              {isPending ? "儲存中..." : "建立進貨單"}
+              {isPending ? "儲存中..." : mode === "create" ? "建立進貨單" : "儲存變更"}
             </Button>
           </DialogFooter>
         </form>
