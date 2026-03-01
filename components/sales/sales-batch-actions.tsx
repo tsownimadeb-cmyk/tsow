@@ -18,6 +18,10 @@ type SalesCsvRow = {
   customer_code: string
 }
 
+type SalesExportCsvRow = SalesCsvRow & {
+  is_paid: string
+}
+
 type ParsedSalesRow = SalesCsvRow & {
   row_no: number
   subtotal: number
@@ -39,6 +43,8 @@ const CSV_COLUMNS: Array<keyof SalesCsvRow> = [
   "sales_date",
   "customer_code",
 ]
+
+const EXPORT_CSV_COLUMNS: Array<keyof SalesExportCsvRow> = [...CSV_COLUMNS, "is_paid"]
 
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
@@ -538,7 +544,7 @@ export function SalesBatchActions() {
         throw new Error("讀取銷貨明細失敗")
       }
 
-      const exportRows: SalesCsvRow[] = itemRows.map((item) => {
+      const exportRows: SalesExportCsvRow[] = itemRows.map((item) => {
         const order = orderById.get(String(item.sales_order_id ?? ""))
         return {
           order_no: String(order?.order_no ?? "").trim(),
@@ -547,11 +553,12 @@ export function SalesBatchActions() {
           unit_price: Number(item.unit_price ?? 0),
           sales_date: String(order?.order_date ?? ""),
           customer_code: String(order?.customer_cno ?? ""),
+          is_paid: order?.is_paid === true ? "true" : "false",
         }
       })
 
-      const header = CSV_COLUMNS.join(",")
-      const rows = exportRows.map((row) => CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
+      const header = EXPORT_CSV_COLUMNS.join(",")
+      const rows = exportRows.map((row) => EXPORT_CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
       const csvContent = `\uFEFF${[header, ...rows].join("\n")}`
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })

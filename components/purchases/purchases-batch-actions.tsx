@@ -18,6 +18,10 @@ type PurchaseCsvRow = {
   vendor_code: string
 }
 
+type PurchaseExportCsvRow = PurchaseCsvRow & {
+  is_paid: string
+}
+
 type ParsedPurchaseRow = PurchaseCsvRow & {
   row_no: number
   subtotal: number
@@ -28,6 +32,8 @@ type OrderRow = {
   order_no: string
   order_date: string | null
   supplier_id: string | null
+  is_paid: boolean | null
+  total_amount: number
 }
 
 const CSV_COLUMNS: Array<keyof PurchaseCsvRow> = [
@@ -38,6 +44,8 @@ const CSV_COLUMNS: Array<keyof PurchaseCsvRow> = [
   "purchase_date",
   "vendor_code",
 ]
+
+const EXPORT_CSV_COLUMNS: Array<keyof PurchaseExportCsvRow> = [...CSV_COLUMNS, "is_paid"]
 
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
@@ -128,6 +136,10 @@ function createUuid() {
 
 async function queryOrders(supabase: ReturnType<typeof createClient>) {
   const attempts = [
+    "id,order_no,order_date,supplier_id,is_paid,total_amount",
+    "id,order_number,order_date,supplier_id,is_paid,total_amount",
+    "id,order_no,order_date,supplier_id,is_paid",
+    "id,order_number,order_date,supplier_id,is_paid",
     "id,order_no,order_date,supplier_id",
     "id,order_number,order_date,supplier_id",
   ]
@@ -140,12 +152,107 @@ async function queryOrders(supabase: ReturnType<typeof createClient>) {
         order_no: String(row.order_no ?? row.order_number ?? "").trim(),
         order_date: row.order_date ?? null,
         supplier_id: row.supplier_id ?? null,
+        is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
+        total_amount: Number(row.total_amount ?? 0),
       }))
       return rows as OrderRow[]
     }
   }
 
   throw new Error("讀取進貨單失敗")
+}
+
+async function recalculatePurchaseOrderTotals(supabase: ReturnType<typeof createClient>, targetOrderIds: string[]) {
+  const normalizedOrderIds = Array.from(new Set((targetOrderIds || []).map((id) => String(id || "").trim()).filter(Boolean)))
+  if (normalizedOrderIds.length === 0) {
+    return
+  }
+
+  const { data: itemRows, error: itemError } = await supabase
+    .from("purchase_order_items")
+    .select("purchase_order_id,subtotal")
+    .in("purchase_order_id", normalizedOrderIds)
+
+  if (itemError) {
+    throw new Error(formatSupabaseError(itemError, "重算進貨單總額失敗"))
+  }
+
+  const totalByOrderId = new Map<string, number>()
+  for (const row of (itemRows || []) as any[]) {
+    const orderId = String(row.purchase_order_id ?? "").trim()
+    if (!orderId) continue
+    const subtotal = Number(row.subtotal ?? 0)
+    totalByOrderId.set(orderId, Number(totalByOrderId.get(orderId) || 0) + (Number.isFinite(subtotal) ? subtotal : 0))
+  }
+
+  for (const orderId of normalizedOrderIds) {
+    const nextTotalAmount = Number(totalByOrderId.get(orderId) || 0)
+    const { error: updateError } = await supabase
+      .from("purchase_orders")
+      .update({ total_amount: nextTotalAmount })
+      .eq("id", orderId)
+
+    if (updateError) {
+      throw new Error(formatSupabaseError(updateError, `更新進貨單 ${orderId} 總額失敗`))
+    }
+  }
+}
+
+async function syncAccountsPayable(supabase: ReturnType<typeof createClient>, targetOrderIds: string[]) {
+  const normalizedOrderIds = Array.from(new Set((targetOrderIds || []).map((id) => String(id || "").trim()).filter(Boolean)))
+  if (normalizedOrderIds.length === 0) {
+    return
+  }
+
+  const allOrders = await queryOrders(supabase)
+  const targetOrderIdSet = new Set(normalizedOrderIds)
+  const orders = allOrders.filter((order) => targetOrderIdSet.has(String(order.id || "").trim()))
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("accounts_payable")
+    .select("id,purchase_order_id")
+    .in("purchase_order_id", normalizedOrderIds)
+
+  if (existingError) {
+    throw new Error(formatSupabaseError(existingError, "同步應付帳款失敗"))
+  }
+
+  const apByPurchaseOrderId = new Map<string, string>()
+  for (const row of (existingRows || []) as any[]) {
+    const purchaseOrderId = String(row.purchase_order_id ?? "").trim()
+    const apId = String(row.id ?? "").trim()
+    if (!purchaseOrderId || !apId) continue
+    apByPurchaseOrderId.set(purchaseOrderId, apId)
+  }
+
+  for (const order of orders) {
+    if (!order.id) continue
+
+    const totalAmount = Number(order.total_amount || 0)
+    const paid = Boolean(order.is_paid)
+
+    const payload = {
+      supplier_id: order.supplier_id,
+      amount_due: totalAmount,
+      total_amount: totalAmount,
+      paid_amount: paid ? totalAmount : 0,
+      due_date: normalizeDateInput(String(order.order_date || "")) || null,
+      status: paid ? "paid" : "unpaid",
+    }
+
+    const existingId = apByPurchaseOrderId.get(order.id)
+    if (existingId) {
+      const { error: updateError } = await supabase.from("accounts_payable").update(payload).eq("id", existingId)
+      if (updateError) {
+        throw new Error(formatSupabaseError(updateError, `更新進貨單 ${order.order_no} 應付帳款失敗`))
+      }
+    } else {
+      const { error: insertError } = await supabase.from("accounts_payable").insert({ purchase_order_id: order.id, ...payload })
+      if (insertError) {
+        throw new Error(formatSupabaseError(insertError, `建立進貨單 ${order.order_no} 應付帳款失敗`))
+      }
+    }
+  }
 }
 
 async function queryProductsCodes(supabase: ReturnType<typeof createClient>) {
@@ -357,7 +464,7 @@ export function PurchasesBatchActions() {
 
       if (error) throw error
 
-      const exportRows: PurchaseCsvRow[] = ((data || []) as any[]).map((item) => {
+      const exportRows: PurchaseExportCsvRow[] = ((data || []) as any[]).map((item) => {
         const order = orderById.get(String(item.purchase_order_id ?? ""))
         return {
           order_no: String(order?.order_no ?? "").trim(),
@@ -366,11 +473,12 @@ export function PurchasesBatchActions() {
           unit_price: Number(item.unit_price ?? 0),
           purchase_date: String(order?.order_date ?? ""),
           vendor_code: String(order?.supplier_id ?? ""),
+          is_paid: order?.is_paid === true ? "true" : "false",
         }
       })
 
-      const header = CSV_COLUMNS.join(",")
-      const rows = exportRows.map((row) => CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
+      const header = EXPORT_CSV_COLUMNS.join(",")
+      const rows = exportRows.map((row) => EXPORT_CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","))
       const csvContent = `\uFEFF${[header, ...rows].join("\n")}`
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
@@ -635,6 +743,9 @@ export function PurchasesBatchActions() {
           }
         }
       }
+
+      await recalculatePurchaseOrderTotals(supabase, targetOrderIds)
+      await syncAccountsPayable(supabase, targetOrderIds)
 
       await recalculatePurchaseStocks(supabase, Array.from(affectedCodes))
 
