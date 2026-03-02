@@ -47,12 +47,13 @@ function normalizeSalesItems(
 }
 
 async function fetchSalesOrders(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const baseOrder = { ascending: false as const }
+  const descendingOrder = { ascending: false as const }
 
   const primary = await supabase
     .from("sales_orders")
     .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
-    .order("created_at", baseOrder)
+    .order("order_date", descendingOrder)
+    .order("created_at", descendingOrder)
 
   if (!primary.error) {
     return { data: primary.data || [], warning: null as string | null }

@@ -148,6 +148,7 @@ export default async function PurchasesPage() {
     supabase
       .from("purchase_orders")
       .select("id,order_no,supplier_id,order_date,total_amount,shipping_fee,status,is_paid,notes,created_at,updated_at")
+      .order("order_date", { ascending: false })
       .order("created_at", { ascending: false }),
     supabase.from("suppliers").select("id,name,contact_person,phone,email,address,notes,created_at,updated_at").order("name"),
   ])

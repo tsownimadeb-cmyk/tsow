@@ -716,6 +716,10 @@ export function SalesBatchActions() {
           .in("sales_order_id", targetOrderIds)
 
         if (deleteByOrderId.error) {
+          if (!isMissingColumnError(deleteByOrderId.error, "sales_order_id")) {
+            throw new Error(formatSupabaseError(deleteByOrderId.error, "清除既有銷貨明細失敗"))
+          }
+
           const deleteByOrderNo = await supabase
             .from("sales_order_items")
             .delete()
@@ -781,13 +785,24 @@ export function SalesBatchActions() {
         }
 
         if (orderNosToDelete.length > 0) {
-          const { error: deleteItemsByOrderNoError } = await supabase
+          const { error: deleteItemsByOrderIdError } = await supabase
             .from("sales_order_items")
             .delete()
-            .in("order_no", orderNosToDelete)
+            .in("sales_order_id", orderIdsToDelete)
 
-          if (deleteItemsByOrderNoError) {
-            throw new Error(formatSupabaseError(deleteItemsByOrderNoError, "刪除缺少銷貨單明細失敗"))
+          if (deleteItemsByOrderIdError) {
+            if (!isMissingColumnError(deleteItemsByOrderIdError, "sales_order_id")) {
+              throw new Error(formatSupabaseError(deleteItemsByOrderIdError, "刪除缺少銷貨單明細失敗"))
+            }
+
+            const { error: deleteItemsByOrderNoError } = await supabase
+              .from("sales_order_items")
+              .delete()
+              .in("order_no", orderNosToDelete)
+
+            if (deleteItemsByOrderNoError) {
+              throw new Error(formatSupabaseError(deleteItemsByOrderNoError, "刪除缺少銷貨單明細失敗"))
+            }
           }
 
           const { error: deleteOrdersByOrderNoError } = await supabase
