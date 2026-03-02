@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { ProductListRow } from "@/lib/products"
@@ -17,6 +18,23 @@ interface ProductsTableProps {
 export function ProductsTable({ products }: ProductsTableProps) {
   const { toast } = useToast()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
+  const [searchText, setSearchText] = useState("")
+
+  const filteredProducts = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase()
+    if (!keyword) return products
+
+    return products.filter((product) => {
+      const haystacks = [
+        String(product.code || ""),
+        String(product.name || ""),
+        String(product.spec || ""),
+        String(product.category || ""),
+        String(product.unit || ""),
+      ]
+      return haystacks.some((value) => value.toLowerCase().includes(keyword))
+    })
+  }, [products, searchText])
 
   const handleDelete = async (record: ProductListRow) => {
     const isConfirmed = window.confirm("確定要刪除此商品嗎？")
@@ -49,6 +67,13 @@ export function ProductsTable({ products }: ProductsTableProps) {
 
   return (
     <div className="rounded-md border border-gray-200 bg-white">
+      <div className="px-6 py-4 border-b border-gray-200 bg-white">
+        <Input
+          placeholder="搜尋商品編號 / 名稱 / 規格 / 種類"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+      </div>
       <div className="grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
         <div className="col-span-2">編號</div>
         <div className="col-span-3">商品名稱</div>
@@ -57,11 +82,13 @@ export function ProductsTable({ products }: ProductsTableProps) {
         <div className="col-span-2 text-right">目前庫存</div>
       </div>
 
-      {products.length === 0 ? (
-        <div className="px-6 py-10 text-center text-sm text-gray-400">目前資料庫沒有商品，請手動新增。</div>
+      {filteredProducts.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-gray-400">
+          {products.length === 0 ? "目前資料庫沒有商品，請手動新增。" : "查無符合的商品，請調整搜尋條件。"}
+        </div>
       ) : (
         <Accordion type="single" collapsible className="w-full">
-          {products.map((p, index) => (
+          {filteredProducts.map((p, index) => (
             <AccordionItem key={p.code || `product-row-${index}`} value={String(p.code || `product-row-${index}`)}>
               <AccordionTrigger className="px-6 hover:no-underline">
                 <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
