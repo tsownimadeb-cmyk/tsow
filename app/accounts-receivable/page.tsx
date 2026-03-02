@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { ARTable } from "@/components/accounts-receivable/ar-table"
-import type { AccountsReceivable } from "@/lib/types"
+import type { AccountsReceivable, Customer } from "@/lib/types"
 
 export const metadata = {
   title: "應收帳款管理",
@@ -27,10 +27,6 @@ export default async function ARPage() {
     )
   }
 
-  const customerCnos = (salesOrders || [])
-    .map((so) => so.customer_cno)
-    .filter((code): code is string => Boolean(code))
-
   const salesOrderIds = (salesOrders || []).map((so) => so.id)
 
   const { data: salesOrderItems } = salesOrderIds.length
@@ -49,12 +45,15 @@ export default async function ARPage() {
     ? await supabase.from("products").select("*").in("code", productCodes)
     : { data: [] }
 
-  const { data: customers } = customerCnos.length
-    ? await supabase.from("customers").select("*").in("code", customerCnos)
-    : { data: [] }
+  const { data: customers } = await supabase
+    .from("customers")
+    .select("*")
+    .order("code", { ascending: true })
+
+  const customersList = (customers || []) as Customer[]
 
   const customerMap = new Map(
-    (customers || []).flatMap((customer) => [
+    customersList.flatMap((customer) => [
       [customer.code, customer] as const,
       [customer.cno || customer.code, customer] as const,
     ]),
@@ -164,7 +163,13 @@ export default async function ARPage() {
         </div>
       )}
 
-      <ARTable records={enrichedRecords} />
+      <ARTable
+        records={enrichedRecords}
+        allCustomers={customersList.map((customer) => ({
+          cno: customer.cno || customer.code,
+          name: customer.name || customer.compy || customer.code,
+        }))}
+      />
     </div>
   )
 }

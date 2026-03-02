@@ -23,9 +23,13 @@ import type { AccountsReceivable } from "@/lib/types"
 
 interface ARTableProps {
   records: AccountsReceivable[]
+  allCustomers?: Array<{
+    cno: string
+    name: string
+  }>
 }
 
-export function ARTable({ records }: ARTableProps) {
+export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState("")
@@ -63,9 +67,49 @@ export function ARTable({ records }: ARTableProps) {
     return `$${value.toLocaleString()}`
   }
 
-  const customerSummaryMap = filteredRecords.reduce((map, record) => {
+  const customerSummaryMap = allCustomers.reduce((map, customer) => {
+    const customerCno = customer.cno || "未指定"
+    const customerName = customer.name || "未指定客戶"
+    const key = `${customerCno}-${customerName}`
+
+    if (!map.has(key)) {
+      map.set(key, {
+        customerName,
+        customerCno,
+        totalDue: 0,
+        totalPaid: 0,
+        totalOutstanding: 0,
+        orderCount: 0,
+        orders: [],
+      })
+    }
+
+    return map
+  }, new Map<string, {
+    customerName: string
+    customerCno: string
+    totalDue: number
+    totalPaid: number
+    totalOutstanding: number
+    orderCount: number
+    orders: Array<{
+      id: string
+      salesOrderId: string | null
+      customerCno: string | null
+      orderNumber: string
+      orderDate: string | null
+      products: string
+      amountDue: number
+      paidAmount: number
+      outstanding: number
+      isPaid: boolean
+      paidAt: string | null
+    }>
+  }>())
+
+  filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
-    const customerName = record.customer?.name || "未指定客戶"
+    const customerName = record.customer?.name || record.customer?.compy || "未指定客戶"
     const key = `${customerCno}-${customerName}`
     const outstanding = record.amount_due - record.paid_amount
     const current = map.get(key)
@@ -123,27 +167,7 @@ export function ARTable({ records }: ARTableProps) {
     }
 
     return map
-  }, new Map<string, {
-    customerName: string
-    customerCno: string
-    totalDue: number
-    totalPaid: number
-    totalOutstanding: number
-    orderCount: number
-    orders: Array<{
-      id: string
-      salesOrderId: string | null
-      customerCno: string | null
-      orderNumber: string
-      orderDate: string | null
-      products: string
-      amountDue: number
-      paidAmount: number
-      outstanding: number
-      isPaid: boolean
-      paidAt: string | null
-    }>
-  }>())
+  }, customerSummaryMap)
 
   const upsertReceivableBySalesOrder = async (payload: {
     salesOrderId: string
@@ -193,6 +217,14 @@ export function ARTable({ records }: ARTableProps) {
   }
 
   const customerSummaries = Array.from(customerSummaryMap.values())
+    .filter((summary) => {
+      if (!search || summary.orders.length > 0) {
+        return true
+      }
+
+      const keyword = search.toLowerCase()
+      return summary.customerCno.toLowerCase().includes(keyword) || summary.customerName.toLowerCase().includes(keyword)
+    })
     .filter((summary) => showAllCustomers || summary.totalOutstanding > 0)
     .sort((a, b) => {
       if (a.customerCno === "未指定" && b.customerCno !== "未指定") return 1
