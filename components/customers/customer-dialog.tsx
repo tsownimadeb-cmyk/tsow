@@ -20,6 +20,7 @@ import type { Customer } from "@/lib/types"
 
 type EditableCustomer = Customer & {
   addr?: string | null
+  address?: string | null
   tel2?: string | null
   tel3?: string | null
   fax?: string | null
@@ -48,29 +49,45 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
     tel1: customer?.tel1 || "",
     tel2: customer?.tel2 || customer?.tel11 || "",
     tel3: customer?.fax || customer?.tel3 || customer?.tel12 || "",
-    address: customer?.addr || "",
+    address: customer?.addr || customer?.address || "",
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
 
-    const payload = {
-      name: formData.name,
-      addr: formData.address || null,
-      tel1: formData.tel1 || null,
-      tel2: formData.tel2 || null,
-      fax: formData.tel3 || null,
-    }
-
     startTransition(async () => {
       try {
+        const sampleResult = await supabase.from("customers").select("*").limit(1)
+        if (sampleResult.error) {
+          throw new Error(sampleResult.error.message || "讀取 customers 欄位失敗")
+        }
+
+        const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
+        const hasColumn = (column: string) => existingColumns.has(column)
+
+        const keyColumn = hasColumn("code") ? "code" : hasColumn("cno") ? "cno" : "code"
+        const nameColumn = hasColumn("name") ? "name" : hasColumn("compy") ? "compy" : "name"
+        const tel1Column = hasColumn("tel1") ? "tel1" : null
+        const tel2Column = hasColumn("tel2") ? "tel2" : hasColumn("tel11") ? "tel11" : null
+        const tel3Column = hasColumn("fax") ? "fax" : hasColumn("tel3") ? "tel3" : hasColumn("tel12") ? "tel12" : null
+        const addressColumn = hasColumn("addr") ? "addr" : hasColumn("address") ? "address" : null
+
+        const payload: Record<string, string | null> = {
+          [nameColumn]: formData.name,
+        }
+
+        if (tel1Column) payload[tel1Column] = formData.tel1 || null
+        if (tel2Column) payload[tel2Column] = formData.tel2 || null
+        if (tel3Column) payload[tel3Column] = formData.tel3 || null
+        if (addressColumn) payload[addressColumn] = formData.address || null
+
         let error
         if (mode === "create") {
-          const result = await supabase.from("customers").insert({ code: formData.code, ...payload })
+          const result = await supabase.from("customers").insert({ [keyColumn]: formData.code, ...payload })
           error = result.error
         } else if (customer) {
-          const result = await supabase.from("customers").update(payload).eq("code", formData.code)
+          const result = await supabase.from("customers").update(payload).eq(keyColumn, formData.code)
           error = result.error
         }
 

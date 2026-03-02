@@ -396,87 +396,11 @@ async function queryExistingItemIdsByOrderAndCode(
   return keyToId
 }
 
-async function recalculatePurchaseStocks(supabase: ReturnType<typeof createClient>, targetCodes: string[]) {
-  const normalizedCodes = Array.from(new Set((targetCodes || []).map((code) => String(code || "").trim()).filter(Boolean)))
-  if (normalizedCodes.length === 0) {
-    return
+async function recalculateAllStockViaRpc(supabase: ReturnType<typeof createClient>) {
+  const { error } = await supabase.rpc("recalculate_all_stock")
+  if (error) {
+    throw new Error(formatSupabaseError(error, "重算庫存失敗：RPC recalculate_all_stock 執行失敗"))
   }
-
-  const itemAttempts = [
-    { select: "code,quantity", keyColumn: "code" },
-    { select: "product_pno,quantity", keyColumn: "product_pno" },
-  ]
-
-  let codeTotals = new Map<string, number>()
-  let itemsLoaded = false
-
-  for (const attempt of itemAttempts) {
-    const itemsResult = await supabase
-      .from("purchase_order_items")
-      .select(attempt.select)
-      .in(attempt.keyColumn, normalizedCodes)
-
-    if (itemsResult.error) continue
-
-    const nextTotals = new Map<string, number>()
-    const itemRows = (itemsResult.data || []) as any[]
-    for (const itemRow of itemRows) {
-      const itemCode = String(itemRow.code ?? itemRow.product_pno ?? "").trim()
-      if (!itemCode) continue
-      const quantity = Number(itemRow.quantity ?? 0)
-      nextTotals.set(itemCode, (nextTotals.get(itemCode) || 0) + (Number.isFinite(quantity) ? quantity : 0))
-    }
-
-    codeTotals = nextTotals
-    itemsLoaded = true
-    break
-  }
-
-  if (!itemsLoaded) {
-    throw new Error("重算庫存失敗：無法讀取進貨明細")
-  }
-
-  const productAttempts = [
-    { select: "code,stock_qty,purchase_qty_total", keyColumn: "code", stockColumn: "stock_qty" },
-    { select: "code,stock_qty", keyColumn: "code", stockColumn: "stock_qty" },
-    { select: "pno,stock_quantity,purchase_qty_total", keyColumn: "pno", stockColumn: "stock_quantity" },
-    { select: "pno,stock_quantity", keyColumn: "pno", stockColumn: "stock_quantity" },
-  ]
-
-  for (const attempt of productAttempts) {
-    const productsResult = await supabase
-      .from("products")
-      .select(attempt.select)
-      .in(attempt.keyColumn, normalizedCodes)
-
-    if (productsResult.error) continue
-
-    const productRows = (productsResult.data || []) as any[]
-    for (const productRow of productRows) {
-      const itemCode = String(productRow.code ?? productRow.pno ?? "").trim()
-      if (!itemCode) continue
-
-      const nextPurchaseTotal = Number(codeTotals.get(itemCode) || 0)
-      const currentPurchaseTotal = Number(productRow.purchase_qty_total ?? 0)
-      const currentStockQty = Number(productRow[attempt.stockColumn] ?? 0)
-      const delta = nextPurchaseTotal - currentPurchaseTotal
-      const nextStockQty = Math.max(0, currentStockQty + delta)
-
-      const payload =
-        attempt.stockColumn === "stock_qty"
-          ? { stock_qty: nextStockQty, purchase_qty_total: nextPurchaseTotal }
-          : { stock_quantity: nextStockQty, purchase_qty_total: nextPurchaseTotal }
-
-      const { error: updateError } = await supabase.from("products").update(payload).eq(attempt.keyColumn, itemCode)
-      if (updateError) {
-        throw new Error(updateError.message || `商品 ${itemCode} 庫存重算失敗`)
-      }
-    }
-
-    return
-  }
-
-  throw new Error("重算庫存失敗：無法讀取商品資料")
 }
 
 export function PurchasesBatchActions() {
@@ -629,8 +553,6 @@ export function PurchasesBatchActions() {
       if (parsedRows.length === 0) {
         throw new Error("沒有可匯入的資料，請確認 item_code 欄位")
       }
-
-      const affectedCodes = new Set(parsedRows.map((row) => String(row.item_code || "").trim()).filter(Boolean))
 
       if (syncDeleteMissing) {
         const secondConfirm = window.confirm(
@@ -842,13 +764,9 @@ export function PurchasesBatchActions() {
           if (!csvItemKeys.has(itemKey)) {
             idsToDelete.push(itemId)
             const deletedOrderNo = String(itemKey.split("::")[0] || "").trim()
-            const deletedCode = String(itemKey.split("::")[1] || "").trim()
             const deletedOrder = latestOrderByNo.get(deletedOrderNo)
             if (deletedOrder?.id) {
               affectedOrderIds.add(String(deletedOrder.id))
-            }
-            if (deletedCode) {
-              affectedCodes.add(deletedCode)
             }
           }
         }
@@ -908,7 +826,7 @@ export function PurchasesBatchActions() {
       await recalculatePurchaseOrderTotals(supabase, orderIdsToRecalculate)
       await syncAccountsPayable(supabase, orderIdsToRecalculate)
 
-      await recalculatePurchaseStocks(supabase, Array.from(affectedCodes))
+      await recalculateAllStockViaRpc(supabase)
 
       toastApi.success("進貨資料批次更新完成")
       router.refresh()

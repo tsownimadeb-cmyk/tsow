@@ -40,6 +40,8 @@ interface OrderItem {
   unit_price: number
 }
 
+const CASH_CUSTOMER_VALUE = "__cash_customer__"
+
 export function SalesDialog({ customers, products, mode, sales, children, open, onOpenChange }: SalesDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -185,6 +187,9 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
       return
     }
 
+    const normalizedCustomerCno =
+      formData.customer_cno === CASH_CUSTOMER_VALUE ? null : formData.customer_cno || null
+
     const supabase = createClient()
 
     startTransition(async () => {
@@ -223,7 +228,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             .from("sales_orders")
             .update({
               order_no: orderNo,
-              customer_cno: formData.customer_cno || null,
+              customer_cno: normalizedCustomerCno,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
@@ -299,7 +304,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
           await syncAccountsReceivable(
             saleId,
-            formData.customer_cno || null,
+            normalizedCustomerCno,
             Number(totalAmount),
             formData.order_date,
             Boolean(formData.is_paid),
@@ -321,7 +326,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           .from("sales_orders")
           .insert({
             order_no: finalOrderNumber,
-            customer_cno: formData.customer_cno || null,
+            customer_cno: normalizedCustomerCno,
             order_date: formData.order_date,
             total_amount: totalAmount,
             status: "completed",
@@ -441,6 +446,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   <SelectValue placeholder="選擇客戶" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={CASH_CUSTOMER_VALUE}>現銷客戶（散客）</SelectItem>
                   {customers.map((customer) => (
                     <SelectItem key={customer.code} value={customer.code}>
                       {customer.code} - {customer.name}
@@ -466,7 +472,9 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               id="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={2}
+              placeholder={formData.customer_cno === CASH_CUSTOMER_VALUE ? "請輸入客戶稱呼/電話..." : undefined}
+              rows={4}
+              className="min-h-[120px] resize-y"
             />
           </div>
 
