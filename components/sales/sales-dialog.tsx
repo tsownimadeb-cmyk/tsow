@@ -108,7 +108,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
       newItems[index] = {
         ...newItems[index],
         code: value as string,
-        unit_price: product ? Number(product.price) : 0,
+        unit_price: product ? Number(product.sale_price ?? product.price ?? 0) : 0,
       }
     } else {
       newItems[index] = { ...newItems[index], [field]: value }

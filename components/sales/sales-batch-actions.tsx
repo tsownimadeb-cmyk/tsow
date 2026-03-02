@@ -25,6 +25,7 @@ type SalesExportCsvRow = SalesCsvRow & {
 type ParsedSalesRow = SalesCsvRow & {
   row_no: number
   subtotal: number
+  is_paid_input: boolean | null
 }
 
 type SalesOrderRow = {
@@ -97,6 +98,14 @@ function toNumberOrZero(value: string) {
   if (!value?.trim()) return 0
   const parsed = Number(value)
   return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function parseBooleanInput(value: string) {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return null
+  if (["true", "1", "yes", "y"].includes(normalized)) return true
+  if (["false", "0", "no", "n"].includes(normalized)) return false
+  return null
 }
 
 function normalizeDateInput(value: string) {
@@ -231,6 +240,9 @@ async function queryExistingItemIdsByOrderAndCode(
   targetOrderIds?: string[],
 ) {
   const attempts = [
+    "id,sales_order_id,order_no,code,product_code,product_pno",
+    "id,sales_order_id,code,product_code,product_pno",
+    "id,sales_order_id,order_no,code",
     "id,sales_order_id,code",
     "id,sales_order_id,product_code",
     "id,sales_order_id,product_pno",
@@ -259,7 +271,7 @@ async function queryExistingItemIdsByOrderAndCode(
 
   const keyToId = new Map<string, string>()
   for (const row of rows) {
-    const orderNo = String(ordersById.get(String(row.sales_order_id ?? ""))?.order_no ?? "").trim()
+    const orderNo = String(row.order_no ?? ordersById.get(String(row.sales_order_id ?? ""))?.order_no ?? "").trim()
     const itemCode = String(row.code ?? row.product_code ?? row.product_pno ?? "").trim()
     const id = String(row.id ?? "").trim()
     if (!orderNo || !itemCode || !id) continue
@@ -624,6 +636,7 @@ export function SalesBatchActions() {
         const customerCode = String(valueByColumn.customer_code ?? "").trim()
         const quantityText = String(valueByColumn.quantity ?? "").trim()
         const unitPriceText = String(valueByColumn.unit_price ?? "").trim()
+        const isPaidText = String(valueByColumn.is_paid ?? "").trim()
 
         const isCompletelyEmpty = !orderNo && !itemCode && !salesDate && !customerCode && !quantityText && !unitPriceText
         if (isCompletelyEmpty) return
@@ -634,6 +647,7 @@ export function SalesBatchActions() {
 
         const quantity = toNumberOrZero(quantityText)
         const unitPrice = toNumberOrZero(unitPriceText)
+        const isPaidInput = parseBooleanInput(isPaidText)
 
         parsedRows.push({
           row_no: index + 2,
@@ -644,6 +658,7 @@ export function SalesBatchActions() {
           sales_date: salesDate,
           customer_code: customerCode,
           subtotal: quantity * unitPrice,
+          is_paid_input: isPaidInput,
         })
       })
 
@@ -706,7 +721,7 @@ export function SalesBatchActions() {
             .filter(Boolean),
         ),
       )
-      const headerUpdates = new Map<string, { order_date: string; customer_cno: string | null; total_amount: number }>()
+      const headerUpdates = new Map<string, { order_date: string; customer_cno: string | null; total_amount: number; is_paid: boolean }>()
 
       for (const row of parsedRows) {
         const order = latestOrderByNo.get(row.order_no)
@@ -720,11 +735,16 @@ export function SalesBatchActions() {
         const mergedCustomerCode =
           String(row.customer_code || "").trim() || current?.customer_cno || (String(order.customer_cno || "").trim() || null)
         const mergedTotal = Number(current?.total_amount || 0) + Number(row.subtotal)
+        const mergedIsPaid =
+          row.is_paid_input === null || row.is_paid_input === undefined
+            ? (current?.is_paid ?? Boolean(order.is_paid))
+            : row.is_paid_input
 
         headerUpdates.set(row.order_no, {
           order_date: mergedOrderDate,
           customer_cno: mergedCustomerCode,
           total_amount: mergedTotal,
+          is_paid: mergedIsPaid,
         })
       }
 
@@ -733,6 +753,7 @@ export function SalesBatchActions() {
           order_date: header.order_date || null,
           customer_cno: header.customer_cno,
           total_amount: Number(header.total_amount || 0),
+          is_paid: header.is_paid,
         }
 
         const { error: updateError } = await supabase.from("sales_orders").update(basePayload).eq("order_no", orderNo)
@@ -746,7 +767,25 @@ export function SalesBatchActions() {
         }
       }
 
-      const existingItemIdByKey = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
+      const targetOrderNos = Array.from(new Set(parsedRows.map((row) => row.order_no).filter(Boolean)))
+
+      if (targetOrderIds.length > 0) {
+        const deleteByOrderId = await supabase
+          .from("sales_order_items")
+          .delete()
+          .in("sales_order_id", targetOrderIds)
+
+        if (deleteByOrderId.error) {
+          const deleteByOrderNo = await supabase
+            .from("sales_order_items")
+            .delete()
+            .in("order_no", targetOrderNos)
+
+          if (deleteByOrderNo.error) {
+            throw new Error(formatSupabaseError(deleteByOrderNo.error, deleteByOrderId.error.message || "清除既有銷貨明細失敗"))
+          }
+        }
+      }
 
       const upsertPayloadByKey = new Map<
         string,
@@ -766,9 +805,8 @@ export function SalesBatchActions() {
           throw new Error(`第 ${row.row_no} 列失敗：order_no ${row.order_no} 不存在`)
         }
 
-        const existingId = existingItemIdByKey.get(`${row.order_no}::${row.item_code}`)
         const payload = {
-          id: existingId || createUuid(),
+          id: createUuid(),
           sales_order_id: order.id,
           code: row.item_code,
           quantity: Number(row.quantity),
@@ -776,26 +814,44 @@ export function SalesBatchActions() {
           subtotal: Number(row.subtotal),
         }
 
-        const dedupeKey = existingId ? `id:${existingId}` : `new:${order.id}::${row.item_code}`
+        const dedupeKey = `${order.id}::${row.item_code}`
         upsertPayloadByKey.set(dedupeKey, payload)
       }
 
       const upsertPayload = Array.from(upsertPayloadByKey.values())
       await upsertSalesItems(supabase, upsertPayload)
 
+      const affectedOrderIds = new Set<string>(targetOrderIds)
+
       if (syncDeleteMissing) {
         const csvItemKeys = new Set(parsedRows.map((row) => `${row.order_no}::${row.item_code}`))
-        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
+        const csvOrderNos = new Set(parsedRows.map((row) => String(row.order_no || "").trim()).filter(Boolean))
+        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
         const idsToDelete: string[] = []
 
         for (const [itemKey, itemId] of existingRows.entries()) {
           if (!csvItemKeys.has(itemKey)) {
             idsToDelete.push(itemId)
+            const deletedOrderNo = String(itemKey.split("::")[0] || "").trim()
             const deletedCode = String(itemKey.split("::")[1] || "").trim()
+            const deletedOrder = latestOrderByNo.get(deletedOrderNo)
+            if (deletedOrder?.id) {
+              affectedOrderIds.add(String(deletedOrder.id))
+            }
             if (deletedCode) {
               affectedCodes.add(deletedCode)
             }
           }
+        }
+
+        const orderIdsToDelete: string[] = []
+        const orderNosToDelete: string[] = []
+        for (const order of orders) {
+          const existingOrderNo = String(order.order_no || "").trim()
+          if (!existingOrderNo) continue
+          if (csvOrderNos.has(existingOrderNo)) continue
+          if (order.id) orderIdsToDelete.push(String(order.id))
+          orderNosToDelete.push(existingOrderNo)
         }
 
         if (idsToDelete.length > 0) {
@@ -804,10 +860,42 @@ export function SalesBatchActions() {
             throw new Error(formatSupabaseError(deleteError, "刪除缺少銷貨明細失敗"))
           }
         }
+
+        if (orderIdsToDelete.length > 0) {
+          const { error: deleteItemsByOrderIdError } = await supabase
+            .from("sales_order_items")
+            .delete()
+            .in("sales_order_id", orderIdsToDelete)
+          if (deleteItemsByOrderIdError) {
+            throw new Error(formatSupabaseError(deleteItemsByOrderIdError, "刪除缺少銷貨單明細失敗"))
+          }
+
+          const { error: deleteArError } = await supabase
+            .from("accounts_receivable")
+            .delete()
+            .in("sales_order_id", orderIdsToDelete)
+          if (deleteArError) {
+            throw new Error(formatSupabaseError(deleteArError, "刪除缺少應收帳款失敗"))
+          }
+
+          const { error: deleteOrdersError } = await supabase
+            .from("sales_orders")
+            .delete()
+            .in("id", orderIdsToDelete)
+          if (deleteOrdersError) {
+            throw new Error(formatSupabaseError(deleteOrdersError, "刪除缺少銷貨單失敗"))
+          }
+        }
+
+        if (orderNosToDelete.length > 0) {
+          await supabase.from("sales_order_items").delete().in("order_no", orderNosToDelete)
+          await supabase.from("sales_orders").delete().in("order_no", orderNosToDelete)
+          await supabase.from("sales_orders").delete().in("order_number", orderNosToDelete)
+        }
       }
 
       await recalculateProductStocksFromTransactions(supabase, Array.from(affectedCodes))
-      await syncAccountsReceivable(supabase, targetOrderIds)
+      await syncAccountsReceivable(supabase, Array.from(affectedOrderIds))
 
       toastApi.success("銷貨資料批次更新完成")
       router.refresh()
