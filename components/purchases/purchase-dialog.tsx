@@ -54,7 +54,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
     supplier_id: purchase?.supplier_id || "",
     order_date: purchase?.order_date || new Date().toISOString().split("T")[0],
     notes: purchase?.notes || "",
-    shipping_fee: Number((purchase as any)?.shipping_fee ?? 0),
+    shipping_fee: Number(purchase?.shipping_fee ?? 0),
     is_paid: Boolean(purchase?.is_paid),
   })
 
@@ -129,8 +129,8 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
   }
 
   const totalGoodsAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
-  const shippingFee = Number(formData.shipping_fee ?? 0)
-  const totalAmount = totalGoodsAmount + shippingFee
+  const shippingFee = Math.max(0, Number(formData.shipping_fee ?? 0))
+  const landedTotalAmount = totalGoodsAmount + shippingFee
 
   const syncAccountsPayable = async (
     purchaseOrderId: string,
@@ -272,7 +272,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           const headerPayload = {
             supplier_id: formData.supplier_id || null,
             order_date: formData.order_date,
-            total_amount: totalAmount,
+            total_amount: totalGoodsAmount,
             shipping_fee: shippingFee,
             status: "completed",
             is_paid: formData.is_paid,
@@ -284,7 +284,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             const fallbackPayload = {
               supplier_id: formData.supplier_id || null,
               order_date: formData.order_date,
-              total_amount: totalAmount,
+              total_amount: totalGoodsAmount,
               status: "completed",
               is_paid: formData.is_paid,
               notes: formData.notes || null,
@@ -355,7 +355,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           await syncAccountsPayable(
             purchaseId,
             formData.supplier_id || null,
-            Number(totalAmount),
+            Number(totalGoodsAmount),
             formData.order_date,
             Boolean(formData.is_paid),
           )
@@ -378,7 +378,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             order_no: orderNo,
             supplier_id: formData.supplier_id || null,
             order_date: formData.order_date,
-            total_amount: totalAmount,
+            total_amount: totalGoodsAmount,
             shipping_fee: shippingFee,
             status: "completed",
             is_paid: formData.is_paid,
@@ -394,7 +394,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               order_no: orderNo,
               supplier_id: formData.supplier_id || null,
               order_date: formData.order_date,
-              total_amount: totalAmount,
+              total_amount: totalGoodsAmount,
               status: "completed",
               is_paid: formData.is_paid,
               notes: formData.notes || null,
@@ -614,7 +614,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               checked={formData.is_paid}
               onCheckedChange={(checked) => setFormData({ ...formData, is_paid: Boolean(checked) })}
             />
-            <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
+            <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付供應商貨款</Label>
           </div>
 
           <div className="space-y-2">
@@ -697,9 +697,9 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             </div>
 
             <div className="space-y-1 text-right">
-              <div className="text-sm text-muted-foreground">商品總額：${totalGoodsAmount.toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground">運費：${shippingFee.toLocaleString()}</div>
-              <div className="text-lg font-semibold">總計：${totalAmount.toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">商品總額（供應商貨款）：${totalGoodsAmount.toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">運費（另計）：${shippingFee.toLocaleString()}</div>
+              <div className="text-lg font-semibold">落地總成本：${landedTotalAmount.toLocaleString()}</div>
             </div>
           </div>
 

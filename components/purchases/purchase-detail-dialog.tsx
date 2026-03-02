@@ -28,6 +28,9 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const status = statusMap[purchase.status]
+  const goodsAmount = Number(purchase.total_amount || 0)
+  const shippingFee = Number(purchase.shipping_fee || 0)
+  const landedTotal = goodsAmount + shippingFee
 
   const handleTogglePaid = () => {
     startTransition(async () => {
@@ -66,9 +69,9 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
 
         const apPayload = {
           supplier_id: purchase.supplier_id,
-          amount_due: Number(purchase.total_amount),
-          total_amount: Number(purchase.total_amount),
-          paid_amount: newStatus ? Number(purchase.total_amount) : 0,
+          amount_due: goodsAmount,
+          total_amount: goodsAmount,
+          paid_amount: newStatus ? goodsAmount : 0,
           due_date: purchase.order_date,
           status: newStatus ? "paid" : "unpaid",
         }
@@ -144,8 +147,16 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
               </Badge>
             </div>
             <div>
-              <span className="text-muted-foreground">總金額：</span>
-              <span className="ml-2 font-medium">${Number(purchase.total_amount).toLocaleString()}</span>
+              <span className="text-muted-foreground">供應商貨款：</span>
+              <span className="ml-2 font-medium">${goodsAmount.toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">運費（另計）：</span>
+              <span className="ml-2 font-medium">${shippingFee.toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">落地總成本：</span>
+              <span className="ml-2 font-medium">${landedTotal.toLocaleString()}</span>
             </div>
             <div>
               <span className="text-muted-foreground">付款狀態：</span>

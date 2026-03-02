@@ -76,11 +76,13 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
           return
         }
 
+        const payableGoodsAmount = Number(purchase.total_amount || 0)
+
         const apPayload = {
           supplier_id: purchase.supplier_id,
-          amount_due: Number(purchase.total_amount),
-          total_amount: Number(purchase.total_amount),
-          paid_amount: newStatus ? Number(purchase.total_amount) : 0,
+          amount_due: payableGoodsAmount,
+          total_amount: payableGoodsAmount,
+          paid_amount: newStatus ? payableGoodsAmount : 0,
           due_date: purchase.order_date,
           status: newStatus ? "paid" : "unpaid",
         }
@@ -263,6 +265,9 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
           <Accordion type="single" collapsible className="w-full">
             {filteredPurchases.map((purchase) => {
               const supplierName = supplierMap.get(purchase.supplier_id || "")?.name || "-"
+              const goodsAmount = Number(purchase.total_amount || 0)
+              const shippingFee = Number(purchase.shipping_fee || 0)
+              const landedTotal = goodsAmount + shippingFee
               return (
                 <AccordionItem key={purchase.id} value={purchase.id}>
                   <AccordionTrigger className="px-4 hover:no-underline">
@@ -272,7 +277,11 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                         <p className="text-xs text-muted-foreground">{supplierName}</p>
                       </div>
                       <div className="col-span-2 text-sm">{new Date(purchase.order_date).toLocaleDateString("zh-TW")}</div>
-                      <div className="col-span-3 text-right text-sm font-medium">${Number(purchase.total_amount).toLocaleString()}</div>
+                      <div className="col-span-3 text-right">
+                        <p className="text-sm font-medium">貨款 ${goodsAmount.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">運費 ${shippingFee.toLocaleString()}（另計）</p>
+                        <p className="text-xs text-muted-foreground">落地成本 ${landedTotal.toLocaleString()}</p>
+                      </div>
                       <div className="col-span-4 flex justify-end pr-2">
                         {purchase.is_paid ? (
                           <Badge variant="default" className="gap-1">
@@ -349,6 +358,11 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                           )}
                         </TableBody>
                       </Table>
+                    </div>
+                    <div className="mt-3 text-right space-y-1">
+                      <p className="text-sm text-muted-foreground">供應商貨款：${goodsAmount.toLocaleString()}</p>
+                      <p className="text-sm text-muted-foreground">運費（另計）：${shippingFee.toLocaleString()}</p>
+                      <p className="text-sm font-semibold">落地總成本：${landedTotal.toLocaleString()}</p>
                     </div>
                   </AccordionContent>
                 </AccordionItem>

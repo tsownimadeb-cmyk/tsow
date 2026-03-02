@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { ProductListRow } from "@/lib/products"
@@ -48,97 +49,96 @@ export function ProductsTable({ products }: ProductsTableProps) {
 
   return (
     <div className="rounded-md border border-gray-200 bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">編號</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品名稱</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">規格 / 單位</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">進貨總量</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">目前庫存</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">定價</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">特價</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {products.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-6 py-10 text-center text-sm text-gray-400">
-                  目前資料庫沒有商品，請手動新增。
-                </td>
-              </tr>
-            ) : (
-              products.map((p, index) => (
-                <tr key={p.code || `product-row-${index}`} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
-                    {p.code}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                    {p.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+      <div className="grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+        <div className="col-span-2">編號</div>
+        <div className="col-span-3">商品名稱</div>
+        <div className="col-span-3">規格 / 單位</div>
+        <div className="col-span-2 text-right">進貨總量</div>
+        <div className="col-span-2 text-right">目前庫存</div>
+      </div>
+
+      {products.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-gray-400">目前資料庫沒有商品，請手動新增。</div>
+      ) : (
+        <Accordion type="single" collapsible className="w-full">
+          {products.map((p, index) => (
+            <AccordionItem key={p.code || `product-row-${index}`} value={String(p.code || `product-row-${index}`)}>
+              <AccordionTrigger className="px-6 hover:no-underline">
+                <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
+                  <div className="col-span-2 text-sm font-mono text-gray-600">{p.code}</div>
+                  <div className="col-span-3 text-sm font-bold text-gray-900">{p.name}</div>
+                  <div className="col-span-3 text-sm text-gray-500">
                     {p.spec || "—"} {p.unit || ""}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 font-medium">
+                  </div>
+                  <div className="col-span-2 text-right text-sm font-medium text-gray-700">
                     {Number(p.purchase_qty_total || 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">
+                  </div>
+                  <div className="col-span-2 text-right text-sm font-semibold">
                     <span className={Number(p.stock_qty || 0) < Number(p.safety_stock || 0) ? "text-red-600" : "text-gray-700"}>
                       {Number(p.stock_qty || 0).toLocaleString()}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-semibold">
-                    ${Number(p.price || 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold" style={{color: p.sale_price && Number(p.sale_price) > 0 ? '#ef4444' : '#999'}}>
-                    {p.sale_price && Number(p.sale_price) > 0 ? `$${Number(p.sale_price).toLocaleString()}` : '—'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      {/* 這裡調用編輯模式的 ProductDialog */}
-                      {p.code ? (
-                        <ProductDialog
-                          mode="edit"
-                          product={{
-                            code: p.code,
-                            name: p.name,
-                            spec: p.spec,
-                            unit: p.unit,
-                            category: p.category,
-                            price: p.price,
-                            cost: p.cost,
-                            sale_price: p.sale_price,
-                            stock_qty: p.stock_qty,
-                            safety_stock: p.safety_stock,
-                          }}
-                        >
-                          <Button variant="outline" size="sm">
-                            編輯
-                          </Button>
-                        </ProductDialog>
-                      ) : (
-                        <Button variant="outline" size="sm" disabled title="缺少商品 code，無法編輯">
-                          編輯
-                        </Button>
-                      )}
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDelete(p)}
-                        disabled={!p.code || deletingCode === p.code}
-                      >
-                        {deletingCode === p.code ? "刪除中..." : "刪除"}
+                  </div>
+                </div>
+              </AccordionTrigger>
+
+              <AccordionContent className="px-6 pb-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">定價</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">${Number(p.price || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">特價</p>
+                    <p className="mt-1 text-base font-semibold" style={{ color: p.sale_price && Number(p.sale_price) > 0 ? "#ef4444" : "#999" }}>
+                      {p.sale_price && Number(p.sale_price) > 0 ? `$${Number(p.sale_price).toLocaleString()}` : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">成本</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(p.cost || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  {p.code ? (
+                    <ProductDialog
+                      mode="edit"
+                      product={{
+                        code: p.code,
+                        name: p.name,
+                        spec: p.spec,
+                        unit: p.unit,
+                        category: p.category,
+                        price: p.price,
+                        cost: p.cost,
+                        sale_price: p.sale_price,
+                        stock_qty: p.stock_qty,
+                        safety_stock: p.safety_stock,
+                      }}
+                    >
+                      <Button variant="outline" size="sm">
+                        編輯
                       </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                    </ProductDialog>
+                  ) : (
+                    <Button variant="outline" size="sm" disabled title="缺少商品 code，無法編輯">
+                      編輯
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDelete(p)}
+                    disabled={!p.code || deletingCode === p.code}
+                  >
+                    {deletingCode === p.code ? "刪除中..." : "刪除"}
+                  </Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      )}
     </div>
   )
 }

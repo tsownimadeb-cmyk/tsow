@@ -58,6 +58,7 @@ export interface PurchaseOrder {
   supplier_id: string | null
   order_date: string
   total_amount: number
+  shipping_fee?: number | null
   status: "pending" | "completed" | "cancelled"
   is_paid: boolean | null
   notes: string | null
