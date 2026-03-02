@@ -118,6 +118,7 @@ export interface AccountsReceivable {
   amount_due: number
   total_amount?: number | null
   paid_amount: number
+  paid_at?: string | null
   due_date: string | null
   status: "unpaid" | "partially_paid" | "paid"
   notes: string | null
@@ -134,6 +135,7 @@ export interface AccountsPayable {
   amount_due: number
   total_amount?: number | null
   paid_amount: number
+  paid_at?: string | null
   due_date: string | null
   status: "unpaid" | "partially_paid" | "paid"
   notes: string | null

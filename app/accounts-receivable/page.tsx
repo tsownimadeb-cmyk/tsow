@@ -82,28 +82,53 @@ export default async function ARPage() {
     console.error("Error fetching accounts_receivable:", arError)
   }
 
-  const arMap = new Map((arRows || []).map((row) => [row.sales_order_id, row]))
+  const arMap = (arRows || []).reduce((map, row) => {
+    if (!row.sales_order_id) return map
+
+    const current = map.get(row.sales_order_id)
+    if (!current) {
+      map.set(row.sales_order_id, row)
+      return map
+    }
+
+    const currentUpdatedAt = new Date(current.updated_at || current.created_at || 0).getTime()
+    const candidateUpdatedAt = new Date(row.updated_at || row.created_at || 0).getTime()
+
+    if (candidateUpdatedAt > currentUpdatedAt) {
+      map.set(row.sales_order_id, row)
+    }
+
+    return map
+  }, new Map<string, any>())
 
   // 不在頁面渲染階段自動寫入資料庫，避免因權限或約束造成錯誤
   // 缺少的應收資料以即時計算方式顯示，實際落地由操作流程（例如一鍵沖帳）或 SQL 腳本處理
 
   const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
     const existing = arMap.get(so.id)
+    const salesTotalAmount = Number(so.total_amount)
     const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
-    const existingAmountDue = existing
-      ? Number(existing.amount_due ?? existing.total_amount ?? so.total_amount)
-      : Number(so.total_amount)
-    const amountDue = Number.isNaN(existingAmountDue) ? Number(so.total_amount) : existingAmountDue
+    const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
+    const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
+
     const existingPaidAmount = existing
-      ? Number(existing.paid_amount ?? (so.is_paid ? so.total_amount : 0))
+      ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
       : so.is_paid
-        ? Number(so.total_amount)
+        ? amountDue
         : 0
-    const paidAmount = Number.isNaN(existingPaidAmount)
-      ? so.is_paid
-        ? Number(so.total_amount)
+    let paidAmount = Number.isFinite(existingPaidAmount)
+      ? existingPaidAmount
+      : so.is_paid
+        ? amountDue
         : 0
-      : existingPaidAmount
+
+    if (so.is_paid && paidAmount <= 0) {
+      paidAmount = amountDue
+    }
+
+    if (paidAmount > amountDue) {
+      paidAmount = amountDue
+    }
 
     return {
       id: existing?.id || `virtual-${so.id}`,
@@ -111,8 +136,9 @@ export default async function ARPage() {
       customer_cno: effectiveCustomerCno,
       amount_due: amountDue,
       paid_amount: paidAmount,
+      paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
       due_date: existing?.due_date || so.order_date,
-      status: existing?.status || (so.is_paid ? "paid" : "unpaid"),
+      status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
       notes: existing?.notes || so.notes || null,
       created_at: existing?.created_at || so.created_at,
       updated_at: existing?.updated_at || so.updated_at,

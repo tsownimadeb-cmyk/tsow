@@ -7,6 +7,16 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { AccountsReceivable } from "@/lib/types"
@@ -22,7 +32,17 @@ export function ARTable({ records }: ARTableProps) {
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllCustomers, setShowAllCustomers] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [isRowActionPending, startRowActionTransition] = useTransition()
   const [processingCustomerKey, setProcessingCustomerKey] = useState<string | null>(null)
+  const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+  const [restoreTargetOrder, setRestoreTargetOrder] = useState<{
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+  } | null>(null)
 
   const filteredRecords = records.filter(
     (record) =>
@@ -58,6 +78,7 @@ export function ARTable({ records }: ARTableProps) {
       current.orders.push({
         id: record.id,
         salesOrderId: record.sales_order_id,
+        customerCno: record.customer_cno || null,
         orderNumber: record.sales_order?.order_no || "-",
         orderDate: record.sales_order?.order_date || record.due_date || null,
         products:
@@ -68,6 +89,8 @@ export function ARTable({ records }: ARTableProps) {
         amountDue: record.amount_due,
         paidAmount: record.paid_amount,
         outstanding,
+        isPaid: record.sales_order?.is_paid === true,
+        paidAt: record.paid_at || null,
       })
     } else {
       map.set(key, {
@@ -81,6 +104,7 @@ export function ARTable({ records }: ARTableProps) {
           {
             id: record.id,
             salesOrderId: record.sales_order_id,
+            customerCno: record.customer_cno || null,
             orderNumber: record.sales_order?.order_no || "-",
             orderDate: record.sales_order?.order_date || record.due_date || null,
             products:
@@ -91,6 +115,8 @@ export function ARTable({ records }: ARTableProps) {
             amountDue: record.amount_due,
             paidAmount: record.paid_amount,
             outstanding,
+            isPaid: record.sales_order?.is_paid === true,
+            paidAt: record.paid_at || null,
           },
         ],
       })
@@ -107,14 +133,64 @@ export function ARTable({ records }: ARTableProps) {
     orders: Array<{
       id: string
       salesOrderId: string | null
+      customerCno: string | null
       orderNumber: string
       orderDate: string | null
       products: string
       amountDue: number
       paidAmount: number
       outstanding: number
+      isPaid: boolean
+      paidAt: string | null
     }>
   }>())
+
+  const upsertReceivableBySalesOrder = async (payload: {
+    salesOrderId: string
+    customerCno: string | null
+    amountDue: number
+    paidAmount: number
+    paidAt: string | null
+    dueDate: string | null
+    status: "unpaid" | "partially_paid" | "paid"
+  }) => {
+    const supabase = createClient()
+    const writePayload = {
+      customer_cno: payload.customerCno,
+      amount_due: payload.amountDue,
+      total_amount: payload.amountDue,
+      paid_amount: payload.paidAmount,
+      paid_at: payload.paidAt,
+      due_date: payload.dueDate,
+      status: payload.status,
+    }
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from("accounts_receivable")
+      .update(writePayload)
+      .eq("sales_order_id", payload.salesOrderId)
+      .select("id")
+      .limit(1)
+
+    if (updateError) {
+      throw new Error(updateError.message || "無法更新應收帳款資料")
+    }
+
+    if (updatedRows && updatedRows.length > 0) {
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from("accounts_receivable")
+      .insert({
+        sales_order_id: payload.salesOrderId,
+        ...writePayload,
+      })
+
+    if (insertError) {
+      throw new Error(insertError.message || "無法建立應收帳款資料")
+    }
+  }
 
   const customerSummaries = Array.from(customerSummaryMap.values())
     .filter((summary) => showAllCustomers || summary.totalOutstanding > 0)
@@ -134,6 +210,7 @@ export function ARTable({ records }: ARTableProps) {
     startTransition(async () => {
       try {
         const supabase = createClient()
+        const settledAt = new Date().toISOString()
         const unpaidOrders = summary.orders.filter((order) => order.outstanding > 0)
 
         if (unpaidOrders.length === 0) {
@@ -166,44 +243,15 @@ export function ARTable({ records }: ARTableProps) {
 
         for (const order of unpaidOrders) {
           if (!order.salesOrderId) continue
-
-          if (order.id.startsWith("virtual-")) {
-            const { error: insertError } = await supabase.from("accounts_receivable").insert({
-              sales_order_id: order.salesOrderId,
-              customer_cno: summary.customerCno === "未指定" ? null : summary.customerCno,
-              amount_due: order.amountDue,
-              total_amount: order.amountDue,
-              paid_amount: order.amountDue,
-              due_date: order.orderDate,
-              status: "paid",
-            })
-
-            if (insertError) {
-              toast({
-                title: "錯誤",
-                description: insertError.message || "無法建立應收帳款資料",
-                variant: "destructive",
-              })
-              return
-            }
-          } else {
-            const { error: updateError } = await supabase
-              .from("accounts_receivable")
-              .update({
-                paid_amount: order.amountDue,
-                status: "paid",
-              })
-              .eq("id", order.id)
-
-            if (updateError) {
-              toast({
-                title: "錯誤",
-                description: updateError.message || "無法更新應收帳款資料",
-                variant: "destructive",
-              })
-              return
-            }
-          }
+          await upsertReceivableBySalesOrder({
+            salesOrderId: order.salesOrderId,
+            customerCno: summary.customerCno === "未指定" ? null : summary.customerCno,
+            amountDue: order.amountDue,
+            paidAmount: order.amountDue,
+            paidAt: settledAt,
+            dueDate: order.orderDate,
+            status: "paid",
+          })
         }
 
         toast({
@@ -219,6 +267,135 @@ export function ARTable({ records }: ARTableProps) {
         })
       } finally {
         setProcessingCustomerKey(null)
+      }
+    })
+  }
+
+  const settleSingleOrder = async (order: {
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+  }) => {
+    if (!order.salesOrderId) {
+      toast({
+        title: "錯誤",
+        description: "缺少銷貨單據關聯，無法執行沖帳",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const supabase = createClient()
+    const settledAt = new Date().toISOString()
+    const { error: salesUpdateError } = await supabase
+      .from("sales_orders")
+      .update({ is_paid: true })
+      .eq("id", order.salesOrderId)
+
+    if (salesUpdateError) {
+      toast({
+        title: "錯誤",
+        description: salesUpdateError.message || "無法更新銷貨付款狀態",
+        variant: "destructive",
+      })
+      return
+    }
+
+    await upsertReceivableBySalesOrder({
+      salesOrderId: order.salesOrderId,
+      customerCno: order.customerCno,
+      amountDue: order.amountDue,
+      paidAmount: order.amountDue,
+      paidAt: settledAt,
+      dueDate: order.orderDate,
+      status: "paid",
+    })
+
+    toast({
+      title: "成功",
+      description: `單號 ${order.orderNumber} 已完成沖帳`,
+    })
+    router.refresh()
+  }
+
+  const restoreSingleOrder = async (order: {
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+  }) => {
+    if (!order.salesOrderId) {
+      toast({
+        title: "錯誤",
+        description: "缺少銷貨單據關聯，無法恢復未付",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const supabase = createClient()
+    const { error: salesUpdateError } = await supabase
+      .from("sales_orders")
+      .update({ is_paid: false, status: "pending" })
+      .eq("id", order.salesOrderId)
+
+    if (salesUpdateError) {
+      toast({
+        title: "錯誤",
+        description: salesUpdateError.message || "無法更新銷貨狀態",
+        variant: "destructive",
+      })
+      return
+    }
+
+    await upsertReceivableBySalesOrder({
+      salesOrderId: order.salesOrderId,
+      customerCno: order.customerCno,
+      amountDue: order.amountDue,
+      paidAmount: 0,
+      paidAt: null,
+      dueDate: order.orderDate,
+      status: "unpaid",
+    })
+
+    toast({
+      title: "成功",
+      description: `單號 ${order.orderNumber} 已恢復為未付款`,
+    })
+    router.refresh()
+  }
+
+  const handleSingleOrderAction = (order: {
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+    outstanding: number
+  }) => {
+    setProcessingOrderId(order.id)
+    startRowActionTransition(async () => {
+      try {
+        if (order.outstanding > 0) {
+          await settleSingleOrder(order)
+        } else {
+          await restoreSingleOrder(order)
+        }
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingOrderId(null)
+        setRestoreTargetOrder(null)
       }
     })
   }
@@ -385,28 +562,67 @@ export function ARTable({ records }: ARTableProps) {
                           <TableHead>商品</TableHead>
                           <TableHead className="text-right">單筆金額</TableHead>
                           <TableHead className="text-right">未收金額</TableHead>
+                          <TableHead className="text-center">狀態</TableHead>
+                          <TableHead className="text-center">沖帳日期</TableHead>
+                          <TableHead className="text-right">操作</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {summary.orders.map((order) => (
-                          <TableRow key={order.id}>
-                            <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                            <TableCell>
-                              {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
-                            </TableCell>
-                            <TableCell>{order.products}</TableCell>
-                            <TableCell className="text-right">${order.amountDue.toLocaleString()}</TableCell>
-                            <TableCell className="text-right">${order.outstanding.toLocaleString()}</TableCell>
-                          </TableRow>
-                        ))}
+                        {summary.orders.map((order) => {
+                          const isPaid = order.isPaid || order.outstanding <= 0
+                          const isThisOrderProcessing = isRowActionPending && processingOrderId === order.id
+
+                          return (
+                            <TableRow key={order.id}>
+                              <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                              <TableCell>
+                                {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
+                              </TableCell>
+                              <TableCell>{order.products}</TableCell>
+                              <TableCell className="text-right">${order.amountDue.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">${order.outstanding.toLocaleString()}</TableCell>
+                              <TableCell className="text-center">
+                                <span className={isPaid ? "text-foreground" : "text-destructive"}>{isPaid ? "已付款" : "未付款"}</span>
+                              </TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">
+                                {isPaid && order.paidAt ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  variant={isPaid ? "outline" : "default"}
+                                  disabled={isThisOrderProcessing}
+                                  onClick={() => {
+                                    if (isPaid) {
+                                      setRestoreTargetOrder({
+                                        id: order.id,
+                                        salesOrderId: order.salesOrderId,
+                                        customerCno: order.customerCno,
+                                        orderNumber: order.orderNumber,
+                                        orderDate: order.orderDate,
+                                        amountDue: order.amountDue,
+                                      })
+                                      return
+                                    }
+
+                                    handleSingleOrderAction(order)
+                                  }}
+                                >
+                                  {isThisOrderProcessing ? "處理中..." : isPaid ? "恢復未付" : "一鍵沖帳"}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                         <TableRow className="bg-muted/40">
-                          <TableCell colSpan={3} className="text-right font-semibold">總金額</TableCell>
+                          <TableCell colSpan={4} className="text-right font-semibold">總金額</TableCell>
                           <TableCell className="text-right font-semibold">
                             ${summary.orders.reduce((sum, order) => sum + order.amountDue, 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="text-right font-semibold text-destructive">
                             ${summary.orders.reduce((sum, order) => sum + order.outstanding, 0).toLocaleString()}
                           </TableCell>
+                          <TableCell colSpan={2} />
                         </TableRow>
                       </TableBody>
                     </Table>
@@ -417,6 +633,32 @@ export function ARTable({ records }: ARTableProps) {
           </Accordion>
         )}
       </div>
+
+      <AlertDialog open={Boolean(restoreTargetOrder)} onOpenChange={(open) => !open && setRestoreTargetOrder(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>確認恢復未付款</AlertDialogTitle>
+            <AlertDialogDescription>
+              {restoreTargetOrder
+                ? `確定要將單號 ${restoreTargetOrder.orderNumber} 恢復為未付款狀態嗎？`
+                : "確定要恢復為未付款狀態嗎？"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRowActionPending}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRowActionPending || !restoreTargetOrder}
+              onClick={(e) => {
+                e.preventDefault()
+                if (!restoreTargetOrder) return
+                handleSingleOrderAction({ ...restoreTargetOrder, outstanding: 0 })
+              }}
+            >
+              {isRowActionPending ? "處理中..." : "確認恢復"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -51,6 +51,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
     startTransition(async () => {
       try {
         const supabase = createClient()
+        const paidAt = newStatus ? new Date().toISOString() : null
 
         const { error } = await supabase.from("sales_orders").update({ is_paid: newStatus }).eq("id", saleId)
 
@@ -59,37 +60,29 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
           return
         }
 
-        const { data: existingArRows, error: arQueryError } = await supabase
-          .from("accounts_receivable")
-          .select("id")
-          .eq("sales_order_id", saleId)
-          .limit(1)
-
-        if (arQueryError) {
-          toast({ title: "錯誤", description: arQueryError.message || "無法查詢應收帳款", variant: "destructive" })
-          return
-        }
-
         const arPayload = {
           customer_cno: sale.customer_cno,
           amount_due: Number(sale.total_amount),
           total_amount: Number(sale.total_amount),
           paid_amount: newStatus ? Number(sale.total_amount) : 0,
+          paid_at: paidAt,
           due_date: sale.order_date,
           status: newStatus ? "paid" : "unpaid",
         }
 
-        if (existingArRows && existingArRows.length > 0) {
-          const { error: arUpdateError } = await supabase
-            .from("accounts_receivable")
-            .update(arPayload)
-            .eq("id", existingArRows[0].id)
+        const { data: updatedRows, error: arUpdateError } = await supabase
+          .from("accounts_receivable")
+          .update(arPayload)
+          .eq("sales_order_id", saleId)
+          .select("id")
+          .limit(1)
 
-          if (arUpdateError) {
-            toast({ title: "錯誤", description: arUpdateError.message || "無法更新應收帳款", variant: "destructive" })
-            return
-          }
-        } else {
+        if (arUpdateError) {
+          toast({ title: "錯誤", description: arUpdateError.message || "無法更新應收帳款", variant: "destructive" })
+          return
+        }
+
+        if (!updatedRows || updatedRows.length === 0) {
           const { error: arInsertError } = await supabase
             .from("accounts_receivable")
             .insert({ sales_order_id: saleId, ...arPayload })

@@ -46,9 +46,9 @@ const navigation: NavItem[] = [
     icon: ShoppingCart,
     children: [
       { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
-      { name: "應收帳款管理", href: "/accounts-receivable", icon: CreditCard },
     ],
   },
+  { name: "應收帳款管理", href: "/accounts-receivable", icon: CreditCard },
   { name: "供應商管理", href: "/suppliers", icon: Building2 },
   { name: "客戶管理", href: "/customers", icon: Users },
 ]
