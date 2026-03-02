@@ -120,7 +120,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
       newItems[index] = {
         ...newItems[index],
         code: value as string,
-        unit_price: product ? Number(product.cost) : 0,
+        unit_price: product ? Number(product.base_price ?? product.purchase_price ?? product.cost ?? 0) : 0,
       }
     } else {
       newItems[index] = { ...newItems[index], [field]: value }
@@ -324,11 +324,12 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             const oldQty = Number(oldQuantityByCode.get(code) || 0)
             const newQty = Number(quantityByCode.get(code) || 0)
             const delta = newQty - oldQty
-            if (delta === 0) continue
+            const hasEditedPurchaseLine = quantityByCode.has(code)
+            if (delta === 0 && !hasEditedPurchaseLine) continue
 
             const { data: product, error: productError } = await supabase
               .from("products")
-              .select("code,stock_qty,purchase_qty_total")
+              .select("code,stock_qty,purchase_qty_total,cost")
               .eq("code", code)
               .single()
 
@@ -338,13 +339,30 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
             const coalescedStockQty = Number(product.stock_qty ?? 0)
             const coalescedPurchaseQtyTotal = Number(product.purchase_qty_total ?? 0)
+            const coalescedCurrentCost = Number(product.cost ?? 0)
+
+            const nextStockQty = Math.max(0, coalescedStockQty + delta)
+            const nextPurchaseQtyTotal = Math.max(0, coalescedPurchaseQtyTotal + delta)
+
+            const updatePayload: Record<string, number> = {
+              stock_qty: nextStockQty,
+              purchase_qty_total: nextPurchaseQtyTotal,
+            }
+
+            if (hasEditedPurchaseLine) {
+              const itemTotalAmount = Number(amountByCode.get(code) ?? 0)
+              const allocatedShippingForItem = totalGoodsAmount > 0 ? (itemTotalAmount / totalGoodsAmount) * shippingFee : 0
+              const allocatedShippingPerUnit = newQty > 0 ? allocatedShippingForItem / newQty : 0
+              const baseUnitCost = newQty > 0 ? itemTotalAmount / newQty : coalescedCurrentCost
+              const nextCost = baseUnitCost + allocatedShippingPerUnit
+              updatePayload.cost = nextCost
+            } else if (nextPurchaseQtyTotal <= 0) {
+              updatePayload.cost = 0
+            }
 
             const { error: updateInventoryError } = await supabase
               .from("products")
-              .update({
-                stock_qty: Math.max(0, coalescedStockQty + delta),
-                purchase_qty_total: Math.max(0, coalescedPurchaseQtyTotal + delta),
-              })
+              .update(updatePayload)
               .eq("code", code)
 
             if (updateInventoryError) {

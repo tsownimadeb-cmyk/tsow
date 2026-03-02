@@ -19,12 +19,15 @@ type PurchaseCsvRow = {
 }
 
 type PurchaseExportCsvRow = PurchaseCsvRow & {
+  shipping_fee: number
   is_paid: string
 }
 
 type ParsedPurchaseRow = PurchaseCsvRow & {
   row_no: number
   subtotal: number
+  is_paid_input: boolean | null
+  shipping_fee_input: number | null
 }
 
 type OrderRow = {
@@ -32,6 +35,7 @@ type OrderRow = {
   order_no: string
   order_date: string | null
   supplier_id: string | null
+  shipping_fee: number
   is_paid: boolean | null
   total_amount: number
 }
@@ -45,7 +49,7 @@ const CSV_COLUMNS: Array<keyof PurchaseCsvRow> = [
   "vendor_code",
 ]
 
-const EXPORT_CSV_COLUMNS: Array<keyof PurchaseExportCsvRow> = [...CSV_COLUMNS, "is_paid"]
+const EXPORT_CSV_COLUMNS: Array<keyof PurchaseExportCsvRow> = [...CSV_COLUMNS, "shipping_fee", "is_paid"]
 
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
@@ -100,6 +104,26 @@ function toNumberOrZero(value: string) {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+function toOptionalNumber(value: string) {
+  const normalized = String(value || "").trim()
+  if (!normalized) return null
+  const parsed = Number(normalized)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseBooleanInput(value: string) {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return null
+  if (["true", "1", "yes", "y"].includes(normalized)) return true
+  if (["false", "0", "no", "n"].includes(normalized)) return false
+  return null
+}
+
+function isShippingFeeColumnMissing(error: any) {
+  const message = String(error?.message || "").toLowerCase()
+  return message.includes("shipping_fee") && (message.includes("column") || message.includes("schema cache"))
+}
+
 function normalizeDateInput(value: string) {
   const raw = String(value || "").trim()
   if (!raw) return ""
@@ -136,6 +160,12 @@ function createUuid() {
 
 async function queryOrders(supabase: ReturnType<typeof createClient>) {
   const attempts = [
+    "id,order_no,order_date,supplier_id,shipping_fee,is_paid,total_amount",
+    "id,order_number,order_date,supplier_id,shipping_fee,is_paid,total_amount",
+    "id,order_no,order_date,supplier_id,shipping_fee,is_paid",
+    "id,order_number,order_date,supplier_id,shipping_fee,is_paid",
+    "id,order_no,order_date,supplier_id,shipping_fee",
+    "id,order_number,order_date,supplier_id,shipping_fee",
     "id,order_no,order_date,supplier_id,is_paid,total_amount",
     "id,order_number,order_date,supplier_id,is_paid,total_amount",
     "id,order_no,order_date,supplier_id,is_paid",
@@ -152,6 +182,7 @@ async function queryOrders(supabase: ReturnType<typeof createClient>) {
         order_no: String(row.order_no ?? row.order_number ?? "").trim(),
         order_date: row.order_date ?? null,
         supplier_id: row.supplier_id ?? null,
+        shipping_fee: Number(row.shipping_fee ?? 0),
         is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
         total_amount: Number(row.total_amount ?? 0),
       }))
@@ -320,24 +351,43 @@ async function queryExistingItemIdsByOrderAndCode(
   ordersById: Map<string, OrderRow>,
   targetOrderIds?: string[],
 ) {
-  let query = supabase
-    .from("purchase_order_items")
-    .select("id,purchase_order_id,code")
+  const attempts = [
+    "id,purchase_order_id,order_no,code,product_pno",
+    "id,purchase_order_id,code,product_pno",
+    "id,purchase_order_id,order_no,code",
+    "id,purchase_order_id,code",
+  ]
 
-  if (targetOrderIds && targetOrderIds.length > 0) {
-    query = query.in("purchase_order_id", targetOrderIds)
+  let data: any[] = []
+  let loaded = false
+  let lastError: any = null
+
+  for (const selectText of attempts) {
+    let query = supabase.from("purchase_order_items").select(selectText)
+
+    if (targetOrderIds && targetOrderIds.length > 0) {
+      query = query.in("purchase_order_id", targetOrderIds)
+    }
+
+    const result = await query
+    if (result.error) {
+      lastError = result.error
+      continue
+    }
+
+    data = (result.data || []) as any[]
+    loaded = true
+    break
   }
 
-  const { data, error } = await query
-
-  if (error) {
-    throw new Error(formatSupabaseError(error, "讀取進貨明細失敗"))
+  if (!loaded) {
+    throw new Error(formatSupabaseError(lastError, "讀取進貨明細失敗"))
   }
 
   const keyToId = new Map<string, string>()
-  for (const row of (data || []) as any[]) {
-    const orderNo = String(ordersById.get(String(row.purchase_order_id ?? ""))?.order_no ?? "").trim()
-    const itemCode = String(row.code ?? "").trim()
+  for (const row of data) {
+    const orderNo = String(row.order_no ?? ordersById.get(String(row.purchase_order_id ?? ""))?.order_no ?? "").trim()
+    const itemCode = String(row.code ?? row.product_pno ?? "").trim()
     const id = String(row.id ?? "").trim()
     if (!orderNo || !itemCode || !id) continue
     keyToId.set(`${orderNo}::${itemCode}`, id)
@@ -473,6 +523,7 @@ export function PurchasesBatchActions() {
           unit_price: Number(item.unit_price ?? 0),
           purchase_date: String(order?.order_date ?? ""),
           vendor_code: String(order?.supplier_id ?? ""),
+          shipping_fee: Number(order?.shipping_fee ?? 0),
           is_paid: order?.is_paid === true ? "true" : "false",
         }
       })
@@ -546,6 +597,8 @@ export function PurchasesBatchActions() {
         const vendorCode = String(valueByColumn.vendor_code ?? "").trim()
         const quantityText = String(valueByColumn.quantity ?? "").trim()
         const unitPriceText = String(valueByColumn.unit_price ?? "").trim()
+        const shippingFeeText = String(valueByColumn.shipping_fee ?? "").trim()
+        const isPaidText = String(valueByColumn.is_paid ?? "").trim()
 
         const isCompletelyEmpty = !orderNo && !itemCode && !purchaseDate && !vendorCode && !quantityText && !unitPriceText
         if (isCompletelyEmpty) return
@@ -556,6 +609,8 @@ export function PurchasesBatchActions() {
 
         const quantity = toNumberOrZero(quantityText)
         const unitPrice = toNumberOrZero(unitPriceText)
+        const shippingFeeInput = toOptionalNumber(shippingFeeText)
+        const isPaidInput = parseBooleanInput(isPaidText)
 
         parsedRows.push({
           row_no: index + 2,
@@ -566,6 +621,8 @@ export function PurchasesBatchActions() {
           purchase_date: purchaseDate,
           vendor_code: vendorCode,
           subtotal: quantity * unitPrice,
+          is_paid_input: isPaidInput,
+          shipping_fee_input: shippingFeeInput,
         })
       })
 
@@ -628,7 +685,7 @@ export function PurchasesBatchActions() {
             .filter(Boolean),
         ),
       )
-      const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null }>()
+      const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null; is_paid: boolean; shipping_fee: number }>()
 
       for (const row of parsedRows) {
         const order = latestOrderByNo.get(row.order_no)
@@ -646,10 +703,20 @@ export function PurchasesBatchActions() {
           String(row.vendor_code || "").trim() ||
           current?.supplier_id ||
           (String(order.supplier_id || "").trim() || null)
+        const mergedIsPaid =
+          row.is_paid_input === null || row.is_paid_input === undefined
+            ? (current?.is_paid ?? Boolean(order.is_paid))
+            : row.is_paid_input
+        const mergedShippingFee =
+          row.shipping_fee_input === null || row.shipping_fee_input === undefined
+            ? (current?.shipping_fee ?? Number(order.shipping_fee || 0))
+            : Number(row.shipping_fee_input)
 
         headerUpdates.set(row.order_no, {
           order_date: mergedOrderDate,
           supplier_id: mergedSupplierId,
+          is_paid: mergedIsPaid,
+          shipping_fee: Number(mergedShippingFee || 0),
         })
       }
 
@@ -659,28 +726,74 @@ export function PurchasesBatchActions() {
           .update({
             order_date: header.order_date || null,
             supplier_id: header.supplier_id,
+            is_paid: header.is_paid,
+            shipping_fee: header.shipping_fee,
           })
           .eq("order_no", orderNo)
 
         if (!updateError) continue
+
+        if (isShippingFeeColumnMissing(updateError)) {
+          const retryWithoutShipping = await supabase
+            .from("purchase_orders")
+            .update({
+              order_date: header.order_date || null,
+              supplier_id: header.supplier_id,
+              is_paid: header.is_paid,
+            })
+            .eq("order_no", orderNo)
+          if (!retryWithoutShipping.error) continue
+        }
 
         const { error: fallbackError } = await supabase
           .from("purchase_orders")
           .update({
             order_date: header.order_date || null,
             supplier_id: header.supplier_id,
+            is_paid: header.is_paid,
+            shipping_fee: header.shipping_fee,
           })
           .eq("order_number", orderNo)
+
+        if (fallbackError && isShippingFeeColumnMissing(fallbackError)) {
+          const fallbackWithoutShipping = await supabase
+            .from("purchase_orders")
+            .update({
+              order_date: header.order_date || null,
+              supplier_id: header.supplier_id,
+              is_paid: header.is_paid,
+            })
+            .eq("order_number", orderNo)
+
+          if (!fallbackWithoutShipping.error) continue
+        }
 
         if (fallbackError) {
           throw new Error(`order_no ${orderNo} 單頭更新失敗：${formatSupabaseError(fallbackError, updateError.message)}`)
         }
       }
 
-      const existingItemIdByKey = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
+      const targetOrderNos = Array.from(new Set(parsedRows.map((row) => row.order_no).filter(Boolean)))
 
-      const upsertPayloadByKey = new Map<string, {
-        id: string
+      if (targetOrderIds.length > 0) {
+        const deleteByOrderId = await supabase
+          .from("purchase_order_items")
+          .delete()
+          .in("purchase_order_id", targetOrderIds)
+
+        if (deleteByOrderId.error) {
+          const deleteByOrderNo = await supabase
+            .from("purchase_order_items")
+            .delete()
+            .in("order_no", targetOrderNos)
+
+          if (deleteByOrderNo.error) {
+            throw new Error(formatSupabaseError(deleteByOrderNo.error, deleteByOrderId.error.message || "清除既有進貨明細失敗"))
+          }
+        }
+      }
+
+      const insertPayloadByKey = new Map<string, {
         purchase_order_id: string
         code: string
         quantity: number
@@ -694,9 +807,7 @@ export function PurchasesBatchActions() {
           throw new Error(`第 ${row.row_no} 列失敗：order_no ${row.order_no} 不存在`)
         }
 
-        const existingId = existingItemIdByKey.get(`${row.order_no}::${row.item_code}`)
         const payload = {
-          id: existingId || createUuid(),
           purchase_order_id: order.id,
           code: row.item_code,
           quantity: Number(row.quantity),
@@ -704,36 +815,52 @@ export function PurchasesBatchActions() {
           subtotal: Number(row.subtotal),
         }
 
-        const dedupeKey = existingId
-          ? `id:${existingId}`
-          : `new:${order.id}::${row.item_code}`
+        const dedupeKey = `${order.id}::${row.item_code}`
 
-        upsertPayloadByKey.set(dedupeKey, payload)
+        insertPayloadByKey.set(dedupeKey, payload)
       }
 
-      const upsertPayload = Array.from(upsertPayloadByKey.values())
+      const insertPayload = Array.from(insertPayloadByKey.values())
 
-      const { error: upsertError } = await supabase
+      const { error: insertError } = await supabase
         .from("purchase_order_items")
-        .upsert(upsertPayload, { onConflict: "id", on_conflict: "id" } as any)
+        .insert(insertPayload)
 
-      if (upsertError) {
-        throw new Error(formatSupabaseError(upsertError, "匯入進貨明細失敗"))
+      if (insertError) {
+        throw new Error(formatSupabaseError(insertError, "匯入進貨明細失敗"))
       }
+
+      const affectedOrderIds = new Set<string>(targetOrderIds)
 
       if (syncDeleteMissing) {
         const csvItemKeys = new Set(parsedRows.map((row) => `${row.order_no}::${row.item_code}`))
-        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById, targetOrderIds)
+        const csvOrderNos = new Set(parsedRows.map((row) => String(row.order_no || "").trim()).filter(Boolean))
+        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
         const idsToDelete: string[] = []
 
         for (const [itemKey, itemId] of existingRows.entries()) {
           if (!csvItemKeys.has(itemKey)) {
             idsToDelete.push(itemId)
+            const deletedOrderNo = String(itemKey.split("::")[0] || "").trim()
             const deletedCode = String(itemKey.split("::")[1] || "").trim()
+            const deletedOrder = latestOrderByNo.get(deletedOrderNo)
+            if (deletedOrder?.id) {
+              affectedOrderIds.add(String(deletedOrder.id))
+            }
             if (deletedCode) {
               affectedCodes.add(deletedCode)
             }
           }
+        }
+
+        const orderIdsToDelete: string[] = []
+        const orderNosToDelete: string[] = []
+        for (const order of orders) {
+          const existingOrderNo = String(order.order_no || "").trim()
+          if (!existingOrderNo) continue
+          if (csvOrderNos.has(existingOrderNo)) continue
+          if (order.id) orderIdsToDelete.push(String(order.id))
+          orderNosToDelete.push(existingOrderNo)
         }
 
         if (idsToDelete.length > 0) {
@@ -742,10 +869,44 @@ export function PurchasesBatchActions() {
             throw new Error(formatSupabaseError(deleteError, "刪除缺少進貨明細失敗"))
           }
         }
+
+        if (orderIdsToDelete.length > 0) {
+          const { error: deleteItemsByOrderIdError } = await supabase
+            .from("purchase_order_items")
+            .delete()
+            .in("purchase_order_id", orderIdsToDelete)
+          if (deleteItemsByOrderIdError) {
+            throw new Error(formatSupabaseError(deleteItemsByOrderIdError, "刪除缺少進貨單明細失敗"))
+          }
+
+          const { error: deleteApError } = await supabase
+            .from("accounts_payable")
+            .delete()
+            .in("purchase_order_id", orderIdsToDelete)
+          if (deleteApError) {
+            throw new Error(formatSupabaseError(deleteApError, "刪除缺少應付帳款失敗"))
+          }
+
+          const { error: deleteOrdersError } = await supabase
+            .from("purchase_orders")
+            .delete()
+            .in("id", orderIdsToDelete)
+          if (deleteOrdersError) {
+            throw new Error(formatSupabaseError(deleteOrdersError, "刪除缺少進貨單失敗"))
+          }
+        }
+
+        if (orderNosToDelete.length > 0) {
+          await supabase.from("purchase_order_items").delete().in("order_no", orderNosToDelete)
+          await supabase.from("purchase_orders").delete().in("order_no", orderNosToDelete)
+          await supabase.from("purchase_orders").delete().in("order_number", orderNosToDelete)
+        }
       }
 
-      await recalculatePurchaseOrderTotals(supabase, targetOrderIds)
-      await syncAccountsPayable(supabase, targetOrderIds)
+      const orderIdsToRecalculate = Array.from(affectedOrderIds)
+
+      await recalculatePurchaseOrderTotals(supabase, orderIdsToRecalculate)
+      await syncAccountsPayable(supabase, orderIdsToRecalculate)
 
       await recalculatePurchaseStocks(supabase, Array.from(affectedCodes))
 

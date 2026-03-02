@@ -14,12 +14,13 @@ type ProductCsvRow = {
   spec: string | null
   unit: string | null
   category: string | null
+  base_price: number
   cost: number
   price: number
   sale_price: number | null
 }
 
-const CSV_COLUMNS: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "cost", "price", "sale_price"]
+const CSV_COLUMNS: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
 
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
@@ -73,6 +74,11 @@ function toNullableNumber(value: string) {
   return Number.isNaN(parsed) ? null : parsed
 }
 
+function isBasePriceColumnMissing(error: any) {
+  const message = String(error?.message || "").toLowerCase()
+  return message.includes("base_price") && (message.includes("column") || message.includes("schema cache"))
+}
+
 export function ProductsBatchActions() {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -100,12 +106,51 @@ export function ProductsBatchActions() {
       const supabase = createClient()
       const { data, error } = await supabase
         .from("products")
-        .select("code,name,spec,unit,category,cost,price,sale_price")
+        .select("code,name,spec,unit,category,base_price,cost,price,sale_price")
         .order("code", { ascending: true })
 
-      if (error) throw error
+      let products = (data || []) as ProductCsvRow[]
+      if (error) {
+        if (!isBasePriceColumnMissing(error)) throw error
 
-      const products = (data || []) as ProductCsvRow[]
+        const fallback = await supabase
+          .from("products")
+          .select("code,name,spec,unit,category,purchase_price,cost,price,sale_price")
+          .order("code", { ascending: true })
+
+        if (!fallback.error) {
+          products = ((fallback.data || []) as Array<{ code: string; name: string; spec: string | null; unit: string | null; category: string | null; purchase_price?: number | null; cost: number; price: number; sale_price: number | null }>).map((row) => ({
+            code: row.code,
+            name: row.name,
+            spec: row.spec,
+            unit: row.unit,
+            category: row.category,
+            base_price: Number(row.purchase_price ?? row.cost ?? 0),
+            cost: Number(row.cost ?? 0),
+            price: Number(row.price ?? 0),
+            sale_price: row.sale_price ?? null,
+          }))
+        } else {
+          const fallbackCostOnly = await supabase
+            .from("products")
+            .select("code,name,spec,unit,category,cost,price,sale_price")
+            .order("code", { ascending: true })
+
+          if (fallbackCostOnly.error) throw fallbackCostOnly.error
+
+          products = ((fallbackCostOnly.data || []) as Array<{ code: string; name: string; spec: string | null; unit: string | null; category: string | null; cost: number; price: number; sale_price: number | null }>).map((row) => ({
+            code: row.code,
+            name: row.name,
+            spec: row.spec,
+            unit: row.unit,
+            category: row.category,
+            base_price: Number(row.cost ?? 0),
+            cost: Number(row.cost ?? 0),
+            price: Number(row.price ?? 0),
+            sale_price: row.sale_price ?? null,
+          }))
+        }
+      }
       const header = CSV_COLUMNS.join(",")
       const rows = products.map((product) =>
         CSV_COLUMNS.map((column) => escapeCsvValue(product[column])).join(","),
@@ -157,7 +202,7 @@ export function ProductsBatchActions() {
       }
 
       const headers = parseCsvLine(lines[0]).map((header) => header.replace(/^\uFEFF/, "").trim())
-      const requiredColumns = ["code", "name", "spec", "unit", "category", "cost", "price", "sale_price"]
+      const requiredColumns = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
 
       for (const requiredColumn of requiredColumns) {
         if (!headers.includes(requiredColumn)) {
@@ -178,6 +223,7 @@ export function ProductsBatchActions() {
           spec: valueByColumn.spec?.trim() ? valueByColumn.spec.trim() : null,
           unit: valueByColumn.unit?.trim() ? valueByColumn.unit.trim() : null,
           category: valueByColumn.category?.trim() ? valueByColumn.category.trim() : null,
+          base_price: toNumberOrZero(valueByColumn.base_price || ""),
           cost: toNumberOrZero(valueByColumn.cost || ""),
           price: toNumberOrZero(valueByColumn.price || ""),
           sale_price: toNullableNumber(valueByColumn.sale_price || ""),
@@ -199,9 +245,17 @@ export function ProductsBatchActions() {
       }
 
       const supabase = createClient()
-      const { error } = await supabase
+      let { error } = await supabase
         .from("products")
         .upsert(upsertPayload, { onConflict: "code", on_conflict: "code" } as any)
+
+      if (error && isBasePriceColumnMissing(error)) {
+        const fallbackPayload = upsertPayload.map(({ base_price: _basePrice, ...rest }) => rest)
+        const fallbackResult = await supabase
+          .from("products")
+          .upsert(fallbackPayload, { onConflict: "code", on_conflict: "code" } as any)
+        error = fallbackResult.error
+      }
 
       if (error) throw error
 

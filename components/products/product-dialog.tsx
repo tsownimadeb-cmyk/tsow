@@ -18,7 +18,7 @@ import { createClient } from "@/lib/supabase/client" // 請確認此路徑與客
 import { useToast } from "@/hooks/use-toast"
 import type { Product as ProductType } from "@/lib/types"
 
-type EditableProduct = Pick<ProductType, "code" | "name" | "spec" | "unit" | "category" | "price" | "cost" | "sale_price"> & {
+type EditableProduct = Pick<ProductType, "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "price" | "cost" | "sale_price"> & {
   stock_qty?: number | null
   purchase_qty_total?: number | null
   safety_stock?: number | null
@@ -30,8 +30,8 @@ interface ProductFormData {
   spec: string
   unit: string
   category: string
+  base_price: number
   price: number
-  cost: number
   sale_price: number
   stock_qty: number
   purchase_qty_total: number
@@ -45,8 +45,8 @@ function toFormData(product?: EditableProduct): ProductFormData {
     spec: product?.spec || "",
     unit: product?.unit || "",
     category: product?.category || "",
+    base_price: Number(product?.base_price ?? product?.purchase_price ?? product?.cost ?? 0),
     price: Number(product?.price || 0),
-    cost: Number(product?.cost || 0),
     sale_price: Number(product?.sale_price || 0),
     stock_qty: Number(product?.stock_qty || 0),
     purchase_qty_total: Number(product?.purchase_qty_total || 0),
@@ -60,6 +60,11 @@ interface ProductDialogProps {
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
+}
+
+function isBasePriceColumnMissing(error: any) {
+  const message = String(error?.message || "").toLowerCase()
+  return message.includes("base_price") && (message.includes("column") || message.includes("schema cache"))
 }
 
 export function ProductDialog({ mode, product, children, open, onOpenChange }: ProductDialogProps) {
@@ -87,15 +92,23 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
       unit: formData.unit || null,
       category: formData.category || null,
       price: Number(formData.price),
-      cost: Number(formData.cost),
       sale_price: Number(formData.sale_price),
     }
 
-    const payloadNewSchema = {
+    const payloadWithBasePrice = {
       ...basePayload,
+      base_price: Number(formData.base_price),
+    }
+
+    const payloadNewSchema: Record<string, any> = {
+      ...payloadWithBasePrice,
       stock_qty: Number(formData.stock_qty),
       purchase_qty_total: Number(formData.purchase_qty_total),
       safety_stock: Number(formData.safety_stock),
+    }
+
+    if (Number(formData.purchase_qty_total) <= 0) {
+      payloadNewSchema.cost = 0
     }
 
     try {
@@ -103,7 +116,20 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
 
       if (mode === "create") {
         const createNew = await supabase.from("products").insert(payloadNewSchema)
-        if (createNew.error) throw createNew.error
+        if (createNew.error) {
+          if (isBasePriceColumnMissing(createNew.error)) {
+            const fallbackPayload = {
+              ...basePayload,
+              stock_qty: Number(formData.stock_qty),
+              purchase_qty_total: Number(formData.purchase_qty_total),
+              safety_stock: Number(formData.safety_stock),
+            }
+            const createFallback = await supabase.from("products").insert(fallbackPayload)
+            if (createFallback.error) throw createFallback.error
+          } else {
+            throw createNew.error
+          }
+        }
       } else {
         if (!product?.code) {
           throw new Error("缺少 product.code，無法更新")
@@ -113,7 +139,23 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
           .from("products")
           .update(payloadNewSchema)
           .eq("code", formData.code.trim())
-        if (updateNew.error) throw updateNew.error
+        if (updateNew.error) {
+          if (isBasePriceColumnMissing(updateNew.error)) {
+            const fallbackPayload = {
+              ...basePayload,
+              stock_qty: Number(formData.stock_qty),
+              purchase_qty_total: Number(formData.purchase_qty_total),
+              safety_stock: Number(formData.safety_stock),
+            }
+            const updateFallback = await supabase
+              .from("products")
+              .update(fallbackPayload)
+              .eq("code", formData.code.trim())
+            if (updateFallback.error) throw updateFallback.error
+          } else {
+            throw updateNew.error
+          }
+        }
       }
 
       toast({ title: "成功", description: mode === "create" ? "新增成功" : "更新成功" })
@@ -159,7 +201,11 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
               <Input value={formData.unit} onChange={(e) => setFormData({...formData, unit: e.target.value})} />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>預設進貨單價</Label>
+              <Input type="number" value={formData.base_price} onChange={(e) => setFormData({...formData, base_price: Number(e.target.value)})} />
+            </div>
             <div className="space-y-2">
               <Label>定價</Label>
               <Input type="number" value={formData.price} onChange={(e) => setFormData({...formData, price: Number(e.target.value)})} />
@@ -167,10 +213,6 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
             <div className="space-y-2">
               <Label>特價</Label>
               <Input type="number" value={formData.sale_price} onChange={(e) => setFormData({...formData, sale_price: Number(e.target.value)})} />
-            </div>
-            <div className="space-y-2">
-              <Label>進貨成本</Label>
-              <Input type="number" value={formData.cost} onChange={(e) => setFormData({...formData, cost: Number(e.target.value)})} />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">

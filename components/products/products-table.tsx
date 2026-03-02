@@ -84,6 +84,10 @@ export function ProductsTable({ products }: ProductsTableProps) {
               <AccordionContent className="px-6 pb-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">預設進貨單價</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0).toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">定價</p>
                     <p className="mt-1 text-base font-semibold text-blue-600">${Number(p.price || 0).toLocaleString()}</p>
                   </div>
@@ -95,7 +99,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">成本</p>
-                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(p.cost || 0).toLocaleString()}</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(Number(p.purchase_qty_total || 0) > 0 ? p.cost || 0 : 0).toLocaleString()}</p>
                   </div>
                 </div>
 
@@ -109,6 +113,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
                         spec: p.spec,
                         unit: p.unit,
                         category: p.category,
+                        base_price: Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0),
                         price: p.price,
                         cost: p.cost,
                         sale_price: p.sale_price,

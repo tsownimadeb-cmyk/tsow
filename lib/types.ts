@@ -39,6 +39,8 @@ export interface Product {
   spec: string | null
   unit: string | null
   category: string | null
+  base_price: number
+  purchase_price?: number
   cost: number
   price: number
   sale_price: number | null

@@ -2,7 +2,7 @@ import type { Product as ProductType } from "@/lib/types"
 
 export type ProductListRow = Pick<
   ProductType,
-  "code" | "name" | "spec" | "unit" | "category" | "cost" | "price" | "sale_price"
+  "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "cost" | "price" | "sale_price"
 > & {
   stock_qty: number
   purchase_qty_total: number
@@ -16,7 +16,9 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
     spec: (row.spec ?? row.specification ?? null) as string | null,
     unit: (row.unit ?? null) as string | null,
     category: (row.category ?? null) as string | null,
-    cost: Number(row.cost ?? 0),
+    base_price: Number(row.base_price ?? row.purchase_price ?? row.cost ?? 0),
+    purchase_price: row.purchase_price === null || row.purchase_price === undefined ? undefined : Number(row.purchase_price),
+    cost: Number(Number(row.purchase_qty_total ?? 0) > 0 ? row.cost ?? 0 : 0),
     price: Number(row.price ?? 0),
     sale_price: row.sale_price === null || row.sale_price === undefined ? null : Number(row.sale_price),
     stock_qty: Number(row.stock_qty ?? 0),
@@ -27,6 +29,10 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
 
 export async function fetchProductsRows(supabase: any) {
   const queryByPriority = [
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total",
   ]
@@ -43,7 +49,7 @@ export async function fetchProductsRows(supabase: any) {
 
   const finalAttempt = await supabase
     .from("products")
-    .select("code,name,spec,unit,category,cost,price,sale_price")
+    .select("code,name,spec,unit,category,base_price,cost,price,sale_price")
     .order("code", { ascending: true })
 
   return {
