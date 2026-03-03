@@ -22,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Customer, Product, SalesOrder } from "@/lib/types"
 
 interface SalesDialogProps {
@@ -693,7 +694,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                           />
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap px-2">
-                          ${(item.quantity * item.unit_price).toLocaleString()}
+                          {formatCurrencyOneDecimal(item.quantity * item.unit_price)}
                         </TableCell>
                         <TableCell>
                           <Button type="button" variant="ghost" size="icon" onClick={() => removeItem(index)}>
@@ -707,7 +708,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               </Table>
             </div>
 
-            <div className="flex justify-end text-lg font-semibold">總計：${totalAmount.toLocaleString()}</div>
+            <div className="flex justify-end text-lg font-semibold">總計：{formatCurrencyOneDecimal(totalAmount)}</div>
           </div>
 
           <DialogFooter>

@@ -11,6 +11,7 @@ import { Search, Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { SalesDialog } from "@/components/sales/sales-dialog"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { SalesOrder, Customer, Product } from "@/lib/types"
 
 interface SalesTableProps {
@@ -229,7 +230,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                         <p className="text-xs text-muted-foreground">{customerName}</p>
                       </div>
                       <div className="col-span-2 text-sm">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</div>
-                      <div className="col-span-3 text-right text-sm font-medium">${Number(sale.total_amount).toLocaleString()}</div>
+                      <div className="col-span-3 text-right text-sm font-medium">{formatCurrencyOneDecimal(Number(sale.total_amount))}</div>
                       <div className="col-span-4 flex justify-end pr-2">
                         {sale.is_paid ? (
                           <Badge variant="default" className="gap-1">
@@ -290,8 +291,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                                 <TableRow key={item.id}>
                                   <TableCell>{productName}</TableCell>
                                   <TableCell className="text-right">{item.quantity}</TableCell>
-                                  <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
-                                  <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                                 </TableRow>
                               )
                             })

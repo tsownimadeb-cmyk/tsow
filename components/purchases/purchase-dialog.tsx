@@ -23,6 +23,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Supplier, Product, PurchaseOrder } from "@/lib/types"
 
 interface PurchaseDialogProps {
@@ -692,7 +693,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                           />
                         </TableCell>
                         <TableCell className="text-right">
-                          ${(item.quantity * item.unit_price).toLocaleString()}
+                          {formatCurrencyOneDecimal(item.quantity * item.unit_price)}
                         </TableCell>
                         <TableCell>
                           <Button type="button" variant="ghost" size="icon" onClick={() => removeItem(index)}>
@@ -707,9 +708,9 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             </div>
 
             <div className="space-y-1 text-right">
-              <div className="text-sm text-muted-foreground">商品總額（供應商貨款）：${totalGoodsAmount.toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground">運費（另計）：${shippingFee.toLocaleString()}</div>
-              <div className="text-lg font-semibold">落地總成本：${landedTotalAmount.toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">商品總額（供應商貨款）：{formatCurrencyOneDecimal(totalGoodsAmount)}</div>
+              <div className="text-sm text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</div>
+              <div className="text-lg font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotalAmount)}</div>
             </div>
           </div>
 

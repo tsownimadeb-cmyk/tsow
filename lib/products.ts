@@ -14,17 +14,27 @@ export interface ProductProfitSummary {
   sales_amount_total: number
 }
 
+export interface ProductProfitAnalysisSummary extends ProductProfitSummary {
+  cash_received_total: number
+}
+
 export type ProductListRowWithProfit = ProductListRow & {
   sales_qty_total: number
   sales_amount_total: number
   cogs_total: number
   gross_profit: number
   gross_margin: number
+  cash_received_total: number
+  cash_cogs_total: number
+  cash_gross_profit: number
+  cash_gross_margin: number
 }
 
-type SalesOrderStatusRow = {
+type SalesOrderAnalysisRow = {
   id: string | null
   status: string | null
+  order_date: string | null
+  total_amount: number | string | null
 }
 
 type SalesItemSummaryRow = {
@@ -33,6 +43,16 @@ type SalesItemSummaryRow = {
   quantity: number | string | null
   subtotal: number | string | null
   unit_price: number | string | null
+}
+
+type AccountsReceivablePaidRow = {
+  sales_order_id: string | null
+  paid_amount: number | string | null
+}
+
+type ProfitAnalysisOptions = {
+  startDate?: string
+  endDate?: string
 }
 
 const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
@@ -95,29 +115,72 @@ export async function fetchProductProfitSummaryByCode(
   supabase: any,
   productCodes: string[],
 ): Promise<{ summaryByCode: Map<string, ProductProfitSummary>; warning: string | null }> {
+  const { summaryByCode, warning } = await fetchProductProfitAnalysisByCode(supabase, productCodes)
+  const basicSummaryByCode = new Map<string, ProductProfitSummary>()
+
+  for (const [code, summary] of summaryByCode.entries()) {
+    basicSummaryByCode.set(code, {
+      sales_qty_total: summary.sales_qty_total,
+      sales_amount_total: summary.sales_amount_total,
+    })
+  }
+
+  return { summaryByCode: basicSummaryByCode, warning }
+}
+
+export async function fetchProductProfitAnalysisByCode(
+  supabase: any,
+  productCodes: string[],
+  options?: ProfitAnalysisOptions,
+): Promise<{ summaryByCode: Map<string, ProductProfitAnalysisSummary>; warning: string | null }> {
   const normalizedCodes = Array.from(new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean)))
   const codeSet = new Set(normalizedCodes)
 
   if (normalizedCodes.length === 0) {
-    return { summaryByCode: new Map<string, ProductProfitSummary>(), warning: null }
+    return { summaryByCode: new Map<string, ProductProfitAnalysisSummary>(), warning: null }
   }
 
-  const salesOrdersResult = await supabase.from("sales_orders").select("id,status")
+  const warningMessages: string[] = []
+  const hasValidDateText = (value: string | undefined) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))
+  const startDate = hasValidDateText(options?.startDate) ? String(options?.startDate) : undefined
+  const endDate = hasValidDateText(options?.endDate) ? String(options?.endDate) : undefined
+
+  let salesOrdersQuery = supabase
+    .from("sales_orders")
+    .select("id,status,order_date,total_amount")
+
+  if (startDate) {
+    salesOrdersQuery = salesOrdersQuery.gte("order_date", startDate)
+  }
+  if (endDate) {
+    salesOrdersQuery = salesOrdersQuery.lte("order_date", endDate)
+  }
+
+  const salesOrdersResult = await salesOrdersQuery
   if (salesOrdersResult.error) {
     return {
-      summaryByCode: new Map<string, ProductProfitSummary>(),
+      summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
       warning: salesOrdersResult.error.message || "讀取 sales_orders 失敗",
     }
   }
 
-  const salesOrders = (salesOrdersResult.data || []) as SalesOrderStatusRow[]
+  const salesOrders = (salesOrdersResult.data || []) as SalesOrderAnalysisRow[]
+  const activeOrderMap = new Map<string, { total_amount: number }>()
   const activeOrderIds = salesOrders
     .filter((row) => String(row.status || "").trim().toLowerCase() !== "cancelled")
-    .map((row) => String(row.id || "").trim())
+    .map((row) => {
+      const orderId = String(row.id || "").trim()
+      if (orderId) {
+        activeOrderMap.set(orderId, {
+          total_amount: toNumber(row.total_amount),
+        })
+      }
+      return orderId
+    })
     .filter(Boolean)
 
   if (activeOrderIds.length === 0) {
-    return { summaryByCode: new Map<string, ProductProfitSummary>(), warning: null }
+    return { summaryByCode: new Map<string, ProductProfitAnalysisSummary>(), warning: null }
   }
 
   const salesItemsResult = await supabase
@@ -127,17 +190,31 @@ export async function fetchProductProfitSummaryByCode(
 
   if (salesItemsResult.error) {
     return {
-      summaryByCode: new Map<string, ProductProfitSummary>(),
+      summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
       warning: salesItemsResult.error.message || "讀取 sales_order_items 失敗",
     }
   }
 
-  const summaryByCode = new Map<string, ProductProfitSummary>()
+  const receivableResult = await supabase
+    .from("accounts_receivable")
+    .select("sales_order_id,paid_amount")
+    .in("sales_order_id", activeOrderIds)
+
+  if (receivableResult.error) {
+    warningMessages.push(receivableResult.error.message || "讀取 accounts_receivable 失敗")
+  }
+
+  const summaryByCode = new Map<string, ProductProfitAnalysisSummary>()
   const salesItems = (salesItemsResult.data || []) as SalesItemSummaryRow[]
+  const receivableRows = (receivableResult.data || []) as AccountsReceivablePaidRow[]
+  const trackedAmountByOrderAndCode = new Map<string, Map<string, number>>()
+  const orderItemTotalByOrder = new Map<string, number>()
 
   for (const row of salesItems) {
+    const salesOrderId = String(row.sales_order_id || "").trim()
+    if (!salesOrderId) continue
+
     const code = normalizeCode(row.code)
-    if (!code || !codeSet.has(code)) continue
 
     const quantity = toNumber(row.quantity)
     if (quantity <= 0) continue
@@ -146,11 +223,45 @@ export async function fetchProductProfitSummaryByCode(
     const unitPrice = toNumber(row.unit_price)
     const salesAmount = subtotal > 0 ? subtotal : quantity * unitPrice
 
-    const current = summaryByCode.get(code) || { sales_qty_total: 0, sales_amount_total: 0 }
+    if (!Number.isFinite(salesAmount) || salesAmount <= 0) continue
+
+    orderItemTotalByOrder.set(salesOrderId, (orderItemTotalByOrder.get(salesOrderId) || 0) + salesAmount)
+
+    if (!code || !codeSet.has(code)) continue
+
+    const current = summaryByCode.get(code) || { sales_qty_total: 0, sales_amount_total: 0, cash_received_total: 0 }
     current.sales_qty_total += quantity
     current.sales_amount_total += salesAmount
     summaryByCode.set(code, current)
+
+    const trackedByCode = trackedAmountByOrderAndCode.get(salesOrderId) || new Map<string, number>()
+    trackedByCode.set(code, (trackedByCode.get(code) || 0) + salesAmount)
+    trackedAmountByOrderAndCode.set(salesOrderId, trackedByCode)
   }
 
-  return { summaryByCode, warning: null }
+  const paidAmountByOrder = new Map<string, number>()
+  for (const row of receivableRows) {
+    const salesOrderId = String(row.sales_order_id || "").trim()
+    if (!salesOrderId) continue
+    paidAmountByOrder.set(salesOrderId, (paidAmountByOrder.get(salesOrderId) || 0) + toNumber(row.paid_amount))
+  }
+
+  for (const [salesOrderId, amountByCode] of trackedAmountByOrderAndCode.entries()) {
+    const orderHeaderTotal = toNumber(activeOrderMap.get(salesOrderId)?.total_amount)
+    const orderItemsTotal = toNumber(orderItemTotalByOrder.get(salesOrderId))
+    const orderTotal = orderHeaderTotal > 0 ? orderHeaderTotal : orderItemsTotal
+    const paidAmount = Math.max(0, toNumber(paidAmountByOrder.get(salesOrderId)))
+    const collectionRatio = orderTotal > 0 ? Math.min(1, paidAmount / orderTotal) : 0
+
+    for (const [code, trackedAmount] of amountByCode.entries()) {
+      const current = summaryByCode.get(code) || { sales_qty_total: 0, sales_amount_total: 0, cash_received_total: 0 }
+      current.cash_received_total += trackedAmount * collectionRatio
+      summaryByCode.set(code, current)
+    }
+  }
+
+  return {
+    summaryByCode,
+    warning: warningMessages.length > 0 ? warningMessages.join("；") : null,
+  }
 }

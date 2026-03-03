@@ -7,6 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { ProductListRow } from "@/lib/products"
 
 // 定義組件接收的資料型態
@@ -112,21 +113,17 @@ export function ProductsTable({ products }: ProductsTableProps) {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">預設進貨單價</p>
-                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0).toLocaleString()}</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">{formatCurrencyOneDecimal(Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0))}</p>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">定價</p>
-                    <p className="mt-1 text-base font-semibold text-blue-600">${Number(p.price || 0).toLocaleString()}</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">{formatCurrencyOneDecimal(Number(p.price || 0))}</p>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">特價</p>
                     <p className="mt-1 text-base font-semibold" style={{ color: p.sale_price && Number(p.sale_price) > 0 ? "#ef4444" : "#999" }}>
-                      {p.sale_price && Number(p.sale_price) > 0 ? `$${Number(p.sale_price).toLocaleString()}` : "—"}
+                      {p.sale_price && Number(p.sale_price) > 0 ? formatCurrencyOneDecimal(Number(p.sale_price)) : "—"}
                     </p>
-                  </div>
-                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">成本</p>
-                    <p className="mt-1 text-base font-semibold text-gray-700">${Number(Number(p.purchase_qty_total || 0) > 0 ? p.cost || 0 : 0).toLocaleString()}</p>
                   </div>
                 </div>
 

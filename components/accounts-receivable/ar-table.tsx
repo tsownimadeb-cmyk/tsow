@@ -28,6 +28,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { AccountsReceivable } from "@/lib/types"
 
 interface ARTableProps {
@@ -91,7 +92,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       return <span className="text-muted-foreground tracking-widest">****</span>
     }
 
-    return `$${value.toLocaleString()}`
+    return formatCurrencyOneDecimal(value)
   }
 
   const buildPartialSettlementNote = (existingNotes: string | null | undefined, settledAt: string, amount: number) => {
@@ -529,11 +530,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       title: "成功",
       description:
         autoAllocatedAmount > 0
-          ? `單號 ${order.orderNumber} 已沖帳，並自動回補其他單據 $${autoAllocatedAmount.toLocaleString()}`
+          ? `單號 ${order.orderNumber} 已沖帳，並自動回補其他單據 ${formatCurrencyOneDecimal(autoAllocatedAmount)}`
           : generatedOverpaid > 0
-            ? `單號 ${order.orderNumber} 已完成沖帳，溢收 $${generatedOverpaid.toLocaleString()} 將在下次自動抵扣`
+            ? `單號 ${order.orderNumber} 已完成沖帳，溢收 ${formatCurrencyOneDecimal(generatedOverpaid)} 將在下次自動抵扣`
           : consumedCarryover > 0
-            ? `單號 ${order.orderNumber} 已沖帳，已自動抵扣溢收 $${consumedCarryover.toLocaleString()}`
+            ? `單號 ${order.orderNumber} 已沖帳，已自動抵扣溢收 ${formatCurrencyOneDecimal(consumedCarryover)}`
             : isFullyPaid
               ? `單號 ${order.orderNumber} 已完成沖帳`
               : `單號 ${order.orderNumber} 已完成部分沖帳`,
@@ -904,8 +905,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         toast({
           title: "成功",
           description: distributableAmount > 0
-            ? `已完成 ${partialSettleTarget.customerName} 的部分沖帳（$${payment.toLocaleString()}），並產生溢收 $${distributableAmount.toLocaleString()}`
-            : `已完成 ${partialSettleTarget.customerName} 的部分沖帳（$${payment.toLocaleString()}）`,
+            ? `已完成 ${partialSettleTarget.customerName} 的部分沖帳（${formatCurrencyOneDecimal(payment)}），並產生溢收 ${formatCurrencyOneDecimal(distributableAmount)}`
+            : `已完成 ${partialSettleTarget.customerName} 的部分沖帳（${formatCurrencyOneDecimal(payment)}）`,
         })
         router.refresh()
       } catch (error) {
@@ -1024,7 +1025,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應收未付</p>
           <p className="text-2xl font-semibold text-destructive">
-            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : `$${outstandingAmount.toLocaleString()}`}
+            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : formatCurrencyOneDecimal(outstandingAmount)}
           </p>
         </div>
       </div>
@@ -1123,10 +1124,10 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                 {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
                               </TableCell>
                               <TableCell>{order.products}</TableCell>
-                              <TableCell className="text-right">${order.amountDue.toLocaleString()}</TableCell>
-                              <TableCell className="text-right">${order.paidAmount.toLocaleString()}</TableCell>
-                              <TableCell className="text-right">${order.outstanding.toLocaleString()}</TableCell>
-                              <TableCell className="text-right">${order.overpaidAmount.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.overpaidAmount)}</TableCell>
                               <TableCell className="text-center">
                                 <span className={isPaid ? "text-foreground" : isPartiallyPaid ? "text-primary" : "text-destructive"}>
                                   {isPaid ? "已付款" : isPartiallyPaid ? "部分付款" : "未付款"}
@@ -1140,7 +1141,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                   <div className="space-y-1 text-left inline-block">
                                     {partialSettlements.map((entry, index) => (
                                       <div key={`${entry.at}-${entry.amount}-${index}`}>
-                                        {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 ${entry.amount.toLocaleString()}
+                                        {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 {formatCurrencyOneDecimal(entry.amount)}
                                       </div>
                                     ))}
                                   </div>
@@ -1181,16 +1182,16 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                         <TableRow className="bg-muted/40">
                           <TableCell colSpan={3} className="text-right font-semibold">總計</TableCell>
                           <TableCell className="text-right font-semibold">
-                            ${sortedOrders.reduce((sum, order) => sum + order.amountDue, 0).toLocaleString()}
+                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.amountDue, 0))}
                           </TableCell>
                           <TableCell className="text-right font-semibold">
-                            ${sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0).toLocaleString()}
+                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0))}
                           </TableCell>
                           <TableCell className="text-right font-semibold text-destructive">
-                            ${sortedOrders.reduce((sum, order) => sum + order.outstanding, 0).toLocaleString()}
+                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.outstanding, 0))}
                           </TableCell>
                           <TableCell className="text-right font-semibold">
-                            ${sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0).toLocaleString()}
+                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0))}
                           </TableCell>
                           <TableCell colSpan={2} />
                           <TableCell className="text-center font-semibold text-primary">
@@ -1200,7 +1201,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                 (sum, order) => sum + order.partialSettlements.reduce((inner, entry) => inner + entry.amount, 0),
                                 0,
                               )
-                              return `共 ${partialCount} 次 / $${partialTotal.toLocaleString()}`
+                              return `共 ${partialCount} 次 / ${formatCurrencyOneDecimal(partialTotal)}`
                             })()}
                           </TableCell>
                           <TableCell />
@@ -1224,7 +1225,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             <DialogTitle>部分沖帳</DialogTitle>
             <DialogDescription>
               {partialSettleTarget
-                ? `客戶 ${partialSettleTarget.customerName} 總欠款：$${partialSettleTarget.totalOutstanding.toLocaleString()}（將依序扣抵所有未收單據）`
+                ? `客戶 ${partialSettleTarget.customerName} 總欠款：${formatCurrencyOneDecimal(partialSettleTarget.totalOutstanding)}（將依序扣抵所有未收單據）`
                 : "請輸入本次沖帳金額"}
             </DialogDescription>
           </DialogHeader>
@@ -1243,9 +1244,9 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             {partialSettleTarget && (
               <p className="text-xs text-muted-foreground">
                 預估扣抵後剩餘欠款：
-                ${Math.max(0, partialSettleTarget.totalOutstanding - (Number(partialPaymentAmount || 0) || 0)).toLocaleString()}，
+                {formatCurrencyOneDecimal(Math.max(0, partialSettleTarget.totalOutstanding - (Number(partialPaymentAmount || 0) || 0)))}，
                 預估溢收：
-                ${Math.max(0, (Number(partialPaymentAmount || 0) || 0) - partialSettleTarget.totalOutstanding).toLocaleString()}
+                {formatCurrencyOneDecimal(Math.max(0, (Number(partialPaymentAmount || 0) || 0) - partialSettleTarget.totalOutstanding))}
               </p>
             )}
           </div>

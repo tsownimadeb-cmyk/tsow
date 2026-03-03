@@ -9,6 +9,7 @@ import { Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { AccountsPayable } from "@/lib/types"
 
 interface APTableProps {
@@ -39,7 +40,7 @@ export function APTable({ records }: APTableProps) {
       return <span className="text-muted-foreground tracking-widest">****</span>
     }
 
-    return `$${value.toLocaleString()}`
+    return formatCurrencyOneDecimal(value)
   }
 
   const supplierSummaryMap = filteredRecords.reduce((map, record) => {
@@ -289,7 +290,7 @@ export function APTable({ records }: APTableProps) {
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應付未付</p>
           <p className="text-2xl font-semibold text-destructive">
-            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : `$${outstandingAmount.toLocaleString()}`}
+            {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : formatCurrencyOneDecimal(outstandingAmount)}
           </p>
         </div>
       </div>
@@ -347,17 +348,17 @@ export function APTable({ records }: APTableProps) {
                               <TableCell className="font-medium">{order.orderNumber}</TableCell>
                               <TableCell>{order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                               <TableCell>{order.products}</TableCell>
-                              <TableCell className="text-right">${order.amountDue.toLocaleString()}</TableCell>
-                              <TableCell className="text-right">${order.outstanding.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
+                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
                             </TableRow>
                           ))}
                           <TableRow className="bg-muted/40">
                             <TableCell colSpan={3} className="text-right font-semibold">總金額</TableCell>
                             <TableCell className="text-right font-semibold">
-                              ${summary.orders.reduce((sum, order) => sum + order.amountDue, 0).toLocaleString()}
+                              {formatCurrencyOneDecimal(summary.orders.reduce((sum, order) => sum + order.amountDue, 0))}
                             </TableCell>
                             <TableCell className="text-right font-semibold text-destructive">
-                              ${summary.orders.reduce((sum, order) => sum + order.outstanding, 0).toLocaleString()}
+                              {formatCurrencyOneDecimal(summary.orders.reduce((sum, order) => sum + order.outstanding, 0))}
                             </TableCell>
                           </TableRow>
                         </TableBody>

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { PurchaseDialog } from "@/components/purchases/purchase-dialog"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { PurchaseOrder, Supplier, Product } from "@/lib/types"
 
 interface PurchasesTableProps {
@@ -278,9 +279,9 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                       </div>
                       <div className="col-span-2 text-sm">{new Date(purchase.order_date).toLocaleDateString("zh-TW")}</div>
                       <div className="col-span-3 text-right">
-                        <p className="text-sm font-medium">貨款 ${goodsAmount.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">運費 ${shippingFee.toLocaleString()}（另計）</p>
-                        <p className="text-xs text-muted-foreground">落地成本 ${landedTotal.toLocaleString()}</p>
+                        <p className="text-sm font-medium">貨款 {formatCurrencyOneDecimal(goodsAmount)}</p>
+                        <p className="text-xs text-muted-foreground">運費 {formatCurrencyOneDecimal(shippingFee)}（另計）</p>
+                        <p className="text-xs text-muted-foreground">落地成本 {formatCurrencyOneDecimal(landedTotal)}</p>
                       </div>
                       <div className="col-span-4 flex justify-end pr-2">
                         {purchase.is_paid ? (
@@ -344,8 +345,8 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                                 <TableRow key={item.id}>
                                   <TableCell>{productName}</TableCell>
                                   <TableCell className="text-right">{item.quantity}</TableCell>
-                                  <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
-                                  <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                                 </TableRow>
                               )
                             })
@@ -360,9 +361,9 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                       </Table>
                     </div>
                     <div className="mt-3 text-right space-y-1">
-                      <p className="text-sm text-muted-foreground">供應商貨款：${goodsAmount.toLocaleString()}</p>
-                      <p className="text-sm text-muted-foreground">運費（另計）：${shippingFee.toLocaleString()}</p>
-                      <p className="text-sm font-semibold">落地總成本：${landedTotal.toLocaleString()}</p>
+                      <p className="text-sm text-muted-foreground">供應商貨款：{formatCurrencyOneDecimal(goodsAmount)}</p>
+                      <p className="text-sm text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</p>
+                      <p className="text-sm font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotal)}</p>
                     </div>
                   </AccordionContent>
                 </AccordionItem>

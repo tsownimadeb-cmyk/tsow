@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { SalesOrder } from "@/lib/types"
 
 interface SalesDetailDialogProps {
@@ -164,7 +165,7 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
             </div>
             <div>
               <span className="text-muted-foreground">總金額：</span>
-              <span className="ml-2 font-medium">${Number(sales.total_amount).toLocaleString()}</span>
+              <span className="ml-2 font-medium">{formatCurrencyOneDecimal(Number(sales.total_amount))}</span>
             </div>
             <div>
               <span className="text-muted-foreground">付款狀態：</span>
@@ -215,8 +216,8 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
                   <TableRow key={item.id}>
                     <TableCell>{item.product?.name || item.code || "-"}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
-                    <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+                    <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

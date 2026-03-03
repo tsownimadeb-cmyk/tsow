@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { PurchaseOrder } from "@/lib/types"
 
 interface PurchaseDetailDialogProps {
@@ -148,15 +149,15 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
             </div>
             <div>
               <span className="text-muted-foreground">供應商貨款：</span>
-              <span className="ml-2 font-medium">${goodsAmount.toLocaleString()}</span>
+              <span className="ml-2 font-medium">{formatCurrencyOneDecimal(goodsAmount)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">運費（另計）：</span>
-              <span className="ml-2 font-medium">${shippingFee.toLocaleString()}</span>
+              <span className="ml-2 font-medium">{formatCurrencyOneDecimal(shippingFee)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">落地總成本：</span>
-              <span className="ml-2 font-medium">${landedTotal.toLocaleString()}</span>
+              <span className="ml-2 font-medium">{formatCurrencyOneDecimal(landedTotal)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">付款狀態：</span>
@@ -207,8 +208,8 @@ export function PurchaseDetailDialog({ purchase, open, onOpenChange }: PurchaseD
                   <TableRow key={item.id}>
                     <TableCell>{item.product?.name || item.code || "-"}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell className="text-right">${Number(item.unit_price).toLocaleString()}</TableCell>
-                    <TableCell className="text-right">${Number(item.subtotal).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+                    <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
