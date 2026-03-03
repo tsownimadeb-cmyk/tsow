@@ -66,6 +66,8 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
           amount_due: Number(sales.total_amount),
           total_amount: Number(sales.total_amount),
           paid_amount: newStatus ? Number(sales.total_amount) : 0,
+          overpaid_amount: 0,
+          paid_at: newStatus ? new Date().toISOString() : null,
           due_date: sales.order_date,
           status: newStatus ? "paid" : "unpaid",
         }
@@ -91,6 +93,26 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
           })
 
           if (arInsertError) {
+            const text = `${arInsertError.message || ""} ${arInsertError.details || ""}`.toLowerCase()
+            const isDuplicate = arInsertError.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
+
+            if (isDuplicate) {
+              const { error: retryUpdateError } = await supabase
+                .from("accounts_receivable")
+                .update(arPayload)
+                .eq("sales_order_id", sales.id)
+
+              if (!retryUpdateError) {
+                toast({
+                  title: "成功",
+                  description: newStatus ? "已標記為已付款" : "已標記為未付款",
+                })
+                router.refresh()
+                onOpenChange(false)
+                return
+              }
+            }
+
             toast({
               title: "錯誤",
               description: arInsertError.message || "無法建立應收帳款",

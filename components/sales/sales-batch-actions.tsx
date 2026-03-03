@@ -405,6 +405,7 @@ async function syncAccountsReceivable(supabase: ReturnType<typeof createClient>,
       amount_due: totalAmount,
       total_amount: totalAmount,
       paid_amount: paid ? totalAmount : 0,
+      overpaid_amount: 0,
       due_date: normalizeDateInput(String(order.order_date || "")) || null,
       status: paid ? "paid" : "unpaid",
     }
@@ -418,7 +419,21 @@ async function syncAccountsReceivable(supabase: ReturnType<typeof createClient>,
     } else {
       const { error: insertError } = await supabase.from("accounts_receivable").insert({ sales_order_id: order.id, ...payload })
       if (insertError) {
-        throw new Error(formatSupabaseError(insertError, `建立銷貨單 ${order.order_no} 應收帳款失敗`))
+        const text = `${insertError.message || ""} ${insertError.details || ""}`.toLowerCase()
+        const isDuplicate = insertError.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
+
+        if (!isDuplicate) {
+          throw new Error(formatSupabaseError(insertError, `建立銷貨單 ${order.order_no} 應收帳款失敗`))
+        }
+
+        const { error: retryUpdateError } = await supabase
+          .from("accounts_receivable")
+          .update(payload)
+          .eq("sales_order_id", order.id)
+
+        if (retryUpdateError) {
+          throw new Error(formatSupabaseError(retryUpdateError, `同步銷貨單 ${order.order_no} 應收帳款失敗`))
+        }
       }
     }
   }

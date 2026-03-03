@@ -16,6 +16,7 @@ missing_required AS (
     SELECT 'customers','name' UNION ALL
     SELECT 'purchase_orders','order_no' UNION ALL
     SELECT 'sales_orders','order_no' UNION ALL
+    SELECT 'accounts_receivable','overpaid_amount' UNION ALL
     SELECT 'purchase_order_items','code' UNION ALL
     SELECT 'purchase_order_items','order_no' UNION ALL
     SELECT 'sales_order_items','code'

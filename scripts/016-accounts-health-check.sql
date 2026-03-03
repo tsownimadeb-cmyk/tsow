@@ -64,11 +64,13 @@ SELECT
   sales_order_id,
   amount_due,
   paid_amount,
+  overpaid_amount,
   status,
   updated_at
 FROM accounts_receivable
 WHERE amount_due < 0
    OR paid_amount < 0
+   OR COALESCE(overpaid_amount, 0) < 0
    OR paid_amount > amount_due;
 
 SELECT

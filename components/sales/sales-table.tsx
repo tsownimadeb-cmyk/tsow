@@ -62,6 +62,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
           amount_due: Number(sale.total_amount),
           total_amount: Number(sale.total_amount),
           paid_amount: newStatus ? Number(sale.total_amount) : 0,
+          overpaid_amount: 0,
           paid_at: paidAt,
           due_date: sale.order_date,
           status: newStatus ? "paid" : "unpaid",
@@ -85,8 +86,23 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
             .insert({ sales_order_id: saleId, ...arPayload })
 
           if (arInsertError) {
-            toast({ title: "錯誤", description: arInsertError.message || "無法建立應收帳款", variant: "destructive" })
-            return
+            const text = `${arInsertError.message || ""} ${arInsertError.details || ""}`.toLowerCase()
+            const isDuplicate = arInsertError.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
+
+            if (!isDuplicate) {
+              toast({ title: "錯誤", description: arInsertError.message || "無法建立應收帳款", variant: "destructive" })
+              return
+            }
+
+            const { error: retryUpdateError } = await supabase
+              .from("accounts_receivable")
+              .update(arPayload)
+              .eq("sales_order_id", saleId)
+
+            if (retryUpdateError) {
+              toast({ title: "錯誤", description: retryUpdateError.message || "無法同步應收帳款", variant: "destructive" })
+              return
+            }
           }
         }
 

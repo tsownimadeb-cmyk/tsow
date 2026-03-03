@@ -132,6 +132,7 @@ export default async function ARPage() {
       customer_cno: effectiveCustomerCno,
       amount_due: amountDue,
       paid_amount: paidAmount,
+      overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
       paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
       due_date: existing?.due_date || so.order_date,
       status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",

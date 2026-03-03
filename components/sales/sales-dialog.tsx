@@ -40,8 +40,6 @@ interface OrderItem {
   unit_price: number
 }
 
-const CASH_CUSTOMER_VALUE = "__cash_customer__"
-
 export function SalesDialog({ customers, products, mode, sales, children, open, onOpenChange }: SalesDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -95,6 +93,38 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     })
   }
 
+  const formatDbError = (error: unknown, fallback: string) => {
+    if (!error) return fallback
+    if (error instanceof Error) return error.message || fallback
+
+    if (typeof error === "object") {
+      const maybe = error as {
+        message?: string
+        details?: string
+        hint?: string
+        code?: string
+      }
+
+      const pieces = [maybe.message, maybe.details, maybe.hint].filter(Boolean)
+      if (pieces.length > 0) {
+        return pieces.join(" | ")
+      }
+
+      if (maybe.code) {
+        return `${fallback} (code: ${maybe.code})`
+      }
+    }
+
+    return fallback
+  }
+
+  const isUniqueViolationError = (error: unknown) => {
+    if (!error || typeof error !== "object") return false
+    const maybe = error as { code?: string; message?: string; details?: string }
+    const text = `${maybe.message || ""} ${maybe.details || ""}`.toLowerCase()
+    return maybe.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
+  }
+
   const addItem = () => {
     setItems([...items, { code: "", quantity: 1, unit_price: 0 }])
   }
@@ -138,45 +168,140 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     paid: boolean,
   ) => {
     const supabase = createClient()
-
-    const { data: existingArRows, error: arQueryError } = await supabase
-      .from("accounts_receivable")
-      .select("id")
-      .eq("sales_order_id", salesOrderId)
-      .limit(1)
-
-    if (arQueryError) {
-      throw new Error(arQueryError.message || "無法查詢應收帳款")
-    }
+    const settledAt = new Date().toISOString()
 
     const arPayload = {
+      sales_order_id: salesOrderId,
       customer_cno: customerCno,
       amount_due: amount,
       total_amount: amount,
       paid_amount: paid ? amount : 0,
+      overpaid_amount: 0,
+      paid_at: paid ? settledAt : null,
       due_date: dueDate,
       status: paid ? "paid" : "unpaid",
     }
 
-    if (existingArRows && existingArRows.length > 0) {
-      const { error: arUpdateError } = await supabase
-        .from("accounts_receivable")
-        .update(arPayload)
-        .eq("id", existingArRows[0].id)
+    const { data: updatedRows, error: arUpdateError } = await supabase
+      .from("accounts_receivable")
+      .update(arPayload)
+      .eq("sales_order_id", salesOrderId)
+      .select("id")
+      .limit(1)
 
-      if (arUpdateError) {
-        throw new Error(arUpdateError.message || "無法更新應收帳款")
+    if (arUpdateError) {
+      throw new Error(arUpdateError.message || "無法同步應收帳款")
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      const { error: arInsertError } = await supabase
+        .from("accounts_receivable")
+        .insert(arPayload)
+
+      if (arInsertError) {
+        if (!isUniqueViolationError(arInsertError)) {
+          throw new Error(arInsertError.message || "無法同步應收帳款")
+        }
+
+        const { error: retryUpdateError } = await supabase
+          .from("accounts_receivable")
+          .update(arPayload)
+          .eq("sales_order_id", salesOrderId)
+
+        if (retryUpdateError) {
+          throw new Error(retryUpdateError.message || "無法同步應收帳款")
+        }
       }
+    }
+
+    if (paid || !customerCno || amount <= 0) {
       return
     }
 
-    const { error: arInsertError } = await supabase.from("accounts_receivable").insert({
-      sales_order_id: salesOrderId,
-      ...arPayload,
-    })
+    const { data: targetRow, error: targetRowError } = await supabase
+      .from("accounts_receivable")
+      .select("id,paid_amount,amount_due")
+      .eq("sales_order_id", salesOrderId)
+      .maybeSingle()
 
-    if (arInsertError) {
-      throw new Error(arInsertError.message || "無法建立應收帳款")
+    if (targetRowError || !targetRow) {
+      throw new Error(targetRowError?.message || "無法取得新單應收資料")
+    }
+
+    const currentPaid = Math.max(0, Math.min(Number(targetRow.paid_amount ?? 0) || 0, amount))
+    let remainingNeed = Math.max(0, amount - currentPaid)
+
+    if (remainingNeed <= 0) {
+      return
+    }
+
+    const { data: overpaidRows, error: overpaidQueryError } = await supabase
+      .from("accounts_receivable")
+      .select("id,overpaid_amount")
+      .eq("customer_cno", customerCno)
+      .gt("overpaid_amount", 0)
+      .neq("sales_order_id", salesOrderId)
+      .order("created_at", { ascending: true })
+
+    if (overpaidQueryError) {
+      throw new Error(overpaidQueryError.message || "無法查詢客戶溢收資料")
+    }
+
+    let consumedOverpaid = 0
+    for (const row of overpaidRows || []) {
+      if (remainingNeed <= 0) break
+      const rowOverpaid = Math.max(0, Number(row.overpaid_amount ?? 0) || 0)
+      if (rowOverpaid <= 0) continue
+
+      const consume = Math.min(rowOverpaid, remainingNeed)
+      const nextOverpaid = rowOverpaid - consume
+
+      const { error: consumeError } = await supabase
+        .from("accounts_receivable")
+        .update({ overpaid_amount: nextOverpaid })
+        .eq("id", row.id)
+
+      if (consumeError) {
+        throw new Error(consumeError.message || "無法套用溢收抵扣")
+      }
+
+      consumedOverpaid += consume
+      remainingNeed -= consume
+    }
+
+    if (consumedOverpaid <= 0) {
+      return
+    }
+
+    const nextPaidAmount = Math.min(amount, currentPaid + consumedOverpaid)
+    const isFullyPaid = nextPaidAmount >= amount
+    const nextStatus: "unpaid" | "partially_paid" | "paid" =
+      nextPaidAmount <= 0
+        ? "unpaid"
+        : isFullyPaid
+          ? "paid"
+          : "partially_paid"
+
+    const { error: updateTargetError } = await supabase
+      .from("accounts_receivable")
+      .update({
+        paid_amount: nextPaidAmount,
+        paid_at: settledAt,
+        status: nextStatus,
+      })
+      .eq("id", targetRow.id)
+
+    if (updateTargetError) {
+      throw new Error(updateTargetError.message || "無法更新新單抵扣結果")
+    }
+
+    const { error: updateSalesPaidError } = await supabase
+      .from("sales_orders")
+      .update({ is_paid: isFullyPaid })
+      .eq("id", salesOrderId)
+
+    if (updateSalesPaidError) {
+      throw new Error(updateSalesPaidError.message || "無法更新新單付款狀態")
     }
   }
 
@@ -186,9 +311,6 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
       toastError("請至少新增一項商品")
       return
     }
-
-    const normalizedCustomerCno =
-      formData.customer_cno === CASH_CUSTOMER_VALUE ? null : formData.customer_cno || null
 
     const supabase = createClient()
 
@@ -228,7 +350,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             .from("sales_orders")
             .update({
               order_no: orderNo,
-              customer_cno: normalizedCustomerCno,
+              customer_cno: formData.customer_cno || null,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
@@ -304,7 +426,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
           await syncAccountsReceivable(
             saleId,
-            normalizedCustomerCno,
+            formData.customer_cno || null,
             Number(totalAmount),
             formData.order_date,
             Boolean(formData.is_paid),
@@ -320,24 +442,45 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           return
         }
 
-        const finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
+        let finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
+        let order: any = null
+        let orderError: unknown = null
 
-        const { data: order, error: orderError } = await supabase
-          .from("sales_orders")
-          .insert({
-            order_no: finalOrderNumber,
-            customer_cno: normalizedCustomerCno,
-            order_date: formData.order_date,
-            total_amount: totalAmount,
-            status: "completed",
-            is_paid: formData.is_paid,
-            notes: formData.notes || null,
-          })
-          .select()
-          .single()
+        for (let retry = 0; retry < 3; retry += 1) {
+          const result = await supabase
+            .from("sales_orders")
+            .insert({
+              order_no: finalOrderNumber,
+              customer_cno: formData.customer_cno || null,
+              order_date: formData.order_date,
+              total_amount: totalAmount,
+              status: "completed",
+              is_paid: formData.is_paid,
+              notes: formData.notes || null,
+            })
+            .select()
+            .single()
+
+          order = result.data
+          orderError = result.error
+
+          if (!orderError && order) {
+            break
+          }
+
+          const shouldRetryWithNewOrderNo =
+            !formData.order_no.trim() &&
+            isUniqueViolationError(orderError)
+
+          if (!shouldRetryWithNewOrderNo) {
+            break
+          }
+
+          finalOrderNumber = generateOrderNumber()
+        }
 
         if (orderError || !order) {
-          const message = orderError?.message || "無法建立銷貨單，請稍後再試"
+          const message = formatDbError(orderError, "無法建立銷貨單，請稍後再試")
           console.error("[SalesDialog] 建立銷貨單失敗:", orderError)
           toastError(message)
           return
@@ -446,7 +589,6 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   <SelectValue placeholder="選擇客戶" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={CASH_CUSTOMER_VALUE}>現銷客戶（散客）</SelectItem>
                   {customers.map((customer) => (
                     <SelectItem key={customer.code} value={customer.code}>
                       {customer.code} - {customer.name}
@@ -472,9 +614,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               id="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder={formData.customer_cno === CASH_CUSTOMER_VALUE ? "請輸入客戶稱呼/電話..." : undefined}
-              rows={4}
-              className="min-h-[120px] resize-y"
+              rows={2}
             />
           </div>
 

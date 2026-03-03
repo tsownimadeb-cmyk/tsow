@@ -17,6 +17,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { AccountsReceivable } from "@/lib/types"
@@ -39,6 +48,23 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   const [isRowActionPending, startRowActionTransition] = useTransition()
   const [processingCustomerKey, setProcessingCustomerKey] = useState<string | null>(null)
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+  const [partialSettleTarget, setPartialSettleTarget] = useState<{
+    customerCno: string
+    customerName: string
+    totalOutstanding: number
+    orders: Array<{
+      salesOrderId: string | null
+      customerCno: string | null
+      orderNumber: string
+      orderDate: string | null
+      amountDue: number
+      paidAmount: number
+      overpaidAmount: number
+      outstanding: number
+      notes: string | null
+    }>
+  } | null>(null)
+  const [partialPaymentAmount, setPartialPaymentAmount] = useState("")
   const [restoreTargetOrder, setRestoreTargetOrder] = useState<{
     id: string
     salesOrderId: string | null
@@ -57,6 +83,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
   const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
+  const overpaidAmount = filteredRecords.reduce((sum, record) => sum + Math.max(0, Number(record.overpaid_amount ?? 0) || 0), 0)
   const outstandingAmount = totalAmount - paidAmount
 
   const renderAmount = (value: number) => {
@@ -65,6 +92,32 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     }
 
     return `$${value.toLocaleString()}`
+  }
+
+  const buildPartialSettlementNote = (existingNotes: string | null | undefined, settledAt: string, amount: number) => {
+    const sanitizedAmount = Math.max(0, Number(amount) || 0)
+    const entry = `[PARTIAL_SETTLEMENT]${settledAt}|${sanitizedAmount}`
+    const base = (existingNotes || "").trim()
+    return base ? `${base}\n${entry}` : entry
+  }
+
+  const parsePartialSettlementNotes = (notes: string | null | undefined) => {
+    if (!notes) return [] as Array<{ at: string; amount: number }>
+
+    return notes
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("[PARTIAL_SETTLEMENT]"))
+      .map((line) => {
+        const raw = line.replace("[PARTIAL_SETTLEMENT]", "")
+        const [at, amountText] = raw.split("|")
+        return {
+          at: at || "",
+          amount: Math.max(0, Number(amountText || 0) || 0),
+        }
+      })
+      .filter((entry) => Boolean(entry.at) && entry.amount > 0)
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
   }
 
   const customerSummaryMap = allCustomers.reduce((map, customer) => {
@@ -78,6 +131,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         customerCno,
         totalDue: 0,
         totalPaid: 0,
+        totalOverpaid: 0,
         totalOutstanding: 0,
         orderCount: 0,
         orders: [],
@@ -90,6 +144,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     customerCno: string
     totalDue: number
     totalPaid: number
+    totalOverpaid: number
     totalOutstanding: number
     orderCount: number
     orders: Array<{
@@ -101,9 +156,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       products: string
       amountDue: number
       paidAmount: number
+      overpaidAmount: number
       outstanding: number
-      isPaid: boolean
       paidAt: string | null
+      notes: string | null
+      partialSettlements: Array<{ at: string; amount: number }>
     }>
   }>())
 
@@ -117,6 +174,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     if (current) {
       current.totalDue += record.amount_due
       current.totalPaid += record.paid_amount
+      current.totalOverpaid += Math.max(0, Number(record.overpaid_amount ?? 0) || 0)
       current.totalOutstanding += outstanding
       current.orderCount += 1
       current.orders.push({
@@ -132,9 +190,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             .join("、") || "-",
         amountDue: record.amount_due,
         paidAmount: record.paid_amount,
+        overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
         outstanding,
-        isPaid: record.sales_order?.is_paid === true,
         paidAt: record.paid_at || null,
+        notes: record.notes || null,
+        partialSettlements: parsePartialSettlementNotes(record.notes),
       })
     } else {
       map.set(key, {
@@ -142,6 +202,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         customerCno,
         totalDue: record.amount_due,
         totalPaid: record.paid_amount,
+        totalOverpaid: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
         totalOutstanding: outstanding,
         orderCount: 1,
         orders: [
@@ -158,9 +219,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                 .join("、") || "-",
             amountDue: record.amount_due,
             paidAmount: record.paid_amount,
+            overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
             outstanding,
-            isPaid: record.sales_order?.is_paid === true,
             paidAt: record.paid_at || null,
+            notes: record.notes || null,
+            partialSettlements: parsePartialSettlementNotes(record.notes),
           },
         ],
       })
@@ -174,27 +237,48 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     customerCno: string | null
     amountDue: number
     paidAmount: number
+    overpaidAmount: number
     paidAt: string | null
     dueDate: string | null
     status: "unpaid" | "partially_paid" | "paid"
+    notes?: string | null
   }) => {
     const supabase = createClient()
-    const writePayload = {
+    const writePayload: Record<string, unknown> = {
       customer_cno: payload.customerCno,
       amount_due: payload.amountDue,
       total_amount: payload.amountDue,
       paid_amount: payload.paidAmount,
+      overpaid_amount: payload.overpaidAmount,
       paid_at: payload.paidAt,
       due_date: payload.dueDate,
       status: payload.status,
     }
 
-    const { data: updatedRows, error: updateError } = await supabase
-      .from("accounts_receivable")
-      .update(writePayload)
-      .eq("sales_order_id", payload.salesOrderId)
-      .select("id")
-      .limit(1)
+    if (payload.notes !== undefined) {
+      writePayload.notes = payload.notes
+    }
+
+    const runUpdate = async (data: Record<string, unknown>) => {
+      return supabase
+        .from("accounts_receivable")
+        .update(data)
+        .eq("sales_order_id", payload.salesOrderId)
+        .select("id")
+        .limit(1)
+    }
+
+    const isMissingNotesColumnError = (message?: string) => {
+      const text = (message || "").toLowerCase()
+      return text.includes("notes") && (text.includes("column") || text.includes("schema cache") || text.includes("could not find"))
+    }
+
+    let { data: updatedRows, error: updateError } = await runUpdate(writePayload)
+    if (updateError && Object.prototype.hasOwnProperty.call(writePayload, "notes") && isMissingNotesColumnError(updateError.message)) {
+      const fallbackPayload = { ...writePayload }
+      delete fallbackPayload.notes
+      ;({ data: updatedRows, error: updateError } = await runUpdate(fallbackPayload))
+    }
 
     if (updateError) {
       throw new Error(updateError.message || "無法更新應收帳款資料")
@@ -204,12 +288,22 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       return
     }
 
-    const { error: insertError } = await supabase
+    const insertPayload: Record<string, unknown> = {
+      sales_order_id: payload.salesOrderId,
+      ...writePayload,
+    }
+
+    let { error: insertError } = await supabase
       .from("accounts_receivable")
-      .insert({
-        sales_order_id: payload.salesOrderId,
-        ...writePayload,
-      })
+      .insert(insertPayload)
+
+    if (insertError && Object.prototype.hasOwnProperty.call(insertPayload, "notes") && isMissingNotesColumnError(insertError.message)) {
+      const fallbackInsertPayload = { ...insertPayload }
+      delete fallbackInsertPayload.notes
+      ;({ error: insertError } = await supabase
+        .from("accounts_receivable")
+        .insert(fallbackInsertPayload))
+    }
 
     if (insertError) {
       throw new Error(insertError.message || "無法建立應收帳款資料")
@@ -280,6 +374,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             customerCno: summary.customerCno === "未指定" ? null : summary.customerCno,
             amountDue: order.amountDue,
             paidAmount: order.amountDue,
+            overpaidAmount: 0,
             paidAt: settledAt,
             dueDate: order.orderDate,
             status: "paid",
@@ -310,7 +405,9 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     orderNumber: string
     orderDate: string | null
     amountDue: number
-  }) => {
+    paidAmount: number
+    overpaidAmount: number
+  }, paymentAmount: number) => {
     if (!order.salesOrderId) {
       toast({
         title: "錯誤",
@@ -320,11 +417,83 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       return
     }
 
+    const normalizedPayment = Number.isFinite(paymentAmount) ? paymentAmount : 0
+    if (normalizedPayment <= 0) {
+      toast({
+        title: "錯誤",
+        description: "請輸入大於 0 的沖帳金額",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const currentPaid = Math.max(0, Math.min(order.paidAmount, order.amountDue))
+    const baseNeedAmount = Math.max(0, order.amountDue - currentPaid)
     const supabase = createClient()
+    let remainingNeed = baseNeedAmount
+    let consumedCarryover = 0
+
+    if (order.customerCno) {
+      const { data: overpaidRows, error: overpaidQueryError } = await supabase
+        .from("accounts_receivable")
+        .select("id,overpaid_amount")
+        .eq("customer_cno", order.customerCno)
+        .gt("overpaid_amount", 0)
+        .neq("sales_order_id", order.salesOrderId)
+        .order("created_at", { ascending: true })
+
+      if (overpaidQueryError) {
+        throw new Error(overpaidQueryError.message || "無法取得客戶溢收資料")
+      }
+
+      for (const row of overpaidRows || []) {
+        if (remainingNeed <= 0) break
+        const rowOverpaid = Math.max(0, Number(row.overpaid_amount ?? 0) || 0)
+        if (rowOverpaid <= 0) continue
+
+        const consume = Math.min(rowOverpaid, remainingNeed)
+        const nextOverpaid = rowOverpaid - consume
+
+        const { error: consumeError } = await supabase
+          .from("accounts_receivable")
+          .update({ overpaid_amount: nextOverpaid })
+          .eq("id", row.id)
+
+        if (consumeError) {
+          throw new Error(consumeError.message || "無法套用客戶溢收抵扣")
+        }
+
+        consumedCarryover += consume
+        remainingNeed -= consume
+      }
+    }
+
+    const appliedCash = Math.min(normalizedPayment, remainingNeed)
+    remainingNeed -= appliedCash
+    const generatedOverpaid = Math.max(0, normalizedPayment - appliedCash)
+
+    const nextPaidAmount = Math.min(order.amountDue, currentPaid + consumedCarryover + appliedCash)
+    const nextOverpaidAmount = Math.max(0, Number(order.overpaidAmount || 0) + generatedOverpaid)
+    const isFullyPaid = nextPaidAmount >= order.amountDue
+    const nextStatus: "unpaid" | "partially_paid" | "paid" =
+      nextPaidAmount <= 0
+        ? "unpaid"
+        : isFullyPaid
+          ? "paid"
+          : "partially_paid"
+
+    if (nextPaidAmount <= currentPaid) {
+      toast({
+        title: "提示",
+        description: "此單據目前沒有可沖帳金額",
+      })
+      return
+    }
+
     const settledAt = new Date().toISOString()
     const { error: salesUpdateError } = await supabase
       .from("sales_orders")
-      .update({ is_paid: true })
+      .update({ is_paid: isFullyPaid })
       .eq("id", order.salesOrderId)
 
     if (salesUpdateError) {
@@ -340,17 +509,131 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       salesOrderId: order.salesOrderId,
       customerCno: order.customerCno,
       amountDue: order.amountDue,
-      paidAmount: order.amountDue,
-      paidAt: settledAt,
+      paidAmount: nextPaidAmount,
+      overpaidAmount: nextOverpaidAmount,
+      paidAt: nextPaidAmount > 0 ? settledAt : null,
       dueDate: order.orderDate,
-      status: "paid",
+      status: nextStatus,
     })
+
+    let autoAllocatedAmount = 0
+    if (order.customerCno && order.salesOrderId) {
+      autoAllocatedAmount = await autoAllocateCustomerOverpaid({
+        customerCno: order.customerCno,
+        sourceSalesOrderId: order.salesOrderId,
+        settledAt,
+      })
+    }
 
     toast({
       title: "成功",
-      description: `單號 ${order.orderNumber} 已完成沖帳`,
+      description:
+        autoAllocatedAmount > 0
+          ? `單號 ${order.orderNumber} 已沖帳，並自動回補其他單據 $${autoAllocatedAmount.toLocaleString()}`
+          : generatedOverpaid > 0
+            ? `單號 ${order.orderNumber} 已完成沖帳，溢收 $${generatedOverpaid.toLocaleString()} 將在下次自動抵扣`
+          : consumedCarryover > 0
+            ? `單號 ${order.orderNumber} 已沖帳，已自動抵扣溢收 $${consumedCarryover.toLocaleString()}`
+            : isFullyPaid
+              ? `單號 ${order.orderNumber} 已完成沖帳`
+              : `單號 ${order.orderNumber} 已完成部分沖帳`,
     })
     router.refresh()
+  }
+
+  const autoAllocateCustomerOverpaid = async (params: {
+    customerCno: string
+    sourceSalesOrderId: string
+    settledAt: string
+  }) => {
+    const supabase = createClient()
+    const { data: sourceRow, error: sourceError } = await supabase
+      .from("accounts_receivable")
+      .select("id,overpaid_amount")
+      .eq("sales_order_id", params.sourceSalesOrderId)
+      .maybeSingle()
+
+    if (sourceError) {
+      throw new Error(sourceError.message || "無法取得溢收來源資料")
+    }
+
+    const sourceOverpaid = Math.max(0, Number(sourceRow?.overpaid_amount ?? 0) || 0)
+    if (!sourceRow?.id || sourceOverpaid <= 0) {
+      return 0
+    }
+
+    const { data: targetRows, error: targetError } = await supabase
+      .from("accounts_receivable")
+      .select("id,sales_order_id,amount_due,paid_amount")
+      .eq("customer_cno", params.customerCno)
+      .neq("sales_order_id", params.sourceSalesOrderId)
+      .order("due_date", { ascending: true })
+      .order("created_at", { ascending: true })
+
+    if (targetError) {
+      throw new Error(targetError.message || "無法取得可抵扣單據")
+    }
+
+    let remainingOverpaid = sourceOverpaid
+
+    for (const row of targetRows || []) {
+      if (remainingOverpaid <= 0) break
+
+      const amountDue = Math.max(0, Number(row.amount_due ?? 0) || 0)
+      const paidAmount = Math.max(0, Math.min(amountDue, Number(row.paid_amount ?? 0) || 0))
+      const outstanding = Math.max(0, amountDue - paidAmount)
+
+      if (outstanding <= 0) continue
+
+      const allocateAmount = Math.min(remainingOverpaid, outstanding)
+      const nextPaidAmount = paidAmount + allocateAmount
+      const isTargetPaid = nextPaidAmount >= amountDue
+      const nextStatus: "unpaid" | "partially_paid" | "paid" =
+        nextPaidAmount <= 0
+          ? "unpaid"
+          : isTargetPaid
+            ? "paid"
+            : "partially_paid"
+
+      const { error: updateTargetError } = await supabase
+        .from("accounts_receivable")
+        .update({
+          paid_amount: nextPaidAmount,
+          status: nextStatus,
+          paid_at: params.settledAt,
+        })
+        .eq("id", row.id)
+
+      if (updateTargetError) {
+        throw new Error(updateTargetError.message || "無法更新抵扣目標單據")
+      }
+
+      if (row.sales_order_id) {
+        const { error: salesUpdateError } = await supabase
+          .from("sales_orders")
+          .update({ is_paid: isTargetPaid })
+          .eq("id", row.sales_order_id)
+
+        if (salesUpdateError) {
+          throw new Error(salesUpdateError.message || "無法更新抵扣目標銷貨付款狀態")
+        }
+      }
+
+      remainingOverpaid -= allocateAmount
+    }
+
+    if (remainingOverpaid !== sourceOverpaid) {
+      const { error: sourceUpdateError } = await supabase
+        .from("accounts_receivable")
+        .update({ overpaid_amount: remainingOverpaid })
+        .eq("id", sourceRow.id)
+
+      if (sourceUpdateError) {
+        throw new Error(sourceUpdateError.message || "無法更新溢收餘額")
+      }
+    }
+
+    return sourceOverpaid - remainingOverpaid
   }
 
   const restoreSingleOrder = async (order: {
@@ -390,9 +673,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       customerCno: order.customerCno,
       amountDue: order.amountDue,
       paidAmount: 0,
+      overpaidAmount: 0,
       paidAt: null,
       dueDate: order.orderDate,
       status: "unpaid",
+      notes: null,
     })
 
     toast({
@@ -409,16 +694,11 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     orderNumber: string
     orderDate: string | null
     amountDue: number
-    outstanding: number
   }) => {
     setProcessingOrderId(order.id)
     startRowActionTransition(async () => {
       try {
-        if (order.outstanding > 0) {
-          await settleSingleOrder(order)
-        } else {
-          await restoreSingleOrder(order)
-        }
+        await restoreSingleOrder(order)
       } catch (error) {
         toast({
           title: "錯誤",
@@ -428,6 +708,214 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       } finally {
         setProcessingOrderId(null)
         setRestoreTargetOrder(null)
+      }
+    })
+  }
+
+  const handleFullSettleAction = (order: {
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+    paidAmount: number
+    overpaidAmount: number
+    outstanding: number
+  }) => {
+    if (order.outstanding <= 0) {
+      toast({
+        title: "提示",
+        description: "此單據目前沒有未收金額",
+      })
+      return
+    }
+
+    setProcessingOrderId(order.id)
+    startRowActionTransition(async () => {
+      try {
+        await settleSingleOrder(order, order.outstanding)
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingOrderId(null)
+      }
+    })
+  }
+
+  const handleOpenPartialSettle = (summary: (typeof customerSummaries)[number]) => {
+    setPartialSettleTarget({
+      customerCno: summary.customerCno,
+      customerName: summary.customerName,
+      totalOutstanding: summary.totalOutstanding,
+      orders: summary.orders,
+    })
+    setPartialPaymentAmount(summary.totalOutstanding.toString())
+  }
+
+  const handleConfirmPartialSettle = () => {
+    if (!partialSettleTarget) return
+
+    const payment = Number(partialPaymentAmount.replace(/,/g, ""))
+    if (!Number.isFinite(payment) || payment <= 0) {
+      toast({
+        title: "錯誤",
+        description: "請輸入正確的沖帳金額",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const customerKey = `${partialSettleTarget.customerCno}-${partialSettleTarget.customerName}`
+    setProcessingCustomerKey(customerKey)
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const settledAt = new Date().toISOString()
+        const totalExistingOverpaid = partialSettleTarget.orders.reduce((sum, order) => sum + Math.max(0, order.overpaidAmount), 0)
+        let distributableAmount = payment + totalExistingOverpaid
+
+        const targetOrders = [...partialSettleTarget.orders]
+          .filter((order) => order.salesOrderId)
+          .sort((a, b) => {
+            const aTime = a.orderDate ? new Date(a.orderDate).getTime() : Number.MAX_SAFE_INTEGER
+            const bTime = b.orderDate ? new Date(b.orderDate).getTime() : Number.MAX_SAFE_INTEGER
+            return aTime - bTime
+          })
+
+        const updatedOrders: Array<{
+          salesOrderId: string
+          customerCno: string | null
+          orderDate: string | null
+          amountDue: number
+          paidAmount: number
+          overpaidAmount: number
+          status: "unpaid" | "partially_paid" | "paid"
+          notes: string | null
+        }> = []
+
+        for (const order of targetOrders) {
+          if (!order.salesOrderId) continue
+
+          const currentPaidAmount = Math.max(0, Math.min(order.amountDue, order.paidAmount))
+          const outstandingAmount = Math.max(0, order.amountDue - currentPaidAmount)
+          const appliedAmount = Math.min(distributableAmount, outstandingAmount)
+          const nextPaidAmount = Math.min(order.amountDue, currentPaidAmount + appliedAmount)
+          const isFullyPaid = nextPaidAmount >= order.amountDue
+          const status: "unpaid" | "partially_paid" | "paid" =
+            nextPaidAmount <= 0
+              ? "unpaid"
+              : isFullyPaid
+                ? "paid"
+                : "partially_paid"
+
+          const nextNotes = order.notes
+
+          const { error: salesUpdateError } = await supabase
+            .from("sales_orders")
+            .update({ is_paid: isFullyPaid })
+            .eq("id", order.salesOrderId)
+
+          if (salesUpdateError) {
+            throw new Error(salesUpdateError.message || "無法更新銷貨付款狀態")
+          }
+
+          await upsertReceivableBySalesOrder({
+            salesOrderId: order.salesOrderId,
+            customerCno: order.customerCno,
+            amountDue: order.amountDue,
+            paidAmount: nextPaidAmount,
+            overpaidAmount: 0,
+            paidAt: settledAt,
+            dueDate: order.orderDate,
+            status,
+            notes: nextNotes,
+          })
+
+          distributableAmount -= appliedAmount
+          updatedOrders.push({
+            salesOrderId: order.salesOrderId,
+            customerCno: order.customerCno,
+            orderDate: order.orderDate,
+            amountDue: order.amountDue,
+            paidAmount: nextPaidAmount,
+            overpaidAmount: 0,
+            status,
+            notes: nextNotes,
+          })
+        }
+
+        if (distributableAmount > 0 && updatedOrders.length > 0) {
+          const carrierOrder = updatedOrders[0]
+          await upsertReceivableBySalesOrder({
+            salesOrderId: carrierOrder.salesOrderId,
+            customerCno: carrierOrder.customerCno,
+            amountDue: carrierOrder.amountDue,
+            paidAmount: carrierOrder.paidAmount,
+            overpaidAmount: distributableAmount,
+            paidAt: settledAt,
+            dueDate: carrierOrder.orderDate,
+            status: carrierOrder.status,
+            notes: carrierOrder.notes,
+          })
+        }
+
+        const latestOrderForRecord = [...partialSettleTarget.orders]
+          .filter((order) => Boolean(order.salesOrderId))
+          .sort((a, b) => {
+            const aTime = a.orderDate ? new Date(a.orderDate).getTime() : 0
+            const bTime = b.orderDate ? new Date(b.orderDate).getTime() : 0
+            return bTime - aTime
+          })[0]
+
+        if (latestOrderForRecord?.salesOrderId) {
+          const { data: latestRow, error: latestRowError } = await supabase
+            .from("accounts_receivable")
+            .select("customer_cno,amount_due,paid_amount,overpaid_amount,paid_at,due_date,status,notes")
+            .eq("sales_order_id", latestOrderForRecord.salesOrderId)
+            .maybeSingle()
+
+          if (latestRowError) {
+            throw new Error(latestRowError.message || "無法更新部分沖帳紀錄")
+          }
+
+          if (latestRow) {
+            await upsertReceivableBySalesOrder({
+              salesOrderId: latestOrderForRecord.salesOrderId,
+              customerCno: latestRow.customer_cno,
+              amountDue: Number(latestRow.amount_due || 0),
+              paidAmount: Number(latestRow.paid_amount || 0),
+              overpaidAmount: Number(latestRow.overpaid_amount || 0),
+              paidAt: latestRow.paid_at || settledAt,
+              dueDate: latestRow.due_date || latestOrderForRecord.orderDate,
+              status: (latestRow.status as "unpaid" | "partially_paid" | "paid") || "unpaid",
+              notes: buildPartialSettlementNote(latestRow.notes, settledAt, payment),
+            })
+          }
+        }
+
+        setPartialSettleTarget(null)
+        setPartialPaymentAmount("")
+        toast({
+          title: "成功",
+          description: distributableAmount > 0
+            ? `已完成 ${partialSettleTarget.customerName} 的部分沖帳（$${payment.toLocaleString()}），並產生溢收 $${distributableAmount.toLocaleString()}`
+            : `已完成 ${partialSettleTarget.customerName} 的部分沖帳（$${payment.toLocaleString()}）`,
+        })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingCustomerKey(null)
       }
     })
   }
@@ -443,7 +931,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       return
     }
 
-    const headers = ["客戶名稱", "客戶代號", "銷貨單號", "日期", "商品", "單筆金額", "已收金額", "未收金額"]
+    const headers = ["客戶名稱", "客戶代號", "銷貨單號", "日期", "商品", "單筆金額", "已收金額", "未收金額", "溢收款"]
     const lines = outstandingOrders.map((order) => {
       const dateText = order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"
       return [
@@ -455,13 +943,14 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         order.amountDue.toString(),
         order.paidAmount.toString(),
         order.outstanding.toString(),
+        order.overpaidAmount.toString(),
       ]
         .map((value) => `"${String(value).replace(/"/g, '""')}"`)
         .join(",")
     })
 
     const statementTotal = outstandingOrders.reduce((sum, order) => sum + order.amountDue, 0)
-    const totalLine = ["", "", "", "", "總金額", statementTotal.toString(), "", ""]
+    const totalLine = ["", "", "", "", "總金額", statementTotal.toString(), "", "", ""]
       .map((value) => `"${String(value).replace(/"/g, '""')}"`)
       .join(",")
 
@@ -539,6 +1028,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
           </p>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground">可抵扣溢收款：{renderAmount(overpaidAmount)}</p>
 
       <div className="rounded-lg border">
         {customerSummaries.length === 0 ? (
@@ -553,6 +1043,15 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
           <Accordion type="single" collapsible className="w-full">
             {customerSummaries.map((summary) => (
               <AccordionItem key={`${summary.customerCno}-${summary.customerName}`} value={`${summary.customerCno}-${summary.customerName}`}>
+                {(() => {
+                  const sortedOrders = [...summary.orders].sort((a, b) => {
+                    const aTime = a.orderDate ? new Date(a.orderDate).getTime() : 0
+                    const bTime = b.orderDate ? new Date(b.orderDate).getTime() : 0
+                    return bTime - aTime
+                  })
+
+                  return (
+                <>
                 <AccordionTrigger className="px-4 hover:no-underline">
                   <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                     <div className="col-span-4">
@@ -578,6 +1077,14 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                       匯出對帳單
                     </Button>
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenPartialSettle(summary)}
+                      disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
+                    >
+                      部分沖帳
+                    </Button>
+                    <Button
                       size="sm"
                       onClick={() => handleBatchSettle(summary)}
                       disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
@@ -593,16 +1100,21 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                           <TableHead>日期</TableHead>
                           <TableHead>商品</TableHead>
                           <TableHead className="text-right">單筆金額</TableHead>
+                          <TableHead className="text-right">已收金額</TableHead>
                           <TableHead className="text-right">未收金額</TableHead>
+                          <TableHead className="text-right">溢收款</TableHead>
                           <TableHead className="text-center">狀態</TableHead>
                           <TableHead className="text-center">沖帳日期</TableHead>
+                          <TableHead className="text-center">部分沖帳紀錄</TableHead>
                           <TableHead className="text-right">操作</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {summary.orders.map((order) => {
-                          const isPaid = order.isPaid || order.outstanding <= 0
+                        {sortedOrders.map((order) => {
+                          const isPaid = order.outstanding <= 0
+                          const isPartiallyPaid = !isPaid && order.paidAmount > 0
                           const isThisOrderProcessing = isRowActionPending && processingOrderId === order.id
+                          const partialSettlements = order.partialSettlements
 
                           return (
                             <TableRow key={order.id}>
@@ -612,20 +1124,35 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                               </TableCell>
                               <TableCell>{order.products}</TableCell>
                               <TableCell className="text-right">${order.amountDue.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">${order.paidAmount.toLocaleString()}</TableCell>
                               <TableCell className="text-right">${order.outstanding.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">${order.overpaidAmount.toLocaleString()}</TableCell>
                               <TableCell className="text-center">
-                                <span className={isPaid ? "text-foreground" : "text-destructive"}>{isPaid ? "已付款" : "未付款"}</span>
+                                <span className={isPaid ? "text-foreground" : isPartiallyPaid ? "text-primary" : "text-destructive"}>
+                                  {isPaid ? "已付款" : isPartiallyPaid ? "部分付款" : "未付款"}
+                                </span>
                               </TableCell>
                               <TableCell className="text-center text-sm text-muted-foreground">
-                                {isPaid && order.paidAt ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
+                                {order.paidAt && order.paidAmount > 0 ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
+                              </TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">
+                                {partialSettlements.length > 0 ? (
+                                  <div className="space-y-1 text-left inline-block">
+                                    {partialSettlements.map((entry, index) => (
+                                      <div key={`${entry.at}-${entry.amount}-${index}`}>
+                                        {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 ${entry.amount.toLocaleString()}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : "-"}
                               </TableCell>
                               <TableCell className="text-right">
-                                <Button
-                                  size="sm"
-                                  variant={isPaid ? "outline" : "default"}
-                                  disabled={isThisOrderProcessing}
-                                  onClick={() => {
-                                    if (isPaid) {
+                                {isPaid ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isThisOrderProcessing}
+                                    onClick={() => {
                                       setRestoreTargetOrder({
                                         id: order.id,
                                         salesOrderId: order.salesOrderId,
@@ -634,37 +1161,110 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                         orderDate: order.orderDate,
                                         amountDue: order.amountDue,
                                       })
-                                      return
-                                    }
-
-                                    handleSingleOrderAction(order)
-                                  }}
-                                >
-                                  {isThisOrderProcessing ? "處理中..." : isPaid ? "恢復未付" : "一鍵沖帳"}
-                                </Button>
+                                    }}
+                                  >
+                                    {isThisOrderProcessing ? "處理中..." : "恢復未付"}
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    disabled={isThisOrderProcessing}
+                                    onClick={() => handleFullSettleAction(order)}
+                                  >
+                                    {isThisOrderProcessing ? "處理中..." : "沖帳"}
+                                  </Button>
+                                )}
                               </TableCell>
                             </TableRow>
                           )
                         })}
                         <TableRow className="bg-muted/40">
-                          <TableCell colSpan={4} className="text-right font-semibold">總金額</TableCell>
+                          <TableCell colSpan={3} className="text-right font-semibold">總計</TableCell>
                           <TableCell className="text-right font-semibold">
-                            ${summary.orders.reduce((sum, order) => sum + order.amountDue, 0).toLocaleString()}
+                            ${sortedOrders.reduce((sum, order) => sum + order.amountDue, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            ${sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="text-right font-semibold text-destructive">
-                            ${summary.orders.reduce((sum, order) => sum + order.outstanding, 0).toLocaleString()}
+                            ${sortedOrders.reduce((sum, order) => sum + order.outstanding, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            ${sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0).toLocaleString()}
                           </TableCell>
                           <TableCell colSpan={2} />
+                          <TableCell className="text-center font-semibold text-primary">
+                            {(() => {
+                              const partialCount = sortedOrders.reduce((count, order) => count + order.partialSettlements.length, 0)
+                              const partialTotal = sortedOrders.reduce(
+                                (sum, order) => sum + order.partialSettlements.reduce((inner, entry) => inner + entry.amount, 0),
+                                0,
+                              )
+                              return `共 ${partialCount} 次 / $${partialTotal.toLocaleString()}`
+                            })()}
+                          </TableCell>
+                          <TableCell />
                         </TableRow>
                       </TableBody>
                     </Table>
                   </div>
                 </AccordionContent>
+                </>
+                  )
+                })()}
               </AccordionItem>
             ))}
           </Accordion>
         )}
       </div>
+
+      <Dialog open={Boolean(partialSettleTarget)} onOpenChange={(open) => !open && setPartialSettleTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>部分沖帳</DialogTitle>
+            <DialogDescription>
+              {partialSettleTarget
+                ? `客戶 ${partialSettleTarget.customerName} 總欠款：$${partialSettleTarget.totalOutstanding.toLocaleString()}（將依序扣抵所有未收單據）`
+                : "請輸入本次沖帳金額"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="partial-settle-amount">本次沖帳金額</Label>
+            <Input
+              id="partial-settle-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={partialPaymentAmount}
+              onChange={(e) => setPartialPaymentAmount(e.target.value)}
+              disabled={isPending}
+            />
+            {partialSettleTarget && (
+              <p className="text-xs text-muted-foreground">
+                預估扣抵後剩餘欠款：
+                ${Math.max(0, partialSettleTarget.totalOutstanding - (Number(partialPaymentAmount || 0) || 0)).toLocaleString()}，
+                預估溢收：
+                ${Math.max(0, (Number(partialPaymentAmount || 0) || 0) - partialSettleTarget.totalOutstanding).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPartialSettleTarget(null)}
+              disabled={isPending}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={handleConfirmPartialSettle} disabled={isPending || !partialSettleTarget}>
+              {isPending ? "處理中..." : "確認沖帳"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={Boolean(restoreTargetOrder)} onOpenChange={(open) => !open && setRestoreTargetOrder(null)}>
         <AlertDialogContent>
@@ -683,7 +1283,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
               onClick={(e) => {
                 e.preventDefault()
                 if (!restoreTargetOrder) return
-                handleSingleOrderAction({ ...restoreTargetOrder, outstanding: 0 })
+                handleSingleOrderAction(restoreTargetOrder)
               }}
             >
               {isRowActionPending ? "處理中..." : "確認恢復"}
