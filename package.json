@@ -6,7 +6,12 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "backup:git": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/backup-git.ps1",
+    "backup:db": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/backup-db.ps1",
+    "backup:secrets": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/backup-secrets.ps1",
+    "backup:all": "npm run backup:git && npm run backup:db && npm run backup:secrets",
+    "backup:restore-secrets": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/restore-secrets.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -48,6 +53,7 @@
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.1",
     "input-otp": "1.4.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.454.0",
     "next": "^16.0.10",
     "next-themes": "^0.4.6",
