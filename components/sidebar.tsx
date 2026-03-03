@@ -4,7 +4,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import {
-  LayoutDashboard,
   Package,
   ShoppingCart,
   Truck,
@@ -29,7 +28,6 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: "儀表板", href: "/", icon: LayoutDashboard },
   { name: "商品管理", href: "/products", icon: Package },
   {
     name: "進貨管理",
