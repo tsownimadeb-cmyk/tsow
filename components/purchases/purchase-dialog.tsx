@@ -21,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
 import { useToast } from "@/hooks/use-toast"
 import type { Supplier, Product, PurchaseOrder } from "@/lib/types"
 
@@ -349,6 +350,8 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             }
           }
 
+          await recalculateProductCostsByCodes(supabase, Array.from(allCodes))
+
           await syncAccountsPayable(
             purchaseId,
             formData.supplier_id || null,
@@ -447,6 +450,11 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               }),
             )
 
+            await recalculateProductCostsByCodes(
+              supabase,
+              inventoryItems.map((item) => item.code),
+            )
+
             await syncAccountsPayable(
               String(fallbackCreatedOrder.id),
               fallbackCreatedOrder.supplier_id,
@@ -517,6 +525,11 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               throw new Error(`成本更新失敗：${updateInventoryError.message}`)
             }
           }),
+        )
+
+        await recalculateProductCostsByCodes(
+          supabase,
+          inventoryItems.map((item) => item.code),
         )
 
         await syncAccountsPayable(

@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Download, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
@@ -344,54 +345,6 @@ async function recalculateAllStockViaRpc(supabase: ReturnType<typeof createClien
   }
 }
 
-async function recalculateImportedProductCosts(
-  supabase: ReturnType<typeof createClient>,
-  parsedRows: ParsedPurchaseRow[],
-  shippingFeeByOrderNo: Map<string, number>,
-) {
-  const goodsTotalByOrderNo = new Map<string, number>()
-  for (const row of parsedRows) {
-    const orderNo = String(row.order_no || "").trim()
-    if (!orderNo) continue
-    const subtotal = Number.isFinite(Number(row.subtotal)) ? Number(row.subtotal) : Number(row.quantity || 0) * Number(row.unit_price || 0)
-    goodsTotalByOrderNo.set(orderNo, Number(goodsTotalByOrderNo.get(orderNo) || 0) + Math.max(0, subtotal))
-  }
-
-  const aggregateByCode = new Map<string, { totalQty: number; totalLandedAmount: number }>()
-
-  for (const row of parsedRows) {
-    const code = String(row.item_code || "").trim()
-    if (!code) continue
-
-    const quantity = Number(row.quantity || 0)
-    if (!Number.isFinite(quantity) || quantity <= 0) continue
-
-    const orderNo = String(row.order_no || "").trim()
-    const subtotal = Number.isFinite(Number(row.subtotal)) ? Number(row.subtotal) : quantity * Number(row.unit_price || 0)
-    const orderGoodsTotal = Number(goodsTotalByOrderNo.get(orderNo) || 0)
-    const shippingFee = Number(shippingFeeByOrderNo.get(orderNo) || 0)
-    const allocatedShipping = orderGoodsTotal > 0 ? (subtotal / orderGoodsTotal) * shippingFee : 0
-    const landedAmount = subtotal + allocatedShipping
-
-    const current = aggregateByCode.get(code) || { totalQty: 0, totalLandedAmount: 0 }
-    current.totalQty += quantity
-    current.totalLandedAmount += landedAmount
-    aggregateByCode.set(code, current)
-  }
-
-  for (const [code, summary] of aggregateByCode.entries()) {
-    if (summary.totalQty <= 0) continue
-
-    const nextCost = summary.totalLandedAmount / summary.totalQty
-    if (!Number.isFinite(nextCost) || nextCost < 0) continue
-
-    const updateByCode = await supabase.from("products").update({ cost: nextCost }).eq("code", code)
-    if (updateByCode.error) {
-      throw new Error(formatSupabaseError(updateByCode.error, `更新商品 ${code} 成本失敗`))
-    }
-  }
-}
-
 export function PurchasesBatchActions() {
   const router = useRouter()
   const { toast } = useToast()
@@ -596,6 +549,11 @@ export function PurchasesBatchActions() {
             .filter(Boolean),
         ),
       )
+      const affectedProductCodes = new Set(
+        parsedRows
+          .map((row) => String(row.item_code || "").trim().toUpperCase())
+          .filter(Boolean),
+      )
       const headerUpdates = new Map<string, { order_date: string; supplier_id: string | null; is_paid: boolean; shipping_fee: number }>()
 
       for (const row of parsedRows) {
@@ -660,12 +618,6 @@ export function PurchasesBatchActions() {
       }
 
       const targetOrderNos = Array.from(new Set(parsedRows.map((row) => row.order_no).filter(Boolean)))
-      const shippingFeeByOrderNo = new Map<string, number>()
-      for (const orderNo of targetOrderNos) {
-        const header = headerUpdates.get(orderNo)
-        const existingOrder = latestOrderByNo.get(orderNo)
-        shippingFeeByOrderNo.set(orderNo, Number(header?.shipping_fee ?? existingOrder?.shipping_fee ?? 0))
-      }
 
       if (targetOrderIds.length > 0) {
         const deleteByOrderId = await supabase
@@ -734,6 +686,10 @@ export function PurchasesBatchActions() {
           if (!csvItemKeys.has(itemKey)) {
             idsToDelete.push(itemId)
             const deletedOrderNo = String(itemKey.split("::")[0] || "").trim()
+            const deletedCode = String(itemKey.split("::")[1] || "").trim().toUpperCase()
+            if (deletedCode) {
+              affectedProductCodes.add(deletedCode)
+            }
             const deletedOrder = latestOrderByNo.get(deletedOrderNo)
             if (deletedOrder?.id) {
               affectedOrderIds.add(String(deletedOrder.id))
@@ -796,7 +752,7 @@ export function PurchasesBatchActions() {
       await syncAccountsPayable(supabase, orderIdsToRecalculate)
 
       await recalculateAllStockViaRpc(supabase)
-      await recalculateImportedProductCosts(supabase, parsedRows, shippingFeeByOrderNo)
+      await recalculateProductCostsByCodes(supabase, Array.from(affectedProductCodes))
 
       toastApi.success("進貨資料批次更新完成")
       router.refresh()

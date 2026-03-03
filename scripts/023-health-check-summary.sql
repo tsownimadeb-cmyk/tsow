@@ -88,6 +88,12 @@ sales_header_diff AS (
     LEFT JOIN sales_item_sum sis ON sis.sales_order_id = so.id
     WHERE ABS(COALESCE(so.total_amount, 0) - COALESCE(sis.item_total, 0)) >= 0.01
   ) t
+),
+product_cost_anomaly AS (
+  SELECT COUNT(*) AS cnt
+  FROM products
+  WHERE COALESCE(purchase_qty_total, 0) > 0
+    AND COALESCE(cost, 0) <= 0
 )
 SELECT '0_required_columns' AS check_key,
        CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL' END AS status,
@@ -103,6 +109,11 @@ SELECT '4_item_code_not_in_products',
        CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL' END,
        cnt
 FROM item_code_mismatch
+UNION ALL
+SELECT '5_products_with_qty_but_zero_cost',
+       CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL' END,
+       cnt
+FROM product_cost_anomaly
 UNION ALL
 SELECT '6_purchase_header_vs_items_diff',
        CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL' END,

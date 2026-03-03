@@ -145,6 +145,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
                         cost: p.cost,
                         sale_price: p.sale_price,
                         stock_qty: p.stock_qty,
+                        purchase_qty_total: p.purchase_qty_total,
                         safety_stock: p.safety_stock,
                       }}
                     >
