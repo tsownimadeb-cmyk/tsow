@@ -51,6 +51,7 @@ const navigation: NavItem[] = [
     icon: ShoppingCart,
     children: [
       { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
+      { name: "銷貨分析", href: "/sales/analysis", icon: ChartColumn },
     ],
   },
   {
