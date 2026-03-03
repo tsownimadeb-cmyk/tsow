@@ -133,68 +133,52 @@ function formatSupabaseError(error: any, fallbackMessage: string) {
   return details ? `${message}（${details}）` : message
 }
 
-function isMissingColumnError(error: any, columnName?: string) {
-  const message = String(error?.message || "").toLowerCase()
-  const containsColumn = columnName ? message.includes(String(columnName).toLowerCase()) : true
-  return containsColumn && (message.includes("column") || message.includes("schema cache") || message.includes("does not exist"))
-}
-
-function chunkArray<T>(items: T[], size: number) {
-  const chunkSize = Math.max(1, Number(size) || 1)
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize))
+function createUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
   }
-  return chunks
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === "x" ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
 }
 
 async function querySalesOrders(supabase: ReturnType<typeof createClient>) {
-  const attempts = [
-    "id,order_no,order_date,customer_cno,is_paid",
-    "id,order_number,order_date,customer_cno,is_paid",
-  ]
-
-  for (const selectText of attempts) {
-    const result = await supabase.from("sales_orders").select(selectText)
-    if (!result.error) {
-      const rows = (result.data || []).map((row: any) => ({
-        id: String(row.id ?? ""),
-        order_no: String(row.order_no ?? row.order_number ?? "").trim(),
-        order_date: row.order_date ?? null,
-        customer_cno: row.customer_cno ?? null,
-        is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
-      }))
-      return rows as SalesOrderRow[]
-    }
+  const result = await supabase.from("sales_orders").select("id,order_no,order_date,customer_cno,is_paid")
+  if (!result.error) {
+    const rows = (result.data || []).map((row: any) => ({
+      id: String(row.id ?? ""),
+      order_no: String(row.order_no ?? "").trim(),
+      order_date: row.order_date ?? null,
+      customer_cno: row.customer_cno ?? null,
+      is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
+    }))
+    return rows as SalesOrderRow[]
   }
 
   throw new Error("讀取銷貨單失敗")
 }
 
 async function queryProductsCodes(supabase: ReturnType<typeof createClient>) {
-  const attempts = ["code", "pno"]
-  for (const selectText of attempts) {
-    const result = await supabase.from("products").select(selectText)
-    if (!result.error) {
-      const codes = (result.data || [])
-        .map((row: any) => String(row.code ?? row.pno ?? "").trim())
-        .filter(Boolean)
-      return new Set(codes)
-    }
+  const result = await supabase.from("products").select("code")
+  if (!result.error) {
+    const codes = (result.data || [])
+      .map((row: any) => String(row.code ?? "").trim())
+      .filter(Boolean)
+    return new Set(codes)
   }
   throw new Error("讀取商品資料失敗")
 }
 
 async function queryCustomerCodes(supabase: ReturnType<typeof createClient>) {
-  const attempts = ["code", "cno", "code,cno"]
-  for (const selectText of attempts) {
-    const result = await supabase.from("customers").select(selectText)
-    if (!result.error) {
-      const codes = (result.data || [])
-        .map((row: any) => String(row.code ?? row.cno ?? "").trim())
-        .filter(Boolean)
-      return new Set(codes)
-    }
+  const result = await supabase.from("customers").select("code")
+  if (!result.error) {
+    const codes = (result.data || [])
+      .map((row: any) => String(row.code ?? "").trim())
+      .filter(Boolean)
+    return new Set(codes)
   }
 
   throw new Error("讀取客戶資料失敗")
@@ -219,144 +203,155 @@ async function createSalesOrderByOrderNo(
     is_paid: false,
   }
 
-  const attempts = [{ ...payloadBase, order_no: normalizedOrderNo }, { ...payloadBase, order_number: normalizedOrderNo }]
-
-  let lastError: any = null
-
-  for (const payload of attempts) {
-    const { error } = await supabase.from("sales_orders").insert(payload)
-    if (!error) {
-      return
-    }
-    if (String(error?.code || "") === "23505") {
-      return
-    }
-    lastError = error
+  const { error } = await supabase.from("sales_orders").insert({ ...payloadBase, order_no: normalizedOrderNo })
+  if (!error) {
+    return
+  }
+  if (String(error?.code || "") === "23505") {
+    return
   }
 
-  throw new Error(formatSupabaseError(lastError, `建立銷貨單 ${normalizedOrderNo} 失敗`))
+  throw new Error(formatSupabaseError(error, `建立銷貨單 ${normalizedOrderNo} 失敗`))
 }
 
-async function insertSalesItems(
+async function queryExistingItemIdsByOrderAndCode(
   supabase: ReturnType<typeof createClient>,
-  rows: Array<{ sales_order_id: string; code: string; quantity: number; unit_price: number; subtotal: number }>,
+  ordersById: Map<string, SalesOrderRow>,
+  targetOrderIds?: string[],
 ) {
-  const INSERT_CHUNK_SIZE = 500
-  const rowChunks = chunkArray(rows, INSERT_CHUNK_SIZE)
-
-  const attempts = [
-    {
-      buildPayload: (row: (typeof rows)[number]) => ({
-        sales_order_id: row.sales_order_id,
-        code: row.code,
-        quantity: row.quantity,
-        unit_price: row.unit_price,
-        subtotal: row.subtotal,
-      }),
-    },
-    {
-      buildPayload: (row: (typeof rows)[number]) => ({
-        sales_order_id: row.sales_order_id,
-        product_code: row.code,
-        quantity: row.quantity,
-        unit_price: row.unit_price,
-        subtotal: row.subtotal,
-      }),
-    },
-    {
-      buildPayload: (row: (typeof rows)[number]) => ({
-        sales_order_id: row.sales_order_id,
-        product_pno: row.code,
-        quantity: row.quantity,
-        unit_price: row.unit_price,
-        subtotal: row.subtotal,
-      }),
-    },
-  ]
-
-  let lastError: any = null
-
-  for (const attempt of attempts) {
-    let hasChunkError = false
-
-    for (const rowChunk of rowChunks) {
-      const payload = rowChunk.map((row) => attempt.buildPayload(row))
-      const { error } = await supabase.from("sales_order_items").insert(payload)
-      if (error) {
-        lastError = error
-        hasChunkError = true
-        break
-      }
-    }
-
-    if (!hasChunkError) return
+  let query = supabase.from("sales_order_items").select("id,sales_order_id,order_no,code")
+  if (targetOrderIds && targetOrderIds.length > 0) {
+    query = query.in("sales_order_id", targetOrderIds)
   }
 
-  throw new Error(formatSupabaseError(lastError, "匯入銷貨明細失敗"))
+  const result = await query
+  if (result.error) {
+    throw new Error("讀取銷貨明細失敗")
+  }
+
+  const rows = (result.data || []) as any[]
+
+  const keyToId = new Map<string, string>()
+  for (const row of rows) {
+    const orderNo = String(row.order_no ?? ordersById.get(String(row.sales_order_id ?? ""))?.order_no ?? "").trim()
+    const itemCode = String(row.code ?? "").trim()
+    const id = String(row.id ?? "").trim()
+    if (!orderNo || !itemCode || !id) continue
+    keyToId.set(`${orderNo}::${itemCode}`, id)
+  }
+
+  return keyToId
 }
 
-async function upsertSalesHeadersBatch(
+async function upsertSalesItems(
   supabase: ReturnType<typeof createClient>,
-  rows: Array<{ order_no: string; order_date: string | null; customer_cno: string | null; total_amount: number; is_paid: boolean }>,
+  rows: Array<{ id: string; sales_order_id: string; code: string; quantity: number; unit_price: number; subtotal: number }>,
 ) {
-  const UPSERT_CHUNK_SIZE = 500
-  const rowChunks = chunkArray(rows, UPSERT_CHUNK_SIZE)
-
-  const attempts = [
-    {
-      conflictKey: "order_no",
-      buildPayload: (row: (typeof rows)[number]) => ({
-        order_no: row.order_no,
-        order_date: row.order_date,
-        customer_cno: row.customer_cno,
-        total_amount: row.total_amount,
-        is_paid: row.is_paid,
-      }),
-    },
-    {
-      conflictKey: "order_number",
-      buildPayload: (row: (typeof rows)[number]) => ({
-        order_number: row.order_no,
-        order_date: row.order_date,
-        customer_cno: row.customer_cno,
-        total_amount: row.total_amount,
-        is_paid: row.is_paid,
-      }),
-    },
-  ]
-
-  let lastError: any = null
-
-  for (const attempt of attempts) {
-    let hasChunkError = false
-
-    for (const rowChunk of rowChunks) {
-      const payload = rowChunk.map((row) => attempt.buildPayload(row))
-      const { error } = await supabase
-        .from("sales_orders")
-        .upsert(payload, { onConflict: attempt.conflictKey, on_conflict: attempt.conflictKey } as any)
-
-      if (error) {
-        lastError = error
-        hasChunkError = true
-        break
-      }
-    }
-
-    if (!hasChunkError) return
-  }
-
-  throw new Error(formatSupabaseError(lastError, "批次更新銷貨單單頭失敗"))
-}
-
-async function recalculateAllStockViaRpc(supabase: ReturnType<typeof createClient>) {
-  const { error } = await supabase.rpc("recalculate_all_stock")
+  const payload = rows.map((row) => ({
+    id: row.id,
+    sales_order_id: row.sales_order_id,
+    code: row.code,
+    quantity: row.quantity,
+    unit_price: row.unit_price,
+    subtotal: row.subtotal,
+  }))
+  const { error } = await supabase.from("sales_order_items").upsert(payload, { onConflict: "id", on_conflict: "id" } as any)
   if (error) {
-    throw new Error(formatSupabaseError(error, "重算庫存失敗：RPC recalculate_all_stock 執行失敗"))
+    throw new Error(formatSupabaseError(error, "匯入銷貨明細失敗"))
   }
 }
 
-async function syncAccountsReceivableBatch(supabase: ReturnType<typeof createClient>, targetOrderIds: string[]) {
+async function recalculateProductStocksFromTransactions(supabase: ReturnType<typeof createClient>, targetCodes: string[]) {
+  const normalizedCodes = Array.from(new Set((targetCodes || []).map((code) => String(code || "").trim()).filter(Boolean)))
+  if (normalizedCodes.length === 0) {
+    return
+  }
+
+  const purchaseItemAttempts = [{ select: "code,quantity", keyColumn: "code" }]
+  const salesItemAttempts = [{ select: "code,quantity", keyColumn: "code" }]
+
+  let purchaseTotals = new Map<string, number>()
+  let salesTotals = new Map<string, number>()
+  let purchasesLoaded = false
+  let salesLoaded = false
+
+  for (const attempt of purchaseItemAttempts) {
+    const result = await supabase
+      .from("purchase_order_items")
+      .select(attempt.select)
+      .in(attempt.keyColumn, normalizedCodes)
+    if (result.error) continue
+
+    const totals = new Map<string, number>()
+    for (const row of (result.data || []) as any[]) {
+      const code = String(row.code ?? "").trim()
+      if (!code) continue
+      const quantity = Number(row.quantity ?? 0)
+      totals.set(code, (totals.get(code) || 0) + (Number.isFinite(quantity) ? quantity : 0))
+    }
+
+    purchaseTotals = totals
+    purchasesLoaded = true
+    break
+  }
+
+  for (const attempt of salesItemAttempts) {
+    const result = await supabase
+      .from("sales_order_items")
+      .select(attempt.select)
+      .in(attempt.keyColumn, normalizedCodes)
+    if (result.error) continue
+
+    const totals = new Map<string, number>()
+    for (const row of (result.data || []) as any[]) {
+      const code = String(row.code ?? "").trim()
+      if (!code) continue
+      const quantity = Number(row.quantity ?? 0)
+      totals.set(code, (totals.get(code) || 0) + (Number.isFinite(quantity) ? quantity : 0))
+    }
+
+    salesTotals = totals
+    salesLoaded = true
+    break
+  }
+
+  if (!purchasesLoaded || !salesLoaded) {
+    throw new Error("重算庫存失敗：無法讀取進銷貨明細")
+  }
+
+  const productAttempts = [{ select: "code,stock_qty", keyColumn: "code", stockColumn: "stock_qty" }]
+
+  for (const attempt of productAttempts) {
+    const productsResult = await supabase
+      .from("products")
+      .select(attempt.select)
+      .in(attempt.keyColumn, normalizedCodes)
+    if (productsResult.error) continue
+
+    const productRows = (productsResult.data || []) as any[]
+    for (const productRow of productRows) {
+      const itemCode = String(productRow.code ?? "").trim()
+      if (!itemCode) continue
+
+      const purchaseQty = Number(purchaseTotals.get(itemCode) || 0)
+      const salesQty = Number(salesTotals.get(itemCode) || 0)
+      const nextStockQty = Math.max(0, purchaseQty - salesQty)
+
+      const payload = { stock_qty: nextStockQty }
+
+      const { error: updateError } = await supabase.from("products").update(payload).eq(attempt.keyColumn, itemCode)
+      if (updateError) {
+        throw new Error(updateError.message || `商品 ${itemCode} 庫存重算失敗`)
+      }
+    }
+
+    return
+  }
+
+  throw new Error("重算庫存失敗：無法讀取商品資料")
+}
+
+async function syncAccountsReceivable(supabase: ReturnType<typeof createClient>, targetOrderIds: string[]) {
   const normalizedOrderIds = Array.from(new Set((targetOrderIds || []).map((id) => String(id || "").trim()).filter(Boolean)))
   if (normalizedOrderIds.length === 0) {
     return
@@ -400,39 +395,31 @@ async function syncAccountsReceivableBatch(supabase: ReturnType<typeof createCli
     totalByOrderId.set(orderId, Number(totalByOrderId.get(orderId) || 0) + (Number.isFinite(subtotal) ? subtotal : 0))
   }
 
-  const payload = orders
-    .filter((order) => Boolean(order.id))
-    .map((order) => {
-      const totalAmount = Number(totalByOrderId.get(order.id) || 0)
-      const paid = Boolean(order.is_paid)
-      const existingId = arBySalesOrderId.get(order.id)
+  for (const order of orders) {
+    if (!order.id) continue
+    const totalAmount = Number(totalByOrderId.get(order.id) || 0)
+    const paid = Boolean(order.is_paid)
 
-      return {
-        ...(existingId ? { id: existingId } : {}),
-        sales_order_id: order.id,
-        customer_cno: order.customer_cno,
-        amount_due: totalAmount,
-        total_amount: totalAmount,
-        paid_amount: paid ? totalAmount : 0,
-        due_date: normalizeDateInput(String(order.order_date || "")) || null,
-        status: paid ? "paid" : "unpaid",
+    const payload = {
+      customer_cno: order.customer_cno,
+      amount_due: totalAmount,
+      total_amount: totalAmount,
+      paid_amount: paid ? totalAmount : 0,
+      due_date: normalizeDateInput(String(order.order_date || "")) || null,
+      status: paid ? "paid" : "unpaid",
+    }
+
+    const existingId = arBySalesOrderId.get(order.id)
+    if (existingId) {
+      const { error: updateError } = await supabase.from("accounts_receivable").update(payload).eq("id", existingId)
+      if (updateError) {
+        throw new Error(formatSupabaseError(updateError, `更新銷貨單 ${order.order_no} 應收帳款失敗`))
       }
-    })
-
-  if (payload.length === 0) {
-    return
-  }
-
-  const UPSERT_CHUNK_SIZE = 500
-  const payloadChunks = chunkArray(payload, UPSERT_CHUNK_SIZE)
-
-  for (const payloadChunk of payloadChunks) {
-    const { error } = await supabase
-      .from("accounts_receivable")
-      .upsert(payloadChunk, { onConflict: "id", on_conflict: "id" } as any)
-
-    if (error) {
-      throw new Error(formatSupabaseError(error, "批次同步應收帳款失敗"))
+    } else {
+      const { error: insertError } = await supabase.from("accounts_receivable").insert({ sales_order_id: order.id, ...payload })
+      if (insertError) {
+        throw new Error(formatSupabaseError(insertError, `建立銷貨單 ${order.order_no} 應收帳款失敗`))
+      }
     }
   }
 }
@@ -468,8 +455,6 @@ export function SalesBatchActions() {
 
       const itemAttempts = [
         "sales_order_id,code,quantity,unit_price",
-        "sales_order_id,product_code,quantity,unit_price",
-        "sales_order_id,product_pno,quantity,unit_price",
       ]
 
       let itemRows: any[] = []
@@ -492,7 +477,7 @@ export function SalesBatchActions() {
         const order = orderById.get(String(item.sales_order_id ?? ""))
         return {
           order_no: String(order?.order_no ?? "").trim(),
-          item_code: String(item.code ?? item.product_code ?? item.product_pno ?? "").trim(),
+          item_code: String(item.code ?? "").trim(),
           quantity: Number(item.quantity ?? 0),
           unit_price: Number(item.unit_price ?? 0),
           sales_date: String(order?.order_date ?? ""),
@@ -514,8 +499,6 @@ export function SalesBatchActions() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-
-      toastApi.success("銷貨明細 CSV 匯出完成")
     } catch (error: any) {
       toastApi.error(error?.message || "匯出銷貨明細 CSV 失敗")
     } finally {
@@ -535,14 +518,8 @@ export function SalesBatchActions() {
     const isConfirmed = window.confirm("這將根據單號與商品編號覆蓋現有資料，確定執行嗎？")
     if (!isConfirmed) return
 
-    let currentPhase = "初始化"
-    const operationId = `sales-import-${Date.now()}`
-
     try {
       setIsImporting(true)
-
-      currentPhase = "解析 CSV"
-      console.info(`[${operationId}] ${currentPhase} 開始`)
 
       const rawText = await file.text()
       const text = rawText.replace(/^\uFEFF/, "")
@@ -606,15 +583,14 @@ export function SalesBatchActions() {
         throw new Error("沒有可匯入的資料，請確認 item_code 欄位")
       }
 
+      const affectedCodes = new Set(parsedRows.map((row) => String(row.item_code || "").trim()).filter(Boolean))
+
       if (syncDeleteMissing) {
         const secondConfirm = window.confirm(
           "已啟用同步刪除：系統將刪除所有不在 CSV 內的銷貨明細（order_no + item_code）。此操作無法復原，確定繼續嗎？",
         )
         if (!secondConfirm) return
       }
-
-      currentPhase = "讀取參考資料與驗證"
-      console.info(`[${operationId}] ${currentPhase} 開始`)
 
       const supabase = createClient()
       const [initialOrders, productCodes, customerCodes] = await Promise.all([
@@ -640,9 +616,6 @@ export function SalesBatchActions() {
         }
       }
 
-      currentPhase = "建立缺少單頭"
-      console.info(`[${operationId}] ${currentPhase} 開始，筆數=${missingOrderNos.size}`)
-
       for (const missingOrderNo of missingOrderNos) {
         const sampleRow = parsedRows.find((row) => row.order_no === missingOrderNo)
         if (!sampleRow) continue
@@ -657,6 +630,7 @@ export function SalesBatchActions() {
 
       const orders = await querySalesOrders(supabase)
       const latestOrderByNo = new Map(orders.map((order) => [order.order_no, order]))
+      const orderById = new Map(orders.map((order) => [order.id, order]))
       const targetOrderIds = Array.from(
         new Set(
           parsedRows
@@ -691,23 +665,21 @@ export function SalesBatchActions() {
         })
       }
 
-      currentPhase = "批次更新單頭"
-      console.info(`[${operationId}] ${currentPhase} 開始，筆數=${headerUpdates.size}`)
+      for (const [orderNo, header] of headerUpdates.entries()) {
+        const basePayload = {
+          order_date: header.order_date || null,
+          customer_cno: header.customer_cno,
+          total_amount: Number(header.total_amount || 0),
+          is_paid: header.is_paid,
+        }
 
-      const headerPayload = Array.from(headerUpdates.entries()).map(([orderNo, header]) => ({
-        order_no: orderNo,
-        order_date: header.order_date || null,
-        customer_cno: header.customer_cno,
-        total_amount: Number(header.total_amount || 0),
-        is_paid: header.is_paid,
-      }))
+        const { error: updateError } = await supabase.from("sales_orders").update(basePayload).eq("order_no", orderNo)
 
-      await upsertSalesHeadersBatch(supabase, headerPayload)
+        if (!updateError) continue
+        throw new Error(`order_no ${orderNo} 單頭更新失敗：${formatSupabaseError(updateError, updateError.message)}`)
+      }
 
       const targetOrderNos = Array.from(new Set(parsedRows.map((row) => row.order_no).filter(Boolean)))
-
-      currentPhase = "清除既有明細"
-      console.info(`[${operationId}] ${currentPhase} 開始，order_count=${targetOrderIds.length}`)
 
       if (targetOrderIds.length > 0) {
         const deleteByOrderId = await supabase
@@ -716,10 +688,6 @@ export function SalesBatchActions() {
           .in("sales_order_id", targetOrderIds)
 
         if (deleteByOrderId.error) {
-          if (!isMissingColumnError(deleteByOrderId.error, "sales_order_id")) {
-            throw new Error(formatSupabaseError(deleteByOrderId.error, "清除既有銷貨明細失敗"))
-          }
-
           const deleteByOrderNo = await supabase
             .from("sales_order_items")
             .delete()
@@ -731,9 +699,10 @@ export function SalesBatchActions() {
         }
       }
 
-      const insertPayloadByKey = new Map<
+      const upsertPayloadByKey = new Map<
         string,
         {
+          id: string
           sales_order_id: string
           code: string
           quantity: number
@@ -749,6 +718,7 @@ export function SalesBatchActions() {
         }
 
         const payload = {
+          id: createUuid(),
           sales_order_id: order.id,
           code: row.item_code,
           quantity: Number(row.quantity),
@@ -757,25 +727,37 @@ export function SalesBatchActions() {
         }
 
         const dedupeKey = `${order.id}::${row.item_code}`
-        insertPayloadByKey.set(dedupeKey, payload)
+        upsertPayloadByKey.set(dedupeKey, payload)
       }
 
-      const insertPayload = Array.from(insertPayloadByKey.values())
-
-      currentPhase = "批次寫入明細"
-      console.info(`[${operationId}] ${currentPhase} 開始，item_count=${insertPayload.length}`)
-      await insertSalesItems(supabase, insertPayload)
+      const upsertPayload = Array.from(upsertPayloadByKey.values())
+      await upsertSalesItems(supabase, upsertPayload)
 
       const affectedOrderIds = new Set<string>(targetOrderIds)
 
       if (syncDeleteMissing) {
-        currentPhase = "同步刪除缺少單據"
-        console.info(`[${operationId}] ${currentPhase} 開始`)
-
+        const csvItemKeys = new Set(parsedRows.map((row) => `${row.order_no}::${row.item_code}`))
         const csvOrderNos = new Set(parsedRows.map((row) => String(row.order_no || "").trim()).filter(Boolean))
+        const existingRows = await queryExistingItemIdsByOrderAndCode(supabase, orderById)
+        const idsToDelete: string[] = []
+
+        for (const [itemKey, itemId] of existingRows.entries()) {
+          if (!csvItemKeys.has(itemKey)) {
+            idsToDelete.push(itemId)
+            const deletedOrderNo = String(itemKey.split("::")[0] || "").trim()
+            const deletedCode = String(itemKey.split("::")[1] || "").trim()
+            const deletedOrder = latestOrderByNo.get(deletedOrderNo)
+            if (deletedOrder?.id) {
+              affectedOrderIds.add(String(deletedOrder.id))
+            }
+            if (deletedCode) {
+              affectedCodes.add(deletedCode)
+            }
+          }
+        }
+
         const orderIdsToDelete: string[] = []
         const orderNosToDelete: string[] = []
-
         for (const order of orders) {
           const existingOrderNo = String(order.order_no || "").trim()
           if (!existingOrderNo) continue
@@ -784,81 +766,52 @@ export function SalesBatchActions() {
           orderNosToDelete.push(existingOrderNo)
         }
 
-        if (orderNosToDelete.length > 0) {
-          const { error: deleteItemsByOrderIdError } = await supabase
-            .from("sales_order_items")
-            .delete()
-            .in("sales_order_id", orderIdsToDelete)
-
-          if (deleteItemsByOrderIdError) {
-            if (!isMissingColumnError(deleteItemsByOrderIdError, "sales_order_id")) {
-              throw new Error(formatSupabaseError(deleteItemsByOrderIdError, "刪除缺少銷貨單明細失敗"))
-            }
-
-            const { error: deleteItemsByOrderNoError } = await supabase
-              .from("sales_order_items")
-              .delete()
-              .in("order_no", orderNosToDelete)
-
-            if (deleteItemsByOrderNoError) {
-              throw new Error(formatSupabaseError(deleteItemsByOrderNoError, "刪除缺少銷貨單明細失敗"))
-            }
-          }
-
-          const { error: deleteOrdersByOrderNoError } = await supabase
-            .from("sales_orders")
-            .delete()
-            .in("order_no", orderNosToDelete)
-
-          if (deleteOrdersByOrderNoError) {
-            throw new Error(formatSupabaseError(deleteOrdersByOrderNoError, "刪除缺少銷貨單失敗"))
-          }
-
-          const { error: deleteOrdersByOrderNumberError } = await supabase
-            .from("sales_orders")
-            .delete()
-            .in("order_number", orderNosToDelete)
-
-          if (deleteOrdersByOrderNumberError && !isMissingColumnError(deleteOrdersByOrderNumberError, "order_number")) {
-            throw new Error(formatSupabaseError(deleteOrdersByOrderNumberError, "刪除缺少銷貨單失敗"))
+        if (idsToDelete.length > 0) {
+          const { error: deleteError } = await supabase.from("sales_order_items").delete().in("id", idsToDelete)
+          if (deleteError) {
+            throw new Error(formatSupabaseError(deleteError, "刪除缺少銷貨明細失敗"))
           }
         }
 
         if (orderIdsToDelete.length > 0) {
+          const { error: deleteItemsByOrderIdError } = await supabase
+            .from("sales_order_items")
+            .delete()
+            .in("sales_order_id", orderIdsToDelete)
+          if (deleteItemsByOrderIdError) {
+            throw new Error(formatSupabaseError(deleteItemsByOrderIdError, "刪除缺少銷貨單明細失敗"))
+          }
+
           const { error: deleteArError } = await supabase
             .from("accounts_receivable")
             .delete()
             .in("sales_order_id", orderIdsToDelete)
-
           if (deleteArError) {
             throw new Error(formatSupabaseError(deleteArError, "刪除缺少應收帳款失敗"))
           }
+
+          const { error: deleteOrdersError } = await supabase
+            .from("sales_orders")
+            .delete()
+            .in("id", orderIdsToDelete)
+          if (deleteOrdersError) {
+            throw new Error(formatSupabaseError(deleteOrdersError, "刪除缺少銷貨單失敗"))
+          }
+        }
+
+        if (orderNosToDelete.length > 0) {
+          await supabase.from("sales_order_items").delete().in("order_no", orderNosToDelete)
+          await supabase.from("sales_orders").delete().in("order_no", orderNosToDelete)
         }
       }
 
-      currentPhase = "RPC 重算庫存"
-      console.info(`[${operationId}] ${currentPhase} 開始`)
-      await recalculateAllStockViaRpc(supabase)
-
-      currentPhase = "批次同步應收帳款"
-      console.info(`[${operationId}] ${currentPhase} 開始，order_count=${affectedOrderIds.size}`)
-      await syncAccountsReceivableBatch(supabase, Array.from(affectedOrderIds))
-
-      console.info(`[${operationId}] 匯入流程完成`)
+      await recalculateProductStocksFromTransactions(supabase, Array.from(affectedCodes))
+      await syncAccountsReceivable(supabase, Array.from(affectedOrderIds))
 
       toastApi.success("銷貨資料批次更新完成")
-      setIsImporting(false)
-      window.setTimeout(() => {
-        router.refresh()
-      }, 150)
-      return
+      router.refresh()
     } catch (error: any) {
-      console.warn(`[${operationId}] 匯入失敗`, {
-        phase: currentPhase,
-        message: error?.message,
-        details: error,
-      })
-      toastApi.error(error?.message || `${currentPhase}失敗`)
+      toastApi.error(error?.message || "匯入失敗")
     } finally {
       setIsImporting(false)
     }

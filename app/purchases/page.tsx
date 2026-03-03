@@ -7,8 +7,8 @@ import type { Product, PurchaseOrderItem } from "@/lib/types"
 
 function normalizeProductRow(row: any): Product {
   return {
-    code: String(row.code ?? row.pno ?? ""),
-    name: String(row.name ?? row.pname ?? ""),
+    code: String(row.code ?? ""),
+    name: String(row.name ?? ""),
     spec: (row.spec ?? null) as string | null,
     unit: (row.unit ?? null) as string | null,
     category: (row.category ?? null) as string | null,
@@ -16,9 +16,9 @@ function normalizeProductRow(row: any): Product {
     cost: Number(row.cost ?? 0),
     price: Number(row.price ?? 0),
     sale_price: row.sale_price === null || row.sale_price === undefined ? null : Number(row.sale_price),
-    stock_qty: Number(row.stock_qty ?? row.stock_quantity ?? 0),
+    stock_qty: Number(row.stock_qty ?? 0),
     purchase_qty_total: Number(row.purchase_qty_total ?? 0),
-    safety_stock: Number(row.safety_stock ?? row.min_stock_level ?? 0),
+    safety_stock: Number(row.safety_stock ?? 0),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   }
@@ -29,27 +29,12 @@ async function fetchProductsForPurchases(supabase: Awaited<ReturnType<typeof cre
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at",
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at",
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,created_at,updated_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,created_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_quantity,min_stock_level,created_at,updated_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_quantity,min_stock_level,created_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_quantity,min_stock_level",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,created_at,updated_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,created_at",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price",
-    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at",
-    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at",
-    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,created_at,updated_at",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,created_at",
     "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total",
-    "code,name,spec,unit,category,cost,price,sale_price,stock_quantity,min_stock_level,created_at,updated_at",
-    "code,name,spec,unit,category,cost,price,sale_price,stock_quantity,min_stock_level,created_at",
-    "code,name,spec,unit,category,cost,price,sale_price,stock_quantity,min_stock_level",
     "code,name,spec,unit,category,cost,price,sale_price,created_at,updated_at",
     "code,name,spec,unit,category,cost,price,sale_price,created_at",
     "code,name,spec,unit,category,cost,price,sale_price",
@@ -78,53 +63,27 @@ async function fetchPurchaseItemsForOrders(
   supabase: Awaited<ReturnType<typeof createClient>>,
   purchaseOrders: any[],
 ) {
-  const orderNos = purchaseOrders.map((purchase) => String(purchase.order_no || "").trim()).filter(Boolean)
   const purchaseIds = purchaseOrders.map((purchase) => String(purchase.id || "").trim()).filter(Boolean)
   const orderNoById = new Map(purchaseOrders.map((purchase) => [String(purchase.id || ""), String(purchase.order_no || "")]))
 
-  if (!orderNos.length && !purchaseIds.length) {
+  if (!purchaseIds.length) {
     return {
       data: [] as Array<PurchaseOrderItem & { order_no?: string }>,
       warning: null as string | null,
     }
   }
 
-  const tryNew = orderNos.length
-    ? await supabase
-        .from("purchase_order_items")
-        .select("id,order_no,code,quantity,unit_price,subtotal,created_at")
-        .in("order_no", orderNos)
-    : { data: [] as any[], error: null as any }
+  const result = await supabase
+    .from("purchase_order_items")
+    .select("id,purchase_order_id,order_no,code,quantity,unit_price,subtotal,created_at")
+    .in("purchase_order_id", purchaseIds)
 
-  if (!tryNew.error) {
+  if (!result.error) {
     return {
-      data: (tryNew.data || []).map((item: any) => ({
-        id: String(item.id ?? ""),
-        purchase_order_id: "",
-        order_no: String(item.order_no ?? ""),
-        code: (item.code ?? null) as string | null,
-        quantity: Number(item.quantity ?? 0),
-        unit_price: Number(item.unit_price ?? 0),
-        subtotal: Number(item.subtotal ?? 0),
-        created_at: String(item.created_at ?? ""),
-      })),
-      warning: null as string | null,
-    }
-  }
-
-  const tryLegacy = purchaseIds.length
-    ? await supabase
-        .from("purchase_order_items")
-        .select("id,purchase_order_id,code,quantity,unit_price,subtotal,created_at")
-        .in("purchase_order_id", purchaseIds)
-    : { data: [] as any[], error: null as any }
-
-  if (!tryLegacy.error) {
-    return {
-      data: (tryLegacy.data || []).map((item: any) => ({
+      data: (result.data || []).map((item: any) => ({
         id: String(item.id ?? ""),
         purchase_order_id: String(item.purchase_order_id ?? ""),
-        order_no: String(orderNoById.get(String(item.purchase_order_id ?? "")) ?? ""),
+        order_no: String(item.order_no ?? orderNoById.get(String(item.purchase_order_id ?? "")) ?? ""),
         code: (item.code ?? null) as string | null,
         quantity: Number(item.quantity ?? 0),
         unit_price: Number(item.unit_price ?? 0),
@@ -137,7 +96,7 @@ async function fetchPurchaseItemsForOrders(
 
   return {
     data: [] as Array<PurchaseOrderItem & { order_no?: string }>,
-    warning: tryNew.error?.message || tryLegacy.error?.message || "查詢 purchase_order_items 失敗",
+    warning: result.error?.message || "查詢 purchase_order_items 失敗",
   }
 }
 

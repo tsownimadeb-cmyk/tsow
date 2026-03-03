@@ -24,7 +24,7 @@ import type { AccountsReceivable } from "@/lib/types"
 interface ARTableProps {
   records: AccountsReceivable[]
   allCustomers?: Array<{
-    cno: string
+    code: string
     name: string
   }>
 }
@@ -68,7 +68,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   }
 
   const customerSummaryMap = allCustomers.reduce((map, customer) => {
-    const customerCno = customer.cno || "未指定"
+    const customerCno = customer.code || "未指定"
     const customerName = customer.name || "未指定客戶"
     const key = `${customerCno}-${customerName}`
 
@@ -109,7 +109,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
-    const customerName = record.customer?.name || record.customer?.compy || "未指定客戶"
+    const customerName = record.customer?.name || "未指定客戶"
     const key = `${customerCno}-${customerName}`
     const outstanding = record.amount_due - record.paid_amount
     const current = map.get(key)

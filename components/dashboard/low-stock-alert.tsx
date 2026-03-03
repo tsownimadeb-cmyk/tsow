@@ -40,9 +40,9 @@ export function LowStockAlert({ products }: LowStockAlertProps) {
             </div>
             <div className="text-right">
               <p className="text-red-600 font-medium">
-                {product.stock_quantity} {product.unit}
+                {product.stock_qty} {product.unit}
               </p>
-              <p className="text-xs text-muted-foreground">安全庫存: {product.min_stock_level}</p>
+              <p className="text-xs text-muted-foreground">安全庫存: {product.safety_stock}</p>
             </div>
           </div>
         ))}

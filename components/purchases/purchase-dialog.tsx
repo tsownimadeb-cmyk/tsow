@@ -188,7 +188,8 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
     orderItems: OrderItem[],
     supabase: ReturnType<typeof createClient>,
   ) => {
-    const orderItemsByOrderNo = orderItems.map((item) => ({
+    const payload = orderItems.map((item) => ({
+      purchase_order_id: purchaseId,
       order_no: orderNo,
       code: item.code || null,
       quantity: item.quantity,
@@ -196,31 +197,9 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
       subtotal: item.quantity * item.unit_price,
     }))
 
-    const insertByOrderNo = await supabase.from("purchase_order_items").insert(orderItemsByOrderNo)
-    if (!insertByOrderNo.error) return
-
-    const orderItemsByPurchaseId = orderItems.map((item) => ({
-      purchase_order_id: purchaseId,
-      code: item.code || null,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      subtotal: item.quantity * item.unit_price,
-    }))
-
-    const insertByPurchaseId = await supabase.from("purchase_order_items").insert(orderItemsByPurchaseId)
-    if (!insertByPurchaseId.error) return
-
-    const orderItemsLegacy = orderItems.map((item) => ({
-      purchase_order_id: purchaseId,
-      product_pno: item.code || null,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      subtotal: item.quantity * item.unit_price,
-    }))
-
-    const insertLegacy = await supabase.from("purchase_order_items").insert(orderItemsLegacy)
-    if (insertLegacy.error) {
-      throw new Error(insertLegacy.error.message || "無法新增進貨明細，請稍後再試")
+    const { error } = await supabase.from("purchase_order_items").insert(payload)
+    if (error) {
+      throw new Error(error.message || "無法新增進貨明細，請稍後再試")
     }
   }
 

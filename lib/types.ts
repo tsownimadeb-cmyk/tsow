@@ -21,8 +21,6 @@ export interface Supplier {
 export interface Customer {
   code: string
   name: string
-  cno?: string
-  compy?: string
   contact_person: string | null
   tel1: string | null
   tel11: string | null
@@ -47,8 +45,6 @@ export interface Product {
   stock_qty: number | null
   purchase_qty_total: number | null
   safety_stock: number | null
-  stock_quantity?: number | null
-  min_stock_level?: number | null
   created_at: string
   updated_at: string
 }
@@ -56,7 +52,6 @@ export interface Product {
 export interface PurchaseOrder {
   id: string
   order_no?: string
-  purno?: string
   supplier_id: string | null
   order_date: string
   total_amount: number
@@ -85,9 +80,7 @@ export interface PurchaseOrderItem {
 export interface SalesOrder {
   id: string
   order_no: string
-  salno?: string
   customer_cno: string | null
-  customer_code?: string | null
   order_date: string
   total_amount: number
   status: "pending" | "completed" | "cancelled"

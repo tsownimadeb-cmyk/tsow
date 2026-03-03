@@ -67,7 +67,7 @@ export function UpdateStatusDialog({ order, newStatus, type, open, onOpenChange 
 
           const { data: items, error: itemsError } = await supabase
             .from(itemsTable)
-            .select("id,code,product_code,quantity")
+            .select("id,code,quantity")
             .eq(foreignKey, foreignValue)
 
           if (itemsError) {
@@ -77,7 +77,7 @@ export function UpdateStatusDialog({ order, newStatus, type, open, onOpenChange 
           }
 
           for (const item of items || []) {
-            const productCode = String(item.code || item.product_code || "").trim()
+            const productCode = String(item.code || "").trim()
             const quantity = Number(item.quantity ?? 0)
             if (!productCode || !Number.isFinite(quantity) || quantity <= 0) continue
 

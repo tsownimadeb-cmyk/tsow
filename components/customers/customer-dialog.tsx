@@ -66,8 +66,8 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
         const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
         const hasColumn = (column: string) => existingColumns.has(column)
 
-        const keyColumn = hasColumn("code") ? "code" : hasColumn("cno") ? "cno" : "code"
-        const nameColumn = hasColumn("name") ? "name" : hasColumn("compy") ? "compy" : "name"
+        const keyColumn = "code"
+        const nameColumn = "name"
         const tel1Column = hasColumn("tel1") ? "tel1" : null
         const tel2Column = hasColumn("tel2") ? "tel2" : hasColumn("tel11") ? "tel11" : null
         const tel3Column = hasColumn("fax") ? "fax" : hasColumn("tel3") ? "tel3" : hasColumn("tel12") ? "tel12" : null

@@ -37,7 +37,6 @@ const navigation: NavItem[] = [
     icon: Truck,
     children: [
       { name: "新建進貨", href: "/purchases?create=true", icon: Plus },
-      { name: "應付帳款管理", href: "/accounts-payable", icon: CreditCard },
     ],
   },
   {
@@ -48,7 +47,14 @@ const navigation: NavItem[] = [
       { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
     ],
   },
-  { name: "應收帳款管理", href: "/accounts-receivable", icon: CreditCard },
+  {
+    name: "應收應付管理",
+    icon: CreditCard,
+    children: [
+      { name: "應收帳款", href: "/accounts-receivable", icon: CreditCard },
+      { name: "應付帳款", href: "/accounts-payable", icon: CreditCard },
+    ],
+  },
   { name: "供應商管理", href: "/suppliers", icon: Building2 },
   { name: "客戶管理", href: "/customers", icon: Users },
 ]

@@ -36,7 +36,7 @@ export default async function ARPage() {
   const productCodes = Array.from(
     new Set(
       (salesOrderItems || [])
-        .map((item) => item.code ?? item.product_code)
+        .map((item) => item.code)
         .filter((code): code is string => Boolean(code)),
     ),
   )
@@ -53,15 +53,12 @@ export default async function ARPage() {
   const customersList = (customers || []) as Customer[]
 
   const customerMap = new Map(
-    customersList.flatMap((customer) => [
-      [customer.code, customer] as const,
-      [customer.cno || customer.code, customer] as const,
-    ]),
+    customersList.map((customer) => [customer.code, customer] as const),
   )
   const productMap = new Map((products || []).map((product) => [product.code, product]))
 
   const salesOrderItemsMap = (salesOrderItems || []).reduce((map, item) => {
-    const productCode = item.code ?? item.product_code
+    const productCode = item.code
     const current = map.get(item.sales_order_id) || []
     current.push({
       ...item,
@@ -166,8 +163,8 @@ export default async function ARPage() {
       <ARTable
         records={enrichedRecords}
         allCustomers={customersList.map((customer) => ({
-          cno: customer.cno || customer.code,
-          name: customer.name || customer.compy || customer.code,
+          code: customer.code,
+          name: customer.name || customer.code,
         }))}
       />
     </div>

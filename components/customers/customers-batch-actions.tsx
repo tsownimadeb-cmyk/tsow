@@ -89,8 +89,8 @@ async function queryCustomersForExport(supabase: ReturnType<typeof createClient>
 
   const rows = ((result.data || []) as any[]).slice()
   rows.sort((left, right) => {
-    const leftKey = String(left.code ?? left.cno ?? left.name ?? left.compy ?? "")
-    const rightKey = String(right.code ?? right.cno ?? right.name ?? right.compy ?? "")
+    const leftKey = String(left.code ?? left.name ?? "")
+    const rightKey = String(right.code ?? right.name ?? "")
     return leftKey.localeCompare(rightKey, "zh-Hant")
   })
 
@@ -107,8 +107,8 @@ async function upsertCustomers(supabase: ReturnType<typeof createClient>, rows: 
 
   const hasColumn = (column: string) => existingColumns.has(column)
 
-  const keyColumn = hasColumn("code") ? "code" : hasColumn("cno") ? "cno" : "code"
-  const nameColumn = hasColumn("name") ? "name" : hasColumn("compy") ? "compy" : "name"
+  const keyColumn = "code"
+  const nameColumn = "name"
 
   const tel1Column = hasColumn("tel1") ? "tel1" : null
   const tel2Column = hasColumn("tel2") ? "tel2" : hasColumn("tel11") ? "tel11" : null
@@ -147,7 +147,7 @@ async function queryCustomerKeyColumnAndValues(supabase: ReturnType<typeof creat
   }
 
   const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
-  const keyColumn = existingColumns.has("code") ? "code" : existingColumns.has("cno") ? "cno" : "code"
+  const keyColumn = "code"
 
   const listResult = await supabase.from("customers").select(keyColumn)
   if (listResult.error) {
@@ -190,8 +190,8 @@ export function CustomersBatchActions() {
       const data = await queryCustomersForExport(supabase)
 
       const rows: CustomerCsvRow[] = data.map((row: any) => ({
-        code: String(row.code ?? row.cno ?? "").trim(),
-        name: String(row.name ?? row.compy ?? "姓名不詳").trim() || "姓名不詳",
+        code: String(row.code ?? "").trim(),
+        name: String(row.name ?? "姓名不詳").trim() || "姓名不詳",
         tel1: String(row.tel1 ?? "").trim(),
         tel2: String(row.tel2 ?? row.tel11 ?? "").trim(),
         tel3: String(row.fax ?? row.tel3 ?? row.tel12 ?? "").trim(),
@@ -228,7 +228,7 @@ export function CustomersBatchActions() {
     event.target.value = ""
     if (!file) return
 
-    const isConfirmed = window.confirm("這將根據 code（舊版資料庫為 cno）覆蓋現有客戶資料，確定執行嗎？")
+    const isConfirmed = window.confirm("這將根據 code 覆蓋現有客戶資料，確定執行嗎？")
     if (!isConfirmed) return
 
     try {
@@ -256,8 +256,8 @@ export function CustomersBatchActions() {
             return accumulator
           }, {})
 
-          const rawCode = pickFirstValue(valueByColumn, ["code", "cno"])
-          const rawName = pickFirstValue(valueByColumn, ["name", "compy"])
+          const rawCode = pickFirstValue(valueByColumn, ["code"])
+          const rawName = pickFirstValue(valueByColumn, ["name"])
           const rawTel1 = pickFirstValue(valueByColumn, ["tel1"])
           const rawTel2 = pickFirstValue(valueByColumn, ["tel2", "tel11"])
           const rawTel3 = pickFirstValue(valueByColumn, ["tel3", "fax", "tel12"])
@@ -287,7 +287,7 @@ export function CustomersBatchActions() {
 
       if (syncDeleteMissing) {
         const secondConfirm = window.confirm(
-          "已啟用同步刪除：系統將刪除所有不在 CSV 內的客戶（code/cno）。此操作無法復原，確定繼續嗎？",
+          "已啟用同步刪除：系統將刪除所有不在 CSV 內的客戶（code）。此操作無法復原，確定繼續嗎？",
         )
         if (!secondConfirm) return
       }

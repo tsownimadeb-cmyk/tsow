@@ -82,21 +82,9 @@ async function fetchSalesItems(
     return { data: primary.data || [], warning: null as string | null }
   }
 
-  const fallbackProductCode = await supabase
-    .from("sales_order_items")
-    .select("id,sales_order_id,code:product_code,quantity,unit_price,subtotal,created_at")
-    .in("sales_order_id", salesIds)
-
-  if (!fallbackProductCode.error) {
-    return {
-      data: fallbackProductCode.data || [],
-      warning: "sales_order_items 使用 product_code 欄位，已自動對映為 code",
-    }
-  }
-
   return {
     data: [] as any[],
-    warning: primary.error.message || fallbackProductCode.error?.message || "查詢 sales_order_items 失敗",
+    warning: primary.error.message || "查詢 sales_order_items 失敗",
   }
 }
 

@@ -20,6 +20,16 @@
 #### 第三步（可選）：清理 SKU 欄位
 - 如果需要，可執行 `scripts/003-remove-sku.sql`
 
+#### 第四步（建議舊專案必跑）：統一欄位命名
+- 執行 `scripts/020-normalize-column-names.sql`
+- 此腳本會把新舊命名欄位對齊到標準欄位（例如 `code`、`order_no`、`stock_qty`、`safety_stock`）並回填資料
+- 腳本採相容模式，不會立即刪除舊欄位
+
+#### 第五步（可選，結構收斂）：第二階段清理舊欄位
+- 執行 `scripts/021-phase2-drop-legacy-columns.sql`
+- 此腳本會移除已淘汰欄位（例如 `order_number`、`product_pno`、`pname`、`stock_quantity`）
+- 為安全起見，會先做資料完整性檢查；若檢查未通過會直接中斷，避免刪錯
+
 ### 步驟 2: 驗證資料庫
 
 在 Supabase 控制台中，檢查是否有以下表格：

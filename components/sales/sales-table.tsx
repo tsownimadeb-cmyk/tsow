@@ -28,10 +28,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
 
   const customerMap = new Map(
-    customers.flatMap((customer) => [
-      [customer.code, customer] as const,
-      [customer.cno || customer.code, customer] as const,
-    ]),
+    customers.map((customer) => [customer.code, customer] as const),
   )
   const productMap = new Map(products.map((product) => [product.code, product]))
 

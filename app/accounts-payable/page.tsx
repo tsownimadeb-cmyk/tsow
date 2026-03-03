@@ -40,7 +40,7 @@ export default async function APPage() {
   const productCodes = Array.from(
     new Set(
       (purchaseOrderItems || [])
-        .map((item) => item.product_code)
+        .map((item) => item.code)
         .filter((code): code is string => Boolean(code)),
     ),
   )
@@ -61,7 +61,7 @@ export default async function APPage() {
     const current = map.get(item.purchase_order_id) || []
     current.push({
       ...item,
-      product: item.product_code ? productMap.get(item.product_code) : undefined,
+      product: item.code ? productMap.get(item.code) : undefined,
     })
     map.set(item.purchase_order_id, current)
     return map

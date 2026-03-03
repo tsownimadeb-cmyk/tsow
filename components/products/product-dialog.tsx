@@ -107,7 +107,7 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
       safety_stock: Number(formData.safety_stock),
     }
 
-    if (Number(formData.purchase_qty_total) <= 0) {
+    if (mode === "create" && Number(formData.purchase_qty_total) <= 0) {
       payloadNewSchema.cost = 0
     }
 
