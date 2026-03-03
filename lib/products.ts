@@ -9,6 +9,39 @@ export type ProductListRow = Pick<
   safety_stock: number
 }
 
+export interface ProductProfitSummary {
+  sales_qty_total: number
+  sales_amount_total: number
+}
+
+export type ProductListRowWithProfit = ProductListRow & {
+  sales_qty_total: number
+  sales_amount_total: number
+  cogs_total: number
+  gross_profit: number
+  gross_margin: number
+}
+
+type SalesOrderStatusRow = {
+  id: string | null
+  status: string | null
+}
+
+type SalesItemSummaryRow = {
+  sales_order_id: string | null
+  code: string | null
+  quantity: number | string | null
+  subtotal: number | string | null
+  unit_price: number | string | null
+}
+
+const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
+
+const toNumber = (value: unknown) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 export function normalizeProducts(rows: any[]): ProductListRow[] {
   return rows.map((row) => ({
     code: String(row.code ?? ""),
@@ -56,4 +89,68 @@ export async function fetchProductsRows(supabase: any) {
     rows: finalAttempt.data || [],
     warning: finalAttempt.error?.message || "products 查詢失敗，已回退為基本欄位",
   }
+}
+
+export async function fetchProductProfitSummaryByCode(
+  supabase: any,
+  productCodes: string[],
+): Promise<{ summaryByCode: Map<string, ProductProfitSummary>; warning: string | null }> {
+  const normalizedCodes = Array.from(new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean)))
+  const codeSet = new Set(normalizedCodes)
+
+  if (normalizedCodes.length === 0) {
+    return { summaryByCode: new Map<string, ProductProfitSummary>(), warning: null }
+  }
+
+  const salesOrdersResult = await supabase.from("sales_orders").select("id,status")
+  if (salesOrdersResult.error) {
+    return {
+      summaryByCode: new Map<string, ProductProfitSummary>(),
+      warning: salesOrdersResult.error.message || "讀取 sales_orders 失敗",
+    }
+  }
+
+  const salesOrders = (salesOrdersResult.data || []) as SalesOrderStatusRow[]
+  const activeOrderIds = salesOrders
+    .filter((row) => String(row.status || "").trim().toLowerCase() !== "cancelled")
+    .map((row) => String(row.id || "").trim())
+    .filter(Boolean)
+
+  if (activeOrderIds.length === 0) {
+    return { summaryByCode: new Map<string, ProductProfitSummary>(), warning: null }
+  }
+
+  const salesItemsResult = await supabase
+    .from("sales_order_items")
+    .select("sales_order_id,code,quantity,subtotal,unit_price")
+    .in("sales_order_id", activeOrderIds)
+
+  if (salesItemsResult.error) {
+    return {
+      summaryByCode: new Map<string, ProductProfitSummary>(),
+      warning: salesItemsResult.error.message || "讀取 sales_order_items 失敗",
+    }
+  }
+
+  const summaryByCode = new Map<string, ProductProfitSummary>()
+  const salesItems = (salesItemsResult.data || []) as SalesItemSummaryRow[]
+
+  for (const row of salesItems) {
+    const code = normalizeCode(row.code)
+    if (!code || !codeSet.has(code)) continue
+
+    const quantity = toNumber(row.quantity)
+    if (quantity <= 0) continue
+
+    const subtotal = toNumber(row.subtotal)
+    const unitPrice = toNumber(row.unit_price)
+    const salesAmount = subtotal > 0 ? subtotal : quantity * unitPrice
+
+    const current = summaryByCode.get(code) || { sales_qty_total: 0, sales_amount_total: 0 }
+    current.sales_qty_total += quantity
+    current.sales_amount_total += salesAmount
+    summaryByCode.set(code, current)
+  }
+
+  return { summaryByCode, warning: null }
 }

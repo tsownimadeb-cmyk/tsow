@@ -7,6 +7,7 @@ import {
   Package,
   ShoppingCart,
   Truck,
+  ChartColumn,
   Users,
   Building2,
   ChevronLeft,
@@ -28,7 +29,14 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: "商品管理", href: "/products", icon: Package },
+  {
+    name: "商品管理",
+    icon: Package,
+    children: [
+      { name: "商品清單", href: "/products", icon: Package },
+      { name: "利潤分析", href: "/products/profit-analysis", icon: ChartColumn },
+    ],
+  },
   {
     name: "進貨管理",
     href: "/purchases",
@@ -75,10 +83,25 @@ export function Sidebar() {
     )
   }
 
+  const isItemActive = (item: NavItem): boolean => {
+    const currentPath = String(pathname || "")
+    if (!currentPath) return false
+
+    const hasChildren = Boolean(item.children && item.children.length > 0)
+
+    if (hasChildren) {
+      const selfActive = item.href ? item.href === currentPath : false
+      const childActive = Boolean(item.children?.some((child) => isItemActive(child)))
+      return selfActive || childActive
+    }
+
+    return item.href === currentPath
+  }
+
   const renderNavItem = (item: NavItem, level: number = 0): ReactNode => {
-    const isActive = item.href === pathname
+    const isActive = isItemActive(item)
     const hasChildren = item.children && item.children.length > 0
-    const isExpanded = expandedItems.includes(item.name)
+    const isExpanded = expandedItems.includes(item.name) || Boolean(item.children?.some((child) => isItemActive(child)))
 
     if (hasChildren) {
       return (
