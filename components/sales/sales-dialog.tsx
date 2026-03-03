@@ -41,6 +41,8 @@ interface OrderItem {
   unit_price: number
 }
 
+type DeliveryMethod = "self_delivery" | "company_delivery" | "customer_pickup"
+
 export function SalesDialog({ customers, products, mode, sales, children, open, onOpenChange }: SalesDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -54,6 +56,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const getInitialFormData = () => ({
     order_no: sales?.order_no || "",
     customer_cno: sales?.customer_cno || "",
+    delivery_method: (sales?.delivery_method as DeliveryMethod | null) || "self_delivery",
     order_date: sales?.order_date || new Date().toISOString().split("T")[0],
     notes: sales?.notes || "",
     is_paid: Boolean(sales?.is_paid),
@@ -352,6 +355,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             .update({
               order_no: orderNo,
               customer_cno: formData.customer_cno || null,
+              delivery_method: formData.delivery_method,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
@@ -453,6 +457,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             .insert({
               order_no: finalOrderNumber,
               customer_cno: formData.customer_cno || null,
+              delivery_method: formData.delivery_method,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
@@ -548,7 +553,14 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
         })
 
         setIsOpen(false)
-        setFormData({ order_no: "", customer_cno: "", order_date: new Date().toISOString().split("T")[0], notes: "", is_paid: false })
+        setFormData({
+          order_no: "",
+          customer_cno: "",
+          delivery_method: "self_delivery",
+          order_date: new Date().toISOString().split("T")[0],
+          notes: "",
+          is_paid: false,
+        })
         setItems([])
         router.refresh()
       } catch (error) {
@@ -606,6 +618,22 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 value={formData.order_date}
                 onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="delivery_method">配送方式</Label>
+              <Select
+                value={formData.delivery_method}
+                onValueChange={(value: DeliveryMethod) => setFormData({ ...formData, delivery_method: value })}
+              >
+                <SelectTrigger id="delivery_method">
+                  <SelectValue placeholder="選擇配送方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="self_delivery">本車配送</SelectItem>
+                  <SelectItem value="company_delivery">公司配送</SelectItem>
+                  <SelectItem value="customer_pickup">客戶自取</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

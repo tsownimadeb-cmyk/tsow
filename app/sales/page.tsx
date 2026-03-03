@@ -6,7 +6,7 @@ import type { SalesOrder as SalesOrderType, SalesOrderItem as SalesOrderItemType
 
 type SalesRow = Pick<
   SalesOrderType,
-  "id" | "order_no" | "customer_cno" | "order_date" | "total_amount" | "status" | "is_paid" | "notes" | "created_at" | "updated_at"
+  "id" | "order_no" | "customer_cno" | "delivery_method" | "order_date" | "total_amount" | "status" | "is_paid" | "notes" | "created_at" | "updated_at"
 > & {
   sales_order_items: SalesOrderItemType[]
 }
@@ -16,6 +16,7 @@ function normalizeSales(rows: any[]): SalesRow[] {
     id: String(row.id ?? ""),
     order_no: String(row.order_no ?? ""),
     customer_cno: row.customer_cno ?? null,
+    delivery_method: row.delivery_method ?? null,
     order_date: String(row.order_date ?? ""),
     total_amount: Number(row.total_amount ?? 0),
     status: (row.status ?? "pending") as SalesOrderType["status"],
@@ -51,7 +52,7 @@ async function fetchSalesOrders(supabase: Awaited<ReturnType<typeof createClient
 
   const primary = await supabase
     .from("sales_orders")
-    .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
+    .select("id,order_no,customer_cno,delivery_method,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
     .order("order_date", descendingOrder)
     .order("created_at", descendingOrder)
 

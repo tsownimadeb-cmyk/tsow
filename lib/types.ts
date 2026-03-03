@@ -81,6 +81,7 @@ export interface SalesOrder {
   id: string
   order_no: string
   customer_cno: string | null
+  delivery_method?: "self_delivery" | "company_delivery" | "customer_pickup" | null
   order_date: string
   total_amount: number
   status: "pending" | "completed" | "cancelled"

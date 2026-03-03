@@ -20,6 +20,12 @@ interface SalesTableProps {
   products: Product[]
 }
 
+const deliveryMethodMap: Record<"self_delivery" | "company_delivery" | "customer_pickup", string> = {
+  self_delivery: "本車配送",
+  company_delivery: "公司配送",
+  customer_pickup: "客戶自取",
+}
+
 export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -221,6 +227,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
           <Accordion type="single" collapsible className="w-full">
             {filteredSales.map((sale) => {
               const customerName = customerMap.get(sale.customer_cno || "")?.name || "-"
+              const deliveryMethod = sale.delivery_method || "self_delivery"
+              const deliveryLabel = deliveryMethodMap[deliveryMethod as keyof typeof deliveryMethodMap] || "本車配送"
               return (
                 <AccordionItem key={sale.id} value={sale.id}>
                   <AccordionTrigger className="px-4 hover:no-underline">
@@ -228,6 +236,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                       <div className="col-span-3">
                         <p className="font-medium">{sale.order_no}</p>
                         <p className="text-xs text-muted-foreground">{customerName}</p>
+                        <p className="text-xs text-muted-foreground">配送：{deliveryLabel}</p>
                       </div>
                       <div className="col-span-2 text-sm">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</div>
                       <div className="col-span-3 text-right text-sm font-medium">{formatCurrencyOneDecimal(Number(sale.total_amount))}</div>
