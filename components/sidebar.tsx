@@ -345,7 +345,15 @@ export function Sidebar() {
       ],
     },
     { name: "供應商管理", href: "/suppliers", icon: Building2 },
-    { name: "客戶管理", href: "/customers", icon: Users },
+    {
+      name: "客戶管理",
+      href: "/customers",
+      icon: Users,
+      children: [
+        { name: "客戶清單", href: "/customers", icon: Users },
+        { name: "客戶購買履歷", href: "/customers/purchase-history", icon: ChartColumn },
+      ],
+    },
     {
       name: "設置",
       icon: Settings,
