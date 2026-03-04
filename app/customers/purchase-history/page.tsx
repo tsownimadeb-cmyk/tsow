@@ -300,7 +300,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
       return {
         orderDate: normalizeText(order.order_date),
         orderNo: normalizeText(order.order_no) || "-",
-        customerName: customerNameMap.get(customerCode) || customerCode || "未指定客戶",
+        customerName: customerNameMap.get(customerCode) || customerCode || "散客",
         itemSummary,
         unitPriceSummary,
         totalQuantity,

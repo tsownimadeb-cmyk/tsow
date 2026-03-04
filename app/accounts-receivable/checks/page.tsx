@@ -94,7 +94,7 @@ export default async function AccountsReceivableChecksPage() {
       customerName:
         (receivable?.customer_cno ? customerMap.get(receivable.customer_cno) : undefined) ||
         (salesOrder?.customer_cno ? customerMap.get(salesOrder.customer_cno) : undefined) ||
-        "未指定客戶",
+        "散客",
       amountDue,
       paidAmount,
       checkNo,

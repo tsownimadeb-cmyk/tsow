@@ -21,12 +21,15 @@ const statusMap = {
   completed: { label: "已完成", variant: "default" as const },
   cancelled: { label: "已取消", variant: "destructive" as const },
 }
+const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
 
 export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const status = statusMap[sales.status]
+  const customerDisplayName =
+    sales.customer?.name || (String(sales.notes || "").includes(STOCK_ADJUSTMENT_NOTE_TAG) ? "校正庫存" : "散客")
 
   const handleTogglePaid = () => {
     startTransition(async () => {
@@ -151,7 +154,7 @@ export function SalesDetailDialog({ sales, open, onOpenChange }: SalesDetailDial
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">客戶：</span>
-              <span className="ml-2 font-medium">{sales.customer?.name || "-"}</span>
+              <span className="ml-2 font-medium">{customerDisplayName}</span>
             </div>
             <div>
               <span className="text-muted-foreground">日期：</span>

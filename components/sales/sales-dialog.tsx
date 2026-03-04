@@ -42,6 +42,9 @@ interface OrderItem {
 }
 
 type DeliveryMethod = "self_delivery" | "company_delivery" | "customer_pickup"
+const WALK_IN_CUSTOMER_VALUE = "__WALK_IN_CUSTOMER__"
+const STOCK_ADJUSTMENT_CUSTOMER_VALUE = "__STOCK_ADJUSTMENT_CUSTOMER__"
+const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
 
 export function SalesDialog({ customers, products, mode, sales, children, open, onOpenChange }: SalesDialogProps) {
   const router = useRouter()
@@ -53,14 +56,44 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const isOpen = isControlled ? open : internalOpen
   const setIsOpen = isControlled ? onOpenChange! : setInternalOpen
 
+  const hasStockAdjustmentTag = (notes: string | null | undefined) =>
+    String(notes || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .some((line) => line === STOCK_ADJUSTMENT_NOTE_TAG)
+
+  const stripStockAdjustmentTag = (notes: string | null | undefined) =>
+    String(notes || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && line !== STOCK_ADJUSTMENT_NOTE_TAG)
+      .join("\n")
+
   const getInitialFormData = () => ({
     order_no: sales?.order_no || "",
-    customer_cno: sales?.customer_cno || "",
+    customer_cno: sales?.customer_cno
+      || (mode === "edit" && hasStockAdjustmentTag(sales?.notes) ? STOCK_ADJUSTMENT_CUSTOMER_VALUE : mode === "edit" ? WALK_IN_CUSTOMER_VALUE : ""),
     delivery_method: (sales?.delivery_method as DeliveryMethod | null) || "self_delivery",
     order_date: sales?.order_date || new Date().toISOString().split("T")[0],
-    notes: sales?.notes || "",
+    notes: stripStockAdjustmentTag(sales?.notes),
     is_paid: Boolean(sales?.is_paid),
   })
+
+  const resolveCustomerCno = (value: string) => {
+    const normalizedValue = String(value || "").trim()
+    if (!normalizedValue || normalizedValue === WALK_IN_CUSTOMER_VALUE || normalizedValue === STOCK_ADJUSTMENT_CUSTOMER_VALUE) {
+      return null
+    }
+    return normalizedValue
+  }
+
+  const resolveNotesForSave = (rawNotes: string, selectedCustomerValue: string) => {
+    const cleanNotes = stripStockAdjustmentTag(rawNotes)
+    if (selectedCustomerValue === STOCK_ADJUSTMENT_CUSTOMER_VALUE) {
+      return cleanNotes ? `${STOCK_ADJUSTMENT_NOTE_TAG}\n${cleanNotes}` : STOCK_ADJUSTMENT_NOTE_TAG
+    }
+    return cleanNotes || null
+  }
 
   const getInitialItems = (): OrderItem[] => {
     if (!sales?.sales_order_items || sales.sales_order_items.length === 0) return []
@@ -75,6 +108,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
   const [formData, setFormData] = useState(getInitialFormData)
   const [items, setItems] = useState<OrderItem[]>(getInitialItems)
+  const customerSelectValue =
+    formData.customer_cno === WALK_IN_CUSTOMER_VALUE || formData.customer_cno === STOCK_ADJUSTMENT_CUSTOMER_VALUE
+      ? ""
+      : formData.customer_cno
 
   useEffect(() => {
     if (mode === "edit") {
@@ -340,6 +377,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
         if (mode === "edit") {
           const saleId = String(sales?.id || "").trim()
           const orderNo = String(sales?.order_no || "").trim()
+          const customerCno = resolveCustomerCno(formData.customer_cno)
+          const notesForSave = resolveNotesForSave(formData.notes, formData.customer_cno)
 
           if (!saleId) {
             toastError("找不到銷貨單 id，無法更新")
@@ -354,13 +393,13 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             .from("sales_orders")
             .update({
               order_no: orderNo,
-              customer_cno: formData.customer_cno || null,
+              customer_cno: customerCno,
               delivery_method: formData.delivery_method,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
               is_paid: formData.is_paid,
-              notes: formData.notes || null,
+              notes: notesForSave,
             })
             .eq("id", saleId)
 
@@ -431,7 +470,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
           await syncAccountsReceivable(
             saleId,
-            formData.customer_cno || null,
+            customerCno,
             Number(totalAmount),
             formData.order_date,
             Boolean(formData.is_paid),
@@ -450,19 +489,21 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
         let finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
         let order: any = null
         let orderError: unknown = null
+        const customerCno = resolveCustomerCno(formData.customer_cno)
+        const notesForSave = resolveNotesForSave(formData.notes, formData.customer_cno)
 
         for (let retry = 0; retry < 3; retry += 1) {
           const result = await supabase
             .from("sales_orders")
             .insert({
               order_no: finalOrderNumber,
-              customer_cno: formData.customer_cno || null,
+              customer_cno: customerCno,
               delivery_method: formData.delivery_method,
               order_date: formData.order_date,
               total_amount: totalAmount,
               status: "completed",
               is_paid: formData.is_paid,
-              notes: formData.notes || null,
+              notes: notesForSave,
             })
             .select()
             .single()
@@ -594,21 +635,39 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="customer">客戶</Label>
-              <Select
-                value={formData.customer_cno}
-                onValueChange={(value) => setFormData({ ...formData, customer_cno: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選擇客戶" />
-                </SelectTrigger>
-                <SelectContent>
-                  {customers.map((customer) => (
-                    <SelectItem key={customer.code} value={customer.code}>
-                      {customer.code} - {customer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Select
+                    value={customerSelectValue}
+                    onValueChange={(value) => setFormData({ ...formData, customer_cno: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="選擇客戶" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.code} value={customer.code}>
+                          {customer.code} - {customer.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant={formData.customer_cno === WALK_IN_CUSTOMER_VALUE ? "default" : "outline"}
+                  onClick={() => setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })}
+                >
+                  散客
+                </Button>
+                <Button
+                  type="button"
+                  variant={formData.customer_cno === STOCK_ADJUSTMENT_CUSTOMER_VALUE ? "default" : "outline"}
+                  onClick={() => setFormData({ ...formData, customer_cno: STOCK_ADJUSTMENT_CUSTOMER_VALUE })}
+                >
+                  校正庫存
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="order_date">銷貨日期</Label>

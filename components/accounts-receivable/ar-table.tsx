@@ -138,7 +138,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   const customerSummaryMap = allCustomers.reduce((map, customer) => {
     const customerCno = customer.code || "未指定"
-    const customerName = customer.name || "未指定客戶"
+    const customerName = customer.name || "散客"
     const key = `${customerCno}-${customerName}`
 
     if (!map.has(key)) {
@@ -182,7 +182,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
-    const customerName = record.customer?.name || "未指定客戶"
+    const customerName = record.customer?.name || "散客"
     const key = `${customerCno}-${customerName}`
     const outstanding = record.amount_due - record.paid_amount
     const current = map.get(key)

@@ -25,6 +25,7 @@ const deliveryMethodMap: Record<"self_delivery" | "company_delivery" | "customer
   company_delivery: "公司配送",
   customer_pickup: "客戶自取",
 }
+const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
 
 export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const router = useRouter()
@@ -39,10 +40,17 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   )
   const productMap = new Map(products.map((product) => [product.code, product]))
 
+  const getCustomerDisplayName = (sale: SalesOrder) => {
+    const customerName = customerMap.get(sale.customer_cno || "")?.name
+    if (customerName) return customerName
+    if (String(sale.notes || "").includes(STOCK_ADJUSTMENT_NOTE_TAG)) return "校正庫存"
+    return "散客"
+  }
+
   const searchText = search.toLowerCase()
   const filteredSales = sales.filter((sale) => {
     const orderNumber = (sale.order_no || "").toLowerCase()
-    const customerName = (customerMap.get(sale.customer_cno || "")?.name || "").toLowerCase()
+    const customerName = getCustomerDisplayName(sale).toLowerCase()
     return orderNumber.includes(searchText) || customerName.includes(searchText)
   })
 
@@ -226,7 +234,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
         ) : (
           <Accordion type="single" collapsible className="w-full">
             {filteredSales.map((sale) => {
-              const customerName = customerMap.get(sale.customer_cno || "")?.name || "-"
+              const customerName = getCustomerDisplayName(sale)
               const deliveryMethod = sale.delivery_method || "self_delivery"
               const deliveryLabel = deliveryMethodMap[deliveryMethod as keyof typeof deliveryMethodMap] || "本車配送"
               return (
