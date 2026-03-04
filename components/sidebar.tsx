@@ -391,6 +391,7 @@ export function Sidebar() {
       icon: Truck,
       children: [
         { name: "新建進貨", href: "/purchases?create=true", icon: Plus },
+        { name: "進貨分析", href: "/purchases/analysis", icon: ChartColumn },
       ],
     },
     {
