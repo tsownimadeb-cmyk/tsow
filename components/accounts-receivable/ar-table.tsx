@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Eye, EyeOff, Search } from "lucide-react"
+import { ChevronDown, Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   AlertDialog,
@@ -25,6 +25,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
@@ -38,6 +44,8 @@ interface ARTableProps {
     name: string
   }>
 }
+
+const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
 
 export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   const router = useRouter()
@@ -98,6 +106,13 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   const buildPartialSettlementNote = (existingNotes: string | null | undefined, settledAt: string, amount: number) => {
     const sanitizedAmount = Math.max(0, Number(amount) || 0)
     const entry = `[PARTIAL_SETTLEMENT]${settledAt}|${sanitizedAmount}`
+    const base = (existingNotes || "").trim()
+    return base ? `${base}\n${entry}` : entry
+  }
+
+  const buildCheckLinkedNote = (existingNotes: string | null | undefined) => {
+    const timestamp = new Date().toISOString()
+    const entry = `${AR_CHECK_LINKED_TAG}${timestamp}`
     const base = (existingNotes || "").trim()
     return base ? `${base}\n${entry}` : entry
   }
@@ -391,6 +406,66 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         toast({
           title: "錯誤",
           description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingCustomerKey(null)
+      }
+    })
+  }
+
+  const handleReceiveByCheck = (summary: (typeof customerSummaries)[number]) => {
+    const customerKey = `${summary.customerCno}-${summary.customerName}`
+    setProcessingCustomerKey(customerKey)
+
+    startTransition(async () => {
+      try {
+        const unpaidOrders = summary.orders.filter((order) => order.outstanding > 0)
+
+        if (unpaidOrders.length === 0) {
+          toast({
+            title: "提示",
+            description: "此客戶目前沒有未收款單據",
+          })
+          return
+        }
+
+        for (const order of unpaidOrders) {
+          if (!order.salesOrderId) continue
+
+          await upsertReceivableBySalesOrder({
+            salesOrderId: order.salesOrderId,
+            customerCno: summary.customerCno === "未指定" ? null : summary.customerCno,
+            amountDue: order.amountDue,
+            paidAmount: order.paidAmount,
+            overpaidAmount: order.overpaidAmount,
+            paidAt: order.paidAmount > 0 ? order.paidAt : null,
+            dueDate: null,
+            status: order.paidAmount >= order.amountDue ? "paid" : order.paidAmount > 0 ? "partially_paid" : "unpaid",
+            notes: buildCheckLinkedNote(order.notes),
+          })
+        }
+
+        const salesOrderIds = unpaidOrders
+          .map((order) => order.salesOrderId)
+          .filter((id): id is string => Boolean(id))
+          .join(",")
+
+        const query = new URLSearchParams()
+        if (summary.customerCno !== "未指定") {
+          query.set("customerCno", summary.customerCno)
+        }
+        if (salesOrderIds) {
+          query.set("salesOrderIds", salesOrderIds)
+        }
+        query.set("source", "ar")
+
+        toast({ title: "成功", description: "已帶入支票收款資料" })
+        router.push(`/accounts-receivable/checks?${query.toString()}`)
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "建立支票收款資料失敗",
           variant: "destructive",
         })
       } finally {
@@ -1077,21 +1152,28 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                     >
                       匯出對帳單
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenPartialSettle(summary)}
-                      disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
-                    >
-                      部分沖帳
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleBatchSettle(summary)}
-                      disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
-                    >
-                      {isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}` ? "處理中..." : "一鍵沖帳"}
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
+                        >
+                          {isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}` ? "處理中..." : "付款方式"}
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleBatchSettle(summary)}>
+                          現金
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleReceiveByCheck(summary)}>
+                          支票
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenPartialSettle(summary)}>
+                          部分沖帳
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   <div className="rounded-md border">
                     <Table>

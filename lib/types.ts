@@ -114,6 +114,9 @@ export interface AccountsReceivable {
   paid_amount: number
   overpaid_amount?: number
   paid_at?: string | null
+  check_no?: string | null
+  check_bank?: string | null
+  check_issue_date?: string | null
   due_date: string | null
   status: "unpaid" | "partially_paid" | "paid"
   notes: string | null
@@ -131,6 +134,9 @@ export interface AccountsPayable {
   total_amount?: number | null
   paid_amount: number
   paid_at?: string | null
+  check_no?: string | null
+  check_bank?: string | null
+  check_issue_date?: string | null
   due_date: string | null
   status: "unpaid" | "partially_paid" | "paid"
   notes: string | null

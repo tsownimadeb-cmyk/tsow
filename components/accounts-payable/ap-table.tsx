@@ -5,8 +5,14 @@ import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Eye, EyeOff, Search } from "lucide-react"
+import { ChevronDown, Eye, EyeOff, Search } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
@@ -15,6 +21,8 @@ import type { AccountsPayable } from "@/lib/types"
 interface APTableProps {
   records: AccountsPayable[]
 }
+
+const AP_CHECK_LINKED_TAG = "[AP_CHECK_LINKED]"
 
 export function APTable({ records }: APTableProps) {
   const router = useRouter()
@@ -43,6 +51,13 @@ export function APTable({ records }: APTableProps) {
     return formatCurrencyOneDecimal(value)
   }
 
+  const buildCheckLinkedNote = (existingNotes: string | null | undefined) => {
+    const timestamp = new Date().toISOString()
+    const entry = `${AP_CHECK_LINKED_TAG}${timestamp}`
+    const base = (existingNotes || "").trim()
+    return base ? `${base}\n${entry}` : entry
+  }
+
   const supplierSummaryMap = filteredRecords.reduce((map, record) => {
     const supplierId = record.supplier_id || "未指定"
     const supplierName = record.supplier?.name || "未指定供應商"
@@ -55,6 +70,7 @@ export function APTable({ records }: APTableProps) {
       purchaseOrderId: record.purchase_order_id,
       orderNumber: record.purchase_order?.order_no || "-",
       orderDate: record.purchase_order?.order_date || record.due_date || null,
+      notes: record.notes || null,
       products:
         record.purchase_order?.items
           ?.map((item) => item.product?.name || item.code || "-")
@@ -96,6 +112,7 @@ export function APTable({ records }: APTableProps) {
       purchaseOrderId: string | null
       orderNumber: string
       orderDate: string | null
+      notes: string | null
       products: string
       amountDue: number
       paidAmount: number
@@ -193,6 +210,86 @@ export function APTable({ records }: APTableProps) {
         toast({
           title: "錯誤",
           description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingSupplierKey(null)
+      }
+    })
+  }
+
+  const handlePayByCheck = (summary: (typeof supplierSummaries)[number]) => {
+    const supplierKey = `${summary.supplierId}-${summary.supplierName}`
+    setProcessingSupplierKey(supplierKey)
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const unpaidOrders = summary.orders.filter((order) => order.outstanding > 0)
+
+        if (unpaidOrders.length === 0) {
+          toast({ title: "提示", description: "此供應商目前沒有未付款單據" })
+          return
+        }
+
+        for (const order of unpaidOrders) {
+          if (!order.purchaseOrderId) continue
+
+          if (order.id.startsWith("virtual-")) {
+            const { error: insertError } = await supabase.from("accounts_payable").insert({
+              purchase_order_id: order.purchaseOrderId,
+              supplier_id: summary.supplierId === "未指定" ? null : summary.supplierId,
+              amount_due: order.amountDue,
+              total_amount: order.amountDue,
+              paid_amount: order.paidAmount,
+              due_date: null,
+              status: order.paidAmount > 0 ? "partially_paid" : "unpaid",
+              notes: buildCheckLinkedNote(order.notes),
+            })
+
+            if (insertError) {
+              toast({
+                title: "錯誤",
+                description: insertError.message || "無法建立支票付款資料",
+                variant: "destructive",
+              })
+              return
+            }
+          }
+          else {
+            const { error: updateError } = await supabase
+              .from("accounts_payable")
+              .update({ notes: buildCheckLinkedNote(order.notes) })
+              .eq("id", order.id)
+
+            if (updateError) {
+              toast({
+                title: "錯誤",
+                description: updateError.message || "無法標記支票付款資料",
+                variant: "destructive",
+              })
+              return
+            }
+          }
+        }
+
+        const orderIdsParam = unpaidOrders
+          .map((order) => order.purchaseOrderId)
+          .filter((id): id is string => Boolean(id))
+          .join(",")
+
+        const supplierIdParam = summary.supplierId === "未指定" ? "" : summary.supplierId
+        const query = new URLSearchParams()
+        if (supplierIdParam) query.set("supplierId", supplierIdParam)
+        if (orderIdsParam) query.set("purchaseOrderIds", orderIdsParam)
+        query.set("source", "ap")
+
+        toast({ title: "成功", description: "已帶入支票付款資料" })
+        router.push(`/accounts-payable/checks?${query.toString()}`)
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "建立支票付款資料失敗",
           variant: "destructive",
         })
       } finally {
@@ -326,9 +423,22 @@ export function APTable({ records }: APTableProps) {
                       >
                         匯出對帳單
                       </Button>
-                      <Button size="sm" onClick={() => handleBatchSettle(summary)} disabled={isPending && processingSupplierKey === summaryKey}>
-                        {isPending && processingSupplierKey === summaryKey ? "處理中..." : "一鍵沖帳"}
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" disabled={isPending && processingSupplierKey === summaryKey}>
+                            {isPending && processingSupplierKey === summaryKey ? "處理中..." : "付款方式"}
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleBatchSettle(summary)}>
+                            現金
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePayByCheck(summary)}>
+                            支票
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
 
                     <div className="rounded-md border">

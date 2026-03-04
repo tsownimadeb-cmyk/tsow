@@ -30,6 +30,14 @@
 - 此腳本會移除已淘汰欄位（例如 `order_number`、`product_pno`、`pname`、`stock_quantity`）
 - 為安全起見，會先做資料完整性檢查；若檢查未通過會直接中斷，避免刪錯
 
+#### 第六步（支票管理建議）：新增應付帳款支票欄位
+- 執行 `scripts/028-add-ap-check-fields.sql`
+- 新增欄位：`check_no`（支票號碼）、`check_bank`（銀行）、`check_issue_date`（開票日）
+
+#### 第七步（支票管理建議）：新增應收帳款支票欄位
+- 執行 `scripts/029-add-ar-check-fields.sql`
+- 新增欄位：`check_no`（支票號碼）、`check_bank`（銀行）、`check_issue_date`（開票日）
+
 ### 步驟 2: 驗證資料庫
 
 在 Supabase 控制台中，檢查是否有以下表格：

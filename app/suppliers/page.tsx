@@ -18,13 +18,13 @@ export default async function SuppliersPage() {
           <p className="text-muted-foreground">管理您的供應商資料</p>
         </div>
         <div className="flex items-center gap-2">
-          <SuppliersBatchActions />
           <SupplierDialog mode="create">
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               新增供應商
             </Button>
           </SupplierDialog>
+          <SuppliersBatchActions />
         </div>
       </div>
 

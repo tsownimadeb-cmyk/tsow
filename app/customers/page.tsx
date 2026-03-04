@@ -18,13 +18,13 @@ const { data: customers } = await supabase.from("customers").select("*").order("
           <p className="text-muted-foreground">管理您的客戶資料</p>
         </div>
         <div className="flex items-center gap-2">
-          <CustomersBatchActions />
           <CustomerDialog mode="create">
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               新增客戶
             </Button>
           </CustomerDialog>
+          <CustomersBatchActions />
         </div>
       </div>
 

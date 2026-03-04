@@ -2,12 +2,19 @@
 
 import { useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
-import { Download, Upload } from "lucide-react"
+import { Download, Settings, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
 
 type PurchaseCsvRow = {
@@ -766,25 +773,39 @@ export function PurchasesBatchActions() {
   return (
     <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
-      <Button variant="outline" onClick={handleExportCsv} disabled={isExporting || isImporting}>
-        <Download className="mr-2 h-4 w-4" />
-        {isExporting ? "匯出中..." : "匯出進貨明細 CSV"}
-      </Button>
-      <Button variant="outline" onClick={handleImportClick} disabled={isExporting || isImporting}>
-        <Upload className="mr-2 h-4 w-4" />
-        {isImporting ? "匯入中..." : "匯入批次修改"}
-      </Button>
-      <div className="flex items-center gap-2 pl-1">
-        <Checkbox
-          id="sync-delete-missing-purchases"
-          checked={syncDeleteMissing}
-          onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
-          disabled={isExporting || isImporting}
-        />
-        <Label htmlFor="sync-delete-missing-purchases" className="text-sm cursor-pointer">
-          同步刪除缺少單號+商品編號
-        </Label>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={isExporting || isImporting}
+            aria-label="進貨單操作"
+            title="進貨單操作"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel>批次操作</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleExportCsv} disabled={isExporting || isImporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? "匯出中..." : "匯出進貨明細 CSV"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleImportClick} disabled={isExporting || isImporting}>
+            <Upload className="mr-2 h-4 w-4" />
+            {isImporting ? "匯入中..." : "匯入批次修改"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={syncDeleteMissing}
+            onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
+            disabled={isExporting || isImporting}
+          >
+            同步刪除缺少單號+商品編號
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

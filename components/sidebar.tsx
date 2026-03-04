@@ -22,10 +22,11 @@ import {
   Download,
   Upload,
 } from "lucide-react"
-import { useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
 interface NavItem {
   name: string
@@ -34,6 +35,7 @@ interface NavItem {
   children?: NavItem[]
   onClick?: () => void | Promise<void>
   disabled?: boolean
+  badgeCount?: number
 }
 
 const importSummaryLabels: Record<string, string> = {
@@ -60,6 +62,11 @@ const toImportSummaryText = (summary?: Record<string, number>, separator: string
     .join(separator)
 }
 
+const AP_CHECK_LINKED_TAG = "[AP_CHECK_LINKED]"
+const AP_CHECK_STATUS_TAG = "[AP_CHECK_STATUS]"
+const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
+const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
+
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
@@ -70,7 +77,66 @@ export function Sidebar() {
   const [isExportingBusinessData, setIsExportingBusinessData] = useState(false)
   const [isExportingBusinessCsv, setIsExportingBusinessCsv] = useState(false)
   const [isImportingBusinessData, setIsImportingBusinessData] = useState(false)
+  const [dueCheckCount, setDueCheckCount] = useState(0)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const getTodayText = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, "0")
+    const day = String(now.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+
+  const loadDueCheckCount = async () => {
+    try {
+      const supabase = createSupabaseClient()
+      const today = getTodayText()
+
+      const [apResult, arResult] = await Promise.all([
+        supabase
+          .from("accounts_payable")
+          .select("*")
+          .lte("due_date", today)
+          .neq("status", "paid"),
+        supabase
+          .from("accounts_receivable")
+          .select("*")
+          .lte("due_date", today)
+          .neq("status", "paid"),
+      ])
+
+      if (apResult.error || arResult.error) {
+        return
+      }
+
+      const isChequeLinked = (row: Record<string, unknown>, tags: string[]) => {
+        const notes = String(row.notes || "")
+        const hasCheckMeta = Boolean(row.check_no || row.check_bank || row.check_issue_date)
+        const hasTag = tags.some((tag) => notes.includes(tag))
+        return hasCheckMeta || hasTag
+      }
+
+      const apCount = (apResult.data || []).filter((row) => isChequeLinked(row, [AP_CHECK_LINKED_TAG, AP_CHECK_STATUS_TAG])).length
+      const arCount = (arResult.data || []).filter((row) => isChequeLinked(row, [AR_CHECK_LINKED_TAG, AR_CHECK_STATUS_TAG])).length
+
+      setDueCheckCount(apCount + arCount)
+    } catch {
+      // ignore notification loading failures
+    }
+  }
+
+  useEffect(() => {
+    void loadDueCheckCount()
+  }, [pathname])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadDueCheckCount()
+    }, 60 * 1000)
+
+    return () => window.clearInterval(timer)
+  }, [])
 
   const handleLockSystem = async () => {
     await fetch("/api/auth/logout", { method: "POST" })
@@ -342,6 +408,15 @@ export function Sidebar() {
       children: [
         { name: "應收帳款", href: "/accounts-receivable", icon: CreditCard },
         { name: "應付帳款", href: "/accounts-payable", icon: CreditCard },
+        {
+          name: "支票管理",
+          icon: CreditCard,
+          badgeCount: dueCheckCount > 0 ? dueCheckCount : undefined,
+          children: [
+            { name: "應收支票", href: "/accounts-receivable/checks", icon: CreditCard },
+            { name: "應付支票", href: "/accounts-payable/checks", icon: CreditCard },
+          ],
+        },
       ],
     },
     { name: "供應商管理", href: "/suppliers", icon: Building2 },
@@ -428,7 +503,14 @@ export function Sidebar() {
             <item.icon className="h-5 w-5 shrink-0" />
             {!collapsed && (
               <>
-                <span className="flex-1 text-left">{item.name}</span>
+                <span className="flex-1 text-left flex items-center justify-between">
+                  <span>{item.name}</span>
+                  {item.badgeCount && item.badgeCount > 0 && (
+                    <span className="ml-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold text-white">
+                      {item.badgeCount > 99 ? "99+" : item.badgeCount}
+                    </span>
+                  )}
+                </span>
                 <ChevronDown
                   className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-180")}
                 />

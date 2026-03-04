@@ -136,8 +136,8 @@ export default async function SalesPage() {
           <p className="text-muted-foreground">管理銷貨單與銷售紀錄</p>
         </div>
         <div className="flex items-center gap-2">
-          <SalesBatchActions />
           <SalesDialogWrapper customers={customers || []} products={products || []} />
+          <SalesBatchActions />
         </div>
       </div>
 
