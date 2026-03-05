@@ -28,6 +28,25 @@ type SupplierCsvRow = {
 
 const CSV_COLUMNS: Array<keyof SupplierCsvRow> = ["id", "name", "contact_person", "phone", "email", "address", "notes"]
 
+const IMPORT_HEADER_ALIAS_MAP: Record<string, keyof SupplierCsvRow> = {
+  id: "id",
+  supplier_id: "id",
+  vendor_code: "id",
+  name: "name",
+  supplier_name: "name",
+  contact_person: "contact_person",
+  contact: "contact_person",
+  phone: "phone",
+  tel: "phone",
+  tel1: "phone",
+  email: "email",
+  mail: "email",
+  address: "address",
+  addr: "address",
+  notes: "notes",
+  note: "notes",
+}
+
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
   if (normalized.includes('"') || normalized.includes(",") || normalized.includes("\n")) {
@@ -73,6 +92,12 @@ function sanitizeCsvHeader(header: string) {
     .replace(/^\uFEFF/g, "")
     .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060]/g, "")
     .trim()
+}
+
+function normalizeImportHeader(header: string) {
+  const sanitized = sanitizeCsvHeader(header)
+  const key = sanitized.toLowerCase().replace(/\s+/g, "_")
+  return IMPORT_HEADER_ALIAS_MAP[key] || sanitized
 }
 
 function createUuid() {
@@ -171,19 +196,20 @@ export function SuppliersBatchActions() {
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
+      const csvLines = lines[0]?.toLowerCase() === "sep=," ? lines.slice(1) : lines
 
-      if (lines.length < 2) {
+      if (csvLines.length < 2) {
         throw new Error("CSV 內容不足，至少需要標題列與一筆資料")
       }
 
-      const headers = parseCsvLine(lines[0]).map((header) => sanitizeCsvHeader(header))
+      const headers = parseCsvLine(csvLines[0]).map((header) => normalizeImportHeader(header))
       for (const requiredColumn of CSV_COLUMNS) {
         if (!headers.includes(requiredColumn)) {
           throw new Error(`CSV 缺少必要欄位：${requiredColumn}`)
         }
       }
 
-      const payload = lines
+      const payload = csvLines
         .slice(1)
         .map((line, index) => {
           const values = parseCsvLine(line)

@@ -22,6 +22,25 @@ type ProductCsvRow = {
 
 const CSV_COLUMNS: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
 
+const IMPORT_HEADER_ALIAS_MAP: Record<string, keyof ProductCsvRow> = {
+  code: "code",
+  pno: "code",
+  item_code: "code",
+  name: "name",
+  pname: "name",
+  item_name: "name",
+  spec: "spec",
+  specification: "spec",
+  unit: "unit",
+  category: "category",
+  cate: "category",
+  base_price: "base_price",
+  purchase_price: "base_price",
+  cost: "cost",
+  price: "price",
+  sale_price: "sale_price",
+}
+
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
   if (normalized.includes('"') || normalized.includes(",") || normalized.includes("\n")) {
@@ -60,6 +79,19 @@ function parseCsvLine(line: string) {
 
   values.push(currentValue)
   return values
+}
+
+function sanitizeCsvHeader(header: string) {
+  return String(header || "")
+    .replace(/^\uFEFF/g, "")
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060]/g, "")
+    .trim()
+}
+
+function normalizeImportHeader(header: string) {
+  const sanitized = sanitizeCsvHeader(header)
+  const key = sanitized.toLowerCase().replace(/\s+/g, "_")
+  return IMPORT_HEADER_ALIAS_MAP[key] || sanitized
 }
 
 function toNumberOrZero(value: string) {
@@ -196,12 +228,13 @@ export function ProductsBatchActions() {
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
+      const csvLines = lines[0]?.toLowerCase() === "sep=," ? lines.slice(1) : lines
 
-      if (lines.length < 2) {
+      if (csvLines.length < 2) {
         throw new Error("CSV 內容不足，至少需要標題列與一筆資料")
       }
 
-      const headers = parseCsvLine(lines[0]).map((header) => header.replace(/^\uFEFF/, "").trim())
+      const headers = parseCsvLine(csvLines[0]).map((header) => normalizeImportHeader(header))
       const requiredColumns = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
 
       for (const requiredColumn of requiredColumns) {
@@ -210,7 +243,7 @@ export function ProductsBatchActions() {
         }
       }
 
-      const rows: ProductCsvRow[] = lines.slice(1).map((line) => {
+      const rows: ProductCsvRow[] = csvLines.slice(1).map((line) => {
         const values = parseCsvLine(line)
         const valueByColumn = headers.reduce<Record<string, string>>((accumulator, header, index) => {
           accumulator[header] = values[index] ?? ""

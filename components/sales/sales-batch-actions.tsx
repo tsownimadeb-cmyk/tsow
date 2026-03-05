@@ -54,6 +54,25 @@ const CSV_COLUMNS: Array<keyof SalesCsvRow> = [
 
 const EXPORT_CSV_COLUMNS: Array<keyof SalesExportCsvRow> = [...CSV_COLUMNS, "is_paid"]
 
+const IMPORT_HEADER_ALIAS_MAP: Record<string, keyof SalesExportCsvRow> = {
+  order_no: "order_no",
+  orderno: "order_no",
+  item_code: "item_code",
+  code: "item_code",
+  quantity: "quantity",
+  qty: "quantity",
+  unit_price: "unit_price",
+  unitprice: "unit_price",
+  sales_date: "sales_date",
+  sale_date: "sales_date",
+  order_date: "sales_date",
+  customer_code: "customer_code",
+  customer_cno: "customer_code",
+  customer_id: "customer_code",
+  is_paid: "is_paid",
+  ispaid: "is_paid",
+}
+
 function escapeCsvValue(value: string | number | null | undefined) {
   const normalized = value === null || value === undefined ? "" : String(value)
   if (normalized.includes('"') || normalized.includes(",") || normalized.includes("\n")) {
@@ -99,6 +118,12 @@ function sanitizeCsvHeader(header: string) {
     .replace(/^\uFEFF/g, "")
     .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060]/g, "")
     .trim()
+}
+
+function normalizeImportHeader(header: string) {
+  const sanitized = sanitizeCsvHeader(header)
+  const key = sanitized.toLowerCase().replace(/\s+/g, "_")
+  return IMPORT_HEADER_ALIAS_MAP[key] || sanitized
 }
 
 function toNumberOrZero(value: string) {
@@ -549,12 +574,20 @@ export function SalesBatchActions() {
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
+      const csvLines = lines[0]?.toLowerCase() === "sep=," ? lines.slice(1) : lines
 
-      if (lines.length < 2) {
+      if (csvLines.length < 2) {
         throw new Error("CSV 內容不足，至少需要標題列與一筆資料")
       }
 
-      const headers = parseCsvLine(lines[0]).map((header) => sanitizeCsvHeader(header))
+      const parsedHeaders = parseCsvLine(csvLines[0]).map((header) => normalizeImportHeader(header))
+      const headers = [...parsedHeaders]
+      for (let index = 0; index < CSV_COLUMNS.length; index += 1) {
+        const requiredColumn = CSV_COLUMNS[index]
+        if (!headers.includes(requiredColumn) && index < headers.length) {
+          headers[index] = requiredColumn
+        }
+      }
       for (const requiredColumn of CSV_COLUMNS) {
         if (!headers.includes(requiredColumn)) {
           throw new Error(`CSV 缺少必要欄位：${requiredColumn}`)
@@ -562,7 +595,7 @@ export function SalesBatchActions() {
       }
 
       const parsedRows: ParsedSalesRow[] = []
-      lines.slice(1).forEach((line, index) => {
+      csvLines.slice(1).forEach((line, index) => {
         const values = parseCsvLine(line)
         const valueByColumn = headers.reduce<Record<string, string>>((accumulator, header, columnIndex) => {
           accumulator[header] = values[columnIndex] ?? ""
