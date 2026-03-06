@@ -23,10 +23,30 @@ export function CustomersTable({ customers }: { customers: any[] }) {
   }, [customers])
 
   const fetchCustomers = async () => {
-    const { data, error } = await supabase.from("customers").select("*").order("code", { ascending: true })
-    if (!error) {
-      setRows(data || [])
+    const pageSize = 1000
+    const nextRows: any[] = []
+
+    for (let from = 0; ; from += pageSize) {
+      const to = from + pageSize - 1
+      const { data, error } = await supabase
+        .from("customers")
+        .select("*")
+        .order("code", { ascending: true })
+        .range(from, to)
+
+      if (error) {
+        return
+      }
+
+      const batch = data || []
+      nextRows.push(...batch)
+
+      if (batch.length < pageSize) {
+        break
+      }
     }
+
+    setRows(nextRows)
   }
 
   const handleEditOpenChange = (open: boolean) => {

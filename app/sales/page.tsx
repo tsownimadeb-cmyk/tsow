@@ -11,6 +11,17 @@ type SalesRow = Pick<
   sales_order_items: SalesOrderItemType[]
 }
 
+const IN_FILTER_CHUNK_SIZE = 200
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  if (chunkSize <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
 function normalizeSales(rows: any[]): SalesRow[] {
   return rows.map((row) => ({
     id: String(row.id ?? ""),
@@ -74,19 +85,24 @@ async function fetchSalesItems(
     return { data: [] as any[], warning: null as string | null }
   }
 
-  const primary = await supabase
-    .from("sales_order_items")
-    .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
-    .in("sales_order_id", salesIds)
+  const rows: any[] = []
+  for (const idChunk of chunkArray(salesIds, IN_FILTER_CHUNK_SIZE)) {
+    const primary = await supabase
+      .from("sales_order_items")
+      .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+      .in("sales_order_id", idChunk)
 
-  if (!primary.error) {
-    return { data: primary.data || [], warning: null as string | null }
+    if (primary.error) {
+      return {
+        data: [] as any[],
+        warning: primary.error.message || "查詢 sales_order_items 失敗",
+      }
+    }
+
+    rows.push(...(primary.data || []))
   }
 
-  return {
-    data: [] as any[],
-    warning: primary.error.message || "查詢 sales_order_items 失敗",
-  }
+  return { data: rows, warning: null as string | null }
 }
 
 export default async function SalesPage() {

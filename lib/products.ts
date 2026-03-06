@@ -55,11 +55,22 @@ type ProfitAnalysisOptions = {
   endDate?: string
 }
 
+const IN_FILTER_CHUNK_SIZE = 200
+
 const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
 
 const toNumber = (value: unknown) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  if (chunkSize <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
 }
 
 export function normalizeProducts(rows: any[]): ProductListRow[] {
@@ -183,30 +194,39 @@ export async function fetchProductProfitAnalysisByCode(
     return { summaryByCode: new Map<string, ProductProfitAnalysisSummary>(), warning: null }
   }
 
-  const salesItemsResult = await supabase
-    .from("sales_order_items")
-    .select("sales_order_id,code,quantity,subtotal,unit_price")
-    .in("sales_order_id", activeOrderIds)
+  const salesItems: SalesItemSummaryRow[] = []
+  for (const orderIdChunk of chunkArray(activeOrderIds, IN_FILTER_CHUNK_SIZE)) {
+    const salesItemsResult = await supabase
+      .from("sales_order_items")
+      .select("sales_order_id,code,quantity,subtotal,unit_price")
+      .in("sales_order_id", orderIdChunk)
 
-  if (salesItemsResult.error) {
-    return {
-      summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
-      warning: salesItemsResult.error.message || "讀取 sales_order_items 失敗",
+    if (salesItemsResult.error) {
+      return {
+        summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
+        warning: salesItemsResult.error.message || "讀取 sales_order_items 失敗",
+      }
     }
+
+    salesItems.push(...((salesItemsResult.data || []) as SalesItemSummaryRow[]))
   }
 
-  const receivableResult = await supabase
-    .from("accounts_receivable")
-    .select("sales_order_id,paid_amount")
-    .in("sales_order_id", activeOrderIds)
+  const receivableRows: AccountsReceivablePaidRow[] = []
+  for (const orderIdChunk of chunkArray(activeOrderIds, IN_FILTER_CHUNK_SIZE)) {
+    const receivableResult = await supabase
+      .from("accounts_receivable")
+      .select("sales_order_id,paid_amount")
+      .in("sales_order_id", orderIdChunk)
 
-  if (receivableResult.error) {
-    warningMessages.push(receivableResult.error.message || "讀取 accounts_receivable 失敗")
+    if (receivableResult.error) {
+      warningMessages.push(receivableResult.error.message || "讀取 accounts_receivable 失敗")
+      break
+    }
+
+    receivableRows.push(...((receivableResult.data || []) as AccountsReceivablePaidRow[]))
   }
 
   const summaryByCode = new Map<string, ProductProfitAnalysisSummary>()
-  const salesItems = (salesItemsResult.data || []) as SalesItemSummaryRow[]
-  const receivableRows = (receivableResult.data || []) as AccountsReceivablePaidRow[]
   const trackedAmountByOrderAndCode = new Map<string, Map<string, number>>()
   const orderItemTotalByOrder = new Map<string, number>()
 

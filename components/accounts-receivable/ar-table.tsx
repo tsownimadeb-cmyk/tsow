@@ -339,10 +339,16 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     .sort((a, b) => {
       if (a.customerCno === "未指定" && b.customerCno !== "未指定") return 1
       if (a.customerCno !== "未指定" && b.customerCno === "未指定") return -1
-      return a.customerCno.localeCompare(b.customerCno, "zh-Hant", {
-        numeric: true,
-        sensitivity: "base",
-      })
+
+      const aKey = String(a.customerCno || "").trim().toUpperCase()
+      const bKey = String(b.customerCno || "").trim().toUpperCase()
+      if (aKey === bKey) {
+        const aName = String(a.customerName || "").trim().toUpperCase()
+        const bName = String(b.customerName || "").trim().toUpperCase()
+        return aName === bName ? 0 : aName > bName ? 1 : -1
+      }
+
+      return aKey > bKey ? 1 : -1
     })
 
   const handleBatchSettle = (summary: (typeof customerSummaries)[number]) => {
@@ -1120,11 +1126,15 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             {customerSummaries.map((summary) => (
               <AccordionItem key={`${summary.customerCno}-${summary.customerName}`} value={`${summary.customerCno}-${summary.customerName}`}>
                 {(() => {
-                  const sortedOrders = [...summary.orders].sort((a, b) => {
+                  const visibleOrders = showAllCustomers
+                    ? [...summary.orders]
+                    : summary.orders.filter((order) => order.outstanding > 0)
+                  const sortedOrders = visibleOrders.sort((a, b) => {
                     const aTime = a.orderDate ? new Date(a.orderDate).getTime() : 0
                     const bTime = b.orderDate ? new Date(b.orderDate).getTime() : 0
                     return bTime - aTime
                   })
+                  const visibleOrderCount = showAllCustomers ? summary.orderCount : sortedOrders.length
 
                   return (
                 <>
@@ -1132,7 +1142,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                   <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                     <div className="col-span-4">
                       <p className="font-medium">{summary.customerName}</p>
-                      <p className="text-xs text-muted-foreground">{summary.customerCno}・{summary.orderCount} 筆單據</p>
+                      <p className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</p>
                     </div>
                     <div className="col-span-4 text-right text-sm text-muted-foreground">
                       應收合計 {renderAmount(summary.totalDue)}

@@ -75,30 +75,57 @@ async function fetchPurchaseItemsForOrders(
     }
   }
 
-  const result = await supabase
-    .from("purchase_order_items")
-    .select("id,purchase_order_id,order_no,code,quantity,unit_price,subtotal,created_at")
-    .in("purchase_order_id", purchaseIds)
+  const attempts = [
+    "id,purchase_order_id,order_no,code,quantity,unit_price,subtotal,created_at",
+    "id,purchase_order_id,code,quantity,unit_price,subtotal,created_at",
+    "id,purchase_order_id,order_no,product_pno,quantity,unit_price,subtotal,created_at",
+    "id,purchase_order_id,product_pno,quantity,unit_price,subtotal,created_at",
+  ]
+  const chunkSize = 200
 
-  if (!result.error) {
-    return {
-      data: (result.data || []).map((item: any) => ({
-        id: String(item.id ?? ""),
-        purchase_order_id: String(item.purchase_order_id ?? ""),
-        order_no: String(item.order_no ?? orderNoById.get(String(item.purchase_order_id ?? "")) ?? ""),
-        code: (item.code ?? null) as string | null,
-        quantity: Number(item.quantity ?? 0),
-        unit_price: Number(item.unit_price ?? 0),
-        subtotal: Number(item.subtotal ?? 0),
-        created_at: String(item.created_at ?? ""),
-      })),
-      warning: null as string | null,
+  let lastErrorMessage: string | null = null
+
+  for (const selectText of attempts) {
+    const collectedRows: any[] = []
+    let chunkErrorMessage: string | null = null
+
+    for (let index = 0; index < purchaseIds.length; index += chunkSize) {
+      const chunkIds = purchaseIds.slice(index, index + chunkSize)
+      const result = await supabase
+        .from("purchase_order_items")
+        .select(selectText)
+        .in("purchase_order_id", chunkIds)
+
+      if (result.error) {
+        chunkErrorMessage = result.error.message
+        break
+      }
+
+      collectedRows.push(...(result.data || []))
     }
+
+    if (!chunkErrorMessage) {
+      return {
+        data: collectedRows.map((item: any) => ({
+          id: String(item.id ?? ""),
+          purchase_order_id: String(item.purchase_order_id ?? ""),
+          order_no: String(item.order_no ?? orderNoById.get(String(item.purchase_order_id ?? "")) ?? ""),
+          code: ((item.code ?? item.product_pno ?? null) as string | null),
+          quantity: Number(item.quantity ?? 0),
+          unit_price: Number(item.unit_price ?? 0),
+          subtotal: Number(item.subtotal ?? 0),
+          created_at: String(item.created_at ?? ""),
+        })),
+        warning: null as string | null,
+      }
+    }
+
+    lastErrorMessage = chunkErrorMessage
   }
 
   return {
     data: [] as Array<PurchaseOrderItem & { order_no?: string }>,
-    warning: result.error?.message || "查詢 purchase_order_items 失敗",
+    warning: lastErrorMessage || "查詢 purchase_order_items 失敗",
   }
 }
 

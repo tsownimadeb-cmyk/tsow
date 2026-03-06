@@ -17,6 +17,8 @@ type PurchaseOrderRow = {
   shipping_fee: number | null
 }
 
+const IN_FILTER_CHUNK_SIZE = 50
+
 function normalizeCode(value: string): string {
   return value.trim().toUpperCase()
 }
@@ -55,6 +57,42 @@ function mergeRows<T extends { purchase_order_id?: string | null; order_no?: str
   return Array.from(mergedByKey.values())
 }
 
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  if (!Number.isFinite(chunkSize) || chunkSize <= 0) {
+    return [items]
+  }
+
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
+async function selectByInChunks<T>(
+  supabase: SupabaseLikeClient,
+  table: string,
+  selectFields: string,
+  column: string,
+  values: string[],
+  errorPrefix: string,
+): Promise<T[]> {
+  if (values.length === 0) {
+    return []
+  }
+
+  const rows: T[] = []
+  for (const chunk of chunkArray(values, IN_FILTER_CHUNK_SIZE)) {
+    const response = await supabase.from(table).select(selectFields).in(column, chunk)
+    if (response.error) {
+      throw new Error(`${errorPrefix}（${response.error.message}）`)
+    }
+    rows.push(...((response.data || []) as T[]))
+  }
+
+  return rows
+}
+
 export async function recalculateProductCostsByCodes(
   supabase: SupabaseLikeClient,
   inputCodes: string[],
@@ -67,16 +105,14 @@ export async function recalculateProductCostsByCodes(
     return
   }
 
-  const targetItemsResponse = await supabase
-    .from("purchase_order_items")
-    .select("purchase_order_id,order_no,code,quantity,subtotal,unit_price")
-    .in("code", normalizedCodes)
-
-  if (targetItemsResponse.error) {
-    throw new Error(`重算商品成本失敗：讀取進貨明細失敗（${targetItemsResponse.error.message}）`)
-  }
-
-  const targetItems = (targetItemsResponse.data || []) as PurchaseItemRow[]
+  const targetItems = await selectByInChunks<PurchaseItemRow>(
+    supabase,
+    "purchase_order_items",
+    "purchase_order_id,order_no,code,quantity,subtotal,unit_price",
+    "code",
+    normalizedCodes,
+    "重算商品成本失敗：讀取進貨明細失敗",
+  )
 
   const relatedOrderIds = Array.from(
     new Set(targetItems.map((row) => String(row.purchase_order_id || "").trim()).filter(Boolean)),
@@ -85,63 +121,43 @@ export async function recalculateProductCostsByCodes(
     new Set(targetItems.map((row) => String(row.order_no || "").trim()).filter(Boolean)),
   )
 
-  let relatedItemsById: PurchaseItemRow[] = []
-  if (relatedOrderIds.length > 0) {
-    const relatedByIdResponse = await supabase
-      .from("purchase_order_items")
-      .select("purchase_order_id,order_no,code,quantity,subtotal,unit_price")
-      .in("purchase_order_id", relatedOrderIds)
+  const relatedItemsById = await selectByInChunks<PurchaseItemRow>(
+    supabase,
+    "purchase_order_items",
+    "purchase_order_id,order_no,code,quantity,subtotal,unit_price",
+    "purchase_order_id",
+    relatedOrderIds,
+    "重算商品成本失敗：讀取同單號明細失敗",
+  )
 
-    if (relatedByIdResponse.error) {
-      throw new Error(`重算商品成本失敗：讀取同單號明細失敗（${relatedByIdResponse.error.message}）`)
-    }
-
-    relatedItemsById = (relatedByIdResponse.data || []) as PurchaseItemRow[]
-  }
-
-  let relatedItemsByOrderNo: PurchaseItemRow[] = []
-  if (relatedOrderNos.length > 0) {
-    const relatedByOrderNoResponse = await supabase
-      .from("purchase_order_items")
-      .select("purchase_order_id,order_no,code,quantity,subtotal,unit_price")
-      .in("order_no", relatedOrderNos)
-
-    if (relatedByOrderNoResponse.error) {
-      throw new Error(`重算商品成本失敗：讀取同單號明細失敗（${relatedByOrderNoResponse.error.message}）`)
-    }
-
-    relatedItemsByOrderNo = (relatedByOrderNoResponse.data || []) as PurchaseItemRow[]
-  }
+  const relatedItemsByOrderNo = await selectByInChunks<PurchaseItemRow>(
+    supabase,
+    "purchase_order_items",
+    "purchase_order_id,order_no,code,quantity,subtotal,unit_price",
+    "order_no",
+    relatedOrderNos,
+    "重算商品成本失敗：讀取同單號明細失敗",
+  )
 
   const allRelatedItems = mergeRows(relatedItemsById, relatedItemsByOrderNo)
 
-  let relatedOrdersById: PurchaseOrderRow[] = []
-  if (relatedOrderIds.length > 0) {
-    const ordersByIdResponse = await supabase
-      .from("purchase_orders")
-      .select("id,order_no,shipping_fee")
-      .in("id", relatedOrderIds)
+  const relatedOrdersById = await selectByInChunks<PurchaseOrderRow>(
+    supabase,
+    "purchase_orders",
+    "id,order_no,shipping_fee",
+    "id",
+    relatedOrderIds,
+    "重算商品成本失敗：讀取進貨單失敗",
+  )
 
-    if (ordersByIdResponse.error) {
-      throw new Error(`重算商品成本失敗：讀取進貨單失敗（${ordersByIdResponse.error.message}）`)
-    }
-
-    relatedOrdersById = (ordersByIdResponse.data || []) as PurchaseOrderRow[]
-  }
-
-  let relatedOrdersByOrderNo: PurchaseOrderRow[] = []
-  if (relatedOrderNos.length > 0) {
-    const ordersByOrderNoResponse = await supabase
-      .from("purchase_orders")
-      .select("id,order_no,shipping_fee")
-      .in("order_no", relatedOrderNos)
-
-    if (ordersByOrderNoResponse.error) {
-      throw new Error(`重算商品成本失敗：讀取進貨單失敗（${ordersByOrderNoResponse.error.message}）`)
-    }
-
-    relatedOrdersByOrderNo = (ordersByOrderNoResponse.data || []) as PurchaseOrderRow[]
-  }
+  const relatedOrdersByOrderNo = await selectByInChunks<PurchaseOrderRow>(
+    supabase,
+    "purchase_orders",
+    "id,order_no,shipping_fee",
+    "order_no",
+    relatedOrderNos,
+    "重算商品成本失敗：讀取進貨單失敗",
+  )
 
   const shippingByOrderKey = new Map<string, number>()
   for (const order of [...relatedOrdersById, ...relatedOrdersByOrderNo]) {
