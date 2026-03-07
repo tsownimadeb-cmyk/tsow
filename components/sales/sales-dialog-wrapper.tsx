@@ -13,11 +13,13 @@ interface Props {
 
 export default function SalesDialogWrapper({ customers, products }: Props) {
   return (
-    <SalesDialog customers={customers} products={products} mode="create">
-      <Button>
-        <Plus className="mr-2 h-4 w-4" />
-        新增銷貨單
-      </Button>
-    </SalesDialog>
+    <div>
+      <SalesDialog customers={customers} products={products} mode="create">
+        <Button>
+          <Plus className="mr-2 h-4 w-4" />
+          新增銷貨單
+        </Button>
+      </SalesDialog>
+    </div>
   )
 }

@@ -6,7 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { Download, Upload } from "lucide-react"
+import { Download, Upload, Settings } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu"
 
 type ProductCsvRow = {
   code: string
@@ -325,25 +334,39 @@ export function ProductsBatchActions() {
   return (
     <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
-      <Button variant="outline" onClick={handleExportCsv} disabled={isExporting || isImporting}>
-        <Download className="mr-2 h-4 w-4" />
-        {isExporting ? "匯出中..." : "匯出 CSV"}
-      </Button>
-      <Button variant="outline" onClick={handleImportClick} disabled={isExporting || isImporting}>
-        <Upload className="mr-2 h-4 w-4" />
-        {isImporting ? "匯入中..." : "匯入批次修改"}
-      </Button>
-      <div className="flex items-center gap-2 pl-1">
-        <Checkbox
-          id="sync-delete-missing-products"
-          checked={syncDeleteMissing}
-          onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
-          disabled={isExporting || isImporting}
-        />
-        <Label htmlFor="sync-delete-missing-products" className="text-sm cursor-pointer">
-          同步刪除缺少 code
-        </Label>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={isExporting || isImporting}
+            aria-label="商品批次操作"
+            title="商品批次操作"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel>批次操作</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleExportCsv} disabled={isExporting || isImporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? "匯出中..." : "匯出 CSV"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleImportClick} disabled={isExporting || isImporting}>
+            <Upload className="mr-2 h-4 w-4" />
+            {isImporting ? "匯入中..." : "匯入批次修改"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={syncDeleteMissing}
+            onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
+            disabled={isExporting || isImporting}
+          >
+            同步刪除缺少 code
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

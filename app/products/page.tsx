@@ -27,13 +27,14 @@ export default async function ProductsPage() {
           <p className="text-muted-foreground">管理您的商品與庫存</p>
         </div>
         <div className="flex items-center gap-2">
-          <ProductsBatchActions />
           <ProductDialog mode="create">
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               新增商品
             </Button>
           </ProductDialog>
+          <div className="flex-1" />
+          <ProductsBatchActions />
         </div>
       </div>
 

@@ -3,6 +3,9 @@ import { SalesTable } from "@/components/sales/sales-table"
 import SalesDialogWrapper from "@/components/sales/sales-dialog-wrapper"
 import { SalesBatchActions } from "@/components/sales/sales-batch-actions"
 import type { SalesOrder as SalesOrderType, SalesOrderItem as SalesOrderItemType, Product as ProductType } from "@/lib/types"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Printer } from "lucide-react"
 
 type SalesRow = Pick<
   SalesOrderType,
@@ -152,6 +155,12 @@ export default async function SalesPage() {
           <p className="text-muted-foreground">管理銷貨單與銷售紀錄</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/sales/print/today">
+              <Printer className="h-4 w-4" />
+              今日出貨列印
+            </Link>
+          </Button>
           <SalesDialogWrapper customers={customers || []} products={products || []} />
           <SalesBatchActions />
         </div>

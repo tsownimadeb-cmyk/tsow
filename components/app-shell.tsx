@@ -11,8 +11,9 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const isLoginPage = pathname === "/login"
+  const isPrintPage = pathname.startsWith("/sales/print")
 
-  if (isLoginPage) {
+  if (isLoginPage || isPrintPage) {
     return <>{children}</>
   }
 
