@@ -91,7 +91,7 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
   }))
 }
 
-export async function fetchProductsRows(supabase: any) {
+export async function fetchProductsRows(supabase: any, from: number = 0, to: number = 19) {
   const queryByPriority = [
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total",
@@ -102,10 +102,15 @@ export async function fetchProductsRows(supabase: any) {
   ]
 
   for (const selectText of queryByPriority) {
-    const result = await supabase.from("products").select(selectText).order("code", { ascending: true })
+    const result = await supabase
+      .from("products")
+      .select(selectText, { count: "exact" })
+      .order("code", { ascending: true })
+      .range(from, to)
     if (!result.error) {
       return {
         rows: result.data || [],
+        totalCount: result.count ?? 0,
         warning: null as string | null,
       }
     }
@@ -113,11 +118,13 @@ export async function fetchProductsRows(supabase: any) {
 
   const finalAttempt = await supabase
     .from("products")
-    .select("code,name,spec,unit,category,base_price,cost,price,sale_price")
+    .select("code,name,spec,unit,category,base_price,cost,price,sale_price", { count: "exact" })
     .order("code", { ascending: true })
+    .range(from, to)
 
   return {
     rows: finalAttempt.data || [],
+    totalCount: finalAttempt.count ?? 0,
     warning: finalAttempt.error?.message || "products 查詢失敗，已回退為基本欄位",
   }
 }
