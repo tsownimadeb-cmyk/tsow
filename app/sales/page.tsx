@@ -2,150 +2,64 @@ import { createClient } from "@/lib/supabase/server"
 import { SalesTable } from "@/components/sales/sales-table"
 import SalesDialogWrapper from "@/components/sales/sales-dialog-wrapper"
 import { SalesBatchActions } from "@/components/sales/sales-batch-actions"
-import type { SalesOrder as SalesOrderType, SalesOrderItem as SalesOrderItemType, Product as ProductType } from "@/lib/types"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
+import { fetchSalesRows, normalizeSales } from "@/lib/sales"
 
-type SalesRow = Pick<
-  SalesOrderType,
-  "id" | "order_no" | "customer_cno" | "delivery_method" | "order_date" | "total_amount" | "status" | "is_paid" | "notes" | "created_at" | "updated_at"
-> & {
-  sales_order_items: SalesOrderItemType[]
-}
-
-const IN_FILTER_CHUNK_SIZE = 200
-
-function chunkArray<T>(items: T[], chunkSize: number): T[][] {
-  if (chunkSize <= 0) return [items]
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize))
+export default async function SalesPage(props: any) {
+  const searchParams = await props.searchParams;
+  const PAGE_SIZE = 20;
+  let page = 1;
+  let raw: string | undefined;
+  if (searchParams && typeof searchParams === 'object' && Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
+    const val = searchParams.page;
+    raw = Array.isArray(val) ? val[0] : val;
   }
-  return chunks
-}
+  const parsed = Number(raw);
+  if (!isNaN(parsed) && parsed > 0) page = parsed;
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
 
-function normalizeSales(rows: any[]): SalesRow[] {
-  return rows.map((row) => ({
-    id: String(row.id ?? ""),
-    order_no: String(row.order_no ?? ""),
-    customer_cno: row.customer_cno ?? null,
-    delivery_method: row.delivery_method ?? null,
-    order_date: String(row.order_date ?? ""),
-    total_amount: Number(row.total_amount ?? 0),
-    status: (row.status ?? "pending") as SalesOrderType["status"],
-    is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
-    notes: row.notes ?? null,
-    created_at: String(row.created_at ?? ""),
-    updated_at: String(row.updated_at ?? ""),
-    sales_order_items: (row.sales_order_items ?? []) as SalesOrderItemType[],
-  }))
-}
+  const supabase = await createClient();
 
-function normalizeSalesItems(
-  rows: any[],
-  productMap: Map<string, Pick<ProductType, "code" | "name">>,
-): SalesOrderItemType[] {
-  return rows.map((row) => {
-    const code = (row.code ?? null) as string | null
-    return {
-      id: String(row.id ?? ""),
-      sales_order_id: String(row.sales_order_id ?? ""),
-      code,
-      quantity: Number(row.quantity ?? 0),
-      unit_price: Number(row.unit_price ?? 0),
-      subtotal: Number(row.subtotal ?? 0),
-      created_at: String(row.created_at ?? ""),
-      product: code ? ((productMap.get(code) as ProductType) ?? undefined) : undefined,
-    }
-  })
-}
+  // 分頁查詢銷貨單
+  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(supabase, from, to);
 
-async function fetchSalesOrders(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const descendingOrder = { ascending: false as const }
-
-  const primary = await supabase
-    .from("sales_orders")
-    .select("id,order_no,customer_cno,delivery_method,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
-    .order("order_date", descendingOrder)
-    .order("created_at", descendingOrder)
-
-  if (!primary.error) {
-    return { data: primary.data || [], warning: null as string | null }
-  }
-
-  return {
-    data: [] as any[],
-    warning: primary.error.message || "查詢 sales_orders 失敗",
-  }
-}
-
-async function fetchSalesItems(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  salesIds: string[],
-) {
-  if (!salesIds.length) {
-    return { data: [] as any[], warning: null as string | null }
-  }
-
-  const rows: any[] = []
-  for (const idChunk of chunkArray(salesIds, IN_FILTER_CHUNK_SIZE)) {
-    const primary = await supabase
-      .from("sales_order_items")
-      .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
-      .in("sales_order_id", idChunk)
-
-    if (primary.error) {
-      return {
-        data: [] as any[],
-        warning: primary.error.message || "查詢 sales_order_items 失敗",
-      }
-    }
-
-    rows.push(...(primary.data || []))
-  }
-
-  return { data: rows, warning: null as string | null }
-}
-
-export default async function SalesPage() {
-  const supabase = await createClient()
-
-  const [{ data: customers }, { data: productsRaw }] = await Promise.all([
+  // 客戶與商品查詢（不分頁）
+  const [{ data: customers }, { data: products }] = await Promise.all([
     supabase.from("customers").select("*").order("code"),
     supabase.from("products").select("*").order("code"),
-  ])
+  ]);
 
-  const { data: salesRaw, warning: salesWarning } = await fetchSalesOrders(supabase)
-
-  const products = (productsRaw || []) as ProductType[]
-  const productMap = new Map(
-    products.map((product) => [String(product.code || ""), { code: product.code, name: product.name }]),
-  )
-
-  const salesIds = (salesRaw || [])
-    .map((sale) => String(sale.id || "").trim())
-    .filter(Boolean)
-
-  const { data: itemsRaw, warning: itemsWarning } = await fetchSalesItems(supabase, salesIds)
-
-  const normalizedItems = normalizeSalesItems(itemsRaw || [], productMap)
-  const itemsBySalesOrderId = new Map<string, SalesOrderItemType[]>()
-
-  for (const item of normalizedItems) {
-    const salesOrderId = String(item.sales_order_id || "").trim()
-    if (!salesOrderId) continue
-    const current = itemsBySalesOrderId.get(salesOrderId) || []
-    current.push(item)
-    itemsBySalesOrderId.set(salesOrderId, current)
+  if (salesWarning) {
+    console.error("[SalesPage] 查詢 sales_orders 失敗:", salesWarning);
   }
 
-  const sales = normalizeSales(
-    (salesRaw || []).map((sale) => ({
-      ...sale,
-      sales_order_items: itemsBySalesOrderId.get(String(sale.id || "").trim()) || [],
-    })),
-  )
+  const sales = normalizeSales(salesRaw || []);
+  const total = totalCount || 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // 產生分頁 URL
+  function getPageUrl(targetPage: number) {
+    const params = new URLSearchParams();
+    if (
+      searchParams &&
+      typeof searchParams === 'object' &&
+      !Array.isArray(searchParams) &&
+      searchParams !== null &&
+      searchParams.constructor === Object
+    ) {
+      for (const [key, value] of Object.entries(searchParams)) {
+        if (key === 'page') continue;
+        if (!Object.prototype.hasOwnProperty.call(searchParams, key)) continue;
+        if (typeof value === 'string') params.set(key, value);
+        else if (Array.isArray(value) && value.length > 0) params.set(key, value[0]);
+      }
+    }
+    params.set('page', String(targetPage));
+    return `/sales?${params.toString()}`;
+  }
 
   return (
     <div className="space-y-6">
@@ -168,14 +82,12 @@ export default async function SalesPage() {
 
       <SalesTable sales={sales || []} customers={customers || []} products={products || []} />
 
-      <div className="text-sm text-muted-foreground">
-        資料檢查：客戶 {customers?.length ?? 0} / 商品 {products?.length ?? 0}
+      {/* 分頁控制 */}
+      <div className="flex items-center justify-center gap-4 mt-4">
+        <a href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</a>
+        <span>第 {page} 頁 / 共 {totalPages} 頁</span>
+        <a href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</a>
       </div>
-      {(salesWarning || itemsWarning) && (
-        <div className="text-xs text-muted-foreground">
-          資料庫欄位自動對映中：{[salesWarning, itemsWarning].filter(Boolean).join("；")}
-        </div>
-      )}
     </div>
-  )
+  );
 }
