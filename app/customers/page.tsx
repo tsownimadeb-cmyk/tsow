@@ -5,31 +5,51 @@ import { CustomersBatchActions } from "@/components/customers/customers-batch-ac
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 
-export default async function CustomersPage() {
-  const supabase = await createClient()
-  const pageSize = 1000
-  const customers: any[] = []
+import { fetchCustomersRows, normalizeCustomers } from "@/lib/customers"
 
-  for (let from = 0; ; from += pageSize) {
-    const to = from + pageSize - 1
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .order("code", { ascending: true })
-      .range(from, to)
-
-    if (error) {
-      throw new Error(`讀取客戶資料失敗：${error.message}`)
-    }
-
-    const batch = data || []
-    customers.push(...batch)
-
-    if (batch.length < pageSize) {
-      break
-    }
+export default async function CustomersPage(props: any) {
+  const searchParams = await props.searchParams;
+  const PAGE_SIZE = 20;
+  let page = 1;
+  let raw: string | undefined;
+  if (searchParams && typeof searchParams === 'object' && Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
+    const val = searchParams.page;
+    raw = Array.isArray(val) ? val[0] : val;
   }
- 
+  const parsed = Number(raw);
+  if (!isNaN(parsed) && parsed > 0) page = parsed;
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  const supabase = await createClient();
+  const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to);
+  if (customersWarning) {
+    console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
+  }
+  const customers = normalizeCustomers(customersRaw || []);
+  const total = totalCount || 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // 產生分頁 URL
+  function getPageUrl(targetPage: number) {
+    const params = new URLSearchParams();
+    if (
+      searchParams &&
+      typeof searchParams === 'object' &&
+      !Array.isArray(searchParams) &&
+      searchParams !== null &&
+      searchParams.constructor === Object
+    ) {
+      for (const [key, value] of Object.entries(searchParams)) {
+        if (key === 'page') continue;
+        if (!Object.prototype.hasOwnProperty.call(searchParams, key)) continue;
+        if (typeof value === 'string') params.set(key, value);
+        else if (Array.isArray(value) && value.length > 0) params.set(key, value[0]);
+      }
+    }
+    params.set('page', String(targetPage));
+    return `/customers?${params.toString()}`;
+  }
 
   return (
     <div className="space-y-6">
@@ -50,6 +70,13 @@ export default async function CustomersPage() {
       </div>
 
       <CustomersTable customers={customers} />
+
+      {/* 分頁控制 */}
+      <div className="flex items-center justify-center gap-4 mt-4">
+        <a href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</a>
+        <span>第 {page} 頁 / 共 {totalPages} 頁</span>
+        <a href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</a>
+      </div>
     </div>
-  )
+  );
 }
