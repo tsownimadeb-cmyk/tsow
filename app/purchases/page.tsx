@@ -198,9 +198,6 @@ export default async function PurchasesPage() {
           <p className="text-muted-foreground">管理進貨單與進貨紀錄</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/purchases/analysis">進貨分析</Link>
-          </Button>
           <PurchaseDialogWrapper suppliers={suppliers || []} products={products || []} />
           <PurchasesBatchActions />
         </div>
