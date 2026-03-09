@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { unstable_noStore as noStore } from "next/cache"
 import { fetchProductsRows, normalizeProducts } from "@/lib/products"
+import { RecalcStockBtn } from "@/components/products/recalc-stock-btn"
 
 interface ProductsPageProps {
   searchParams?: { [key: string]: string | string[] | undefined }
@@ -73,6 +74,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               新增商品
             </Button>
           </ProductDialog>
+          {/* 庫存重算按鈕 Client Component */}
+          <RecalcStockBtn />
           <div className="flex-1" />
           <ProductsBatchActions />
         </div>
