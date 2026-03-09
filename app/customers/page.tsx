@@ -76,6 +76,19 @@ export default async function CustomersPage(props: any) {
         <a href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</a>
         <span>第 {page} 頁 / 共 {totalPages} 頁</span>
         <a href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</a>
+        {/* 指定跳頁 */}
+        <form method="get" action="/customers" className="flex items-center gap-2" style={{ display: 'inline' }}>
+          <input
+            type="number"
+            name="page"
+            min={1}
+            max={totalPages}
+            defaultValue={page}
+            className="border rounded px-2 py-1 w-16 text-center"
+            aria-label="跳至指定頁數"
+          />
+          <button type="submit" className="btn">跳頁</button>
+        </form>
       </div>
     </div>
   );
