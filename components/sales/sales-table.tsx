@@ -300,8 +300,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {sale.sales_order_items && sale.sales_order_items.length > 0 ? (
-                            sale.sales_order_items.map((item) => {
+                          {sale.items && sale.items.length > 0 ? (
+                            sale.items.map((item) => {
                               const itemCode = item.code || null
                               const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
                               return (

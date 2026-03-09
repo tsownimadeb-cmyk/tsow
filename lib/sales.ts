@@ -9,8 +9,31 @@ export async function fetchSalesRows(supabase: any, from: number = 0, to: number
     .order("created_at", { ascending: false })
     .range(from, to)
 
+  const salesRows = result.data || []
+  const salesIds = salesRows.map((row: any) => row.id)
+  let itemsBySalesId: Record<string, any[]> = {}
+
+  if (salesIds.length > 0) {
+    const itemsResult: PostgrestSingleResponse<any> = await supabase
+      .from("sales_order_items")
+      .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+      .in("sales_order_id", salesIds)
+
+    if (itemsResult.data) {
+      for (const item of itemsResult.data) {
+        if (!itemsBySalesId[item.sales_order_id]) itemsBySalesId[item.sales_order_id] = []
+        itemsBySalesId[item.sales_order_id].push(item)
+      }
+    }
+  }
+
+  const rowsWithItems = salesRows.map((row: any) => ({
+    ...row,
+    items: itemsBySalesId[row.id] || [],
+  }))
+
   return {
-    rows: result.data || [],
+    rows: rowsWithItems,
     totalCount: result.count ?? 0,
     warning: result.error?.message || null,
   }
