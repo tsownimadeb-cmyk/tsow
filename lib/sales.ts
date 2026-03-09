@@ -5,6 +5,7 @@ export async function fetchSalesRows(supabase: any, from: number = 0, to: number
   const result: PostgrestSingleResponse<any> = await supabase
     .from("sales_orders")
     .select(selectText, { count: "exact" })
+    .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
     .range(from, to)
 
