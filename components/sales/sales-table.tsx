@@ -264,7 +264,12 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                   <AccordionContent className="px-4 pb-4">
                     <div className="mb-3 flex justify-end">
                       <div className="flex items-center gap-2">
-                        <SalesDialog customers={customers} products={products} mode="edit" sales={sale}>
+                        <SalesDialog
+                          customers={customers}
+                          products={products}
+                          mode="edit"
+                          sales={{ ...sale, sales_order_items: sale.sales_order_items ?? sale.items ?? [] }}
+                        >
                           <Button variant="outline" size="sm" className="h-8 px-2">
                             編輯
                           </Button>
