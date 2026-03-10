@@ -1185,21 +1185,21 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <div className="rounded-md border">
+                  <div className="rounded-md border overflow-x-auto">
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead>銷貨單號</TableHead>
-                          <TableHead>日期</TableHead>
-                          <TableHead>商品</TableHead>
-                          <TableHead className="text-right">單筆金額</TableHead>
-                          <TableHead className="text-right">已收金額</TableHead>
-                          <TableHead className="text-right">未收金額</TableHead>
-                          <TableHead className="text-right">溢收款</TableHead>
-                          <TableHead className="text-center">狀態</TableHead>
-                          <TableHead className="text-center">沖帳日期</TableHead>
-                          <TableHead className="text-center">部分沖帳紀錄</TableHead>
-                          <TableHead className="text-right">操作</TableHead>
+                        <TableRow className="text-xs md:text-base">
+                          <TableHead className="px-1 py-1 md:px-2 md:py-2 font-medium">銷貨單號</TableHead>
+                          <TableHead className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2 font-medium">日期</TableHead>
+                          <TableHead className="px-1 py-1 md:px-2 md:py-2 font-medium">商品</TableHead>
+                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">單筆金額</TableHead>
+                          <TableHead className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2 font-medium">已收金額</TableHead>
+                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">未收金額</TableHead>
+                          <TableHead className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2 font-medium">溢收款</TableHead>
+                          <TableHead className="hidden sm:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">狀態</TableHead>
+                          <TableHead className="hidden md:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">沖帳日期</TableHead>
+                          <TableHead className="hidden md:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">部分沖帳紀錄</TableHead>
+                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">操作</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1210,25 +1210,25 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                           const partialSettlements = order.partialSettlements
 
                           return (
-                            <TableRow key={order.id}>
-                              <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                              <TableCell>
+                            <TableRow key={order.id} className="text-xs md:text-base">
+                              <TableCell className="font-medium px-1 py-1 md:px-2 md:py-2">{order.orderNumber}</TableCell>
+                              <TableCell className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2">
                                 {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
                               </TableCell>
-                              <TableCell>{order.products}</TableCell>
-                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
-                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
-                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
-                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.overpaidAmount)}</TableCell>
-                              <TableCell className="text-center">
+                              <TableCell className="px-1 py-1 md:px-2 md:py-2">{order.products}</TableCell>
+                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
+                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.overpaidAmount)}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-center px-1 py-1 md:px-2 md:py-2">
                                 <span className={isPaid ? "text-foreground" : isPartiallyPaid ? "text-primary" : "text-destructive"}>
                                   {isPaid ? "已付款" : isPartiallyPaid ? "部分付款" : "未付款"}
                                 </span>
                               </TableCell>
-                              <TableCell className="text-center text-sm text-muted-foreground">
+                              <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground px-1 py-1 md:px-2 md:py-2">
                                 {order.paidAt && order.paidAmount > 0 ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
                               </TableCell>
-                              <TableCell className="text-center text-sm text-muted-foreground">
+                              <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground px-1 py-1 md:px-2 md:py-2">
                                 {partialSettlements.length > 0 ? (
                                   <div className="space-y-1 text-left inline-block">
                                     {partialSettlements.map((entry, index) => (
@@ -1239,7 +1239,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                   </div>
                                 ) : "-"}
                               </TableCell>
-                              <TableCell className="text-right">
+                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">
                                 {isPaid ? (
                                   <Button
                                     size="sm"
@@ -1271,22 +1271,22 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                             </TableRow>
                           )
                         })}
-                        <TableRow className="bg-muted/40">
-                          <TableCell colSpan={3} className="text-right font-semibold">總計</TableCell>
-                          <TableCell className="text-right font-semibold">
+                        <TableRow className="bg-muted/40 text-xs md:text-base">
+                          <TableCell colSpan={3} className="text-right font-semibold px-1 py-1 md:px-2 md:py-2">總計</TableCell>
+                          <TableCell className="text-right font-semibold px-1 py-1 md:px-2 md:py-2">
                             {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.amountDue, 0))}
                           </TableCell>
-                          <TableCell className="text-right font-semibold">
+                          <TableCell className="hidden sm:table-cell text-right font-semibold px-1 py-1 md:px-2 md:py-2">
                             {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0))}
                           </TableCell>
-                          <TableCell className="text-right font-semibold text-destructive">
+                          <TableCell className="text-right font-semibold text-destructive px-1 py-1 md:px-2 md:py-2">
                             {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.outstanding, 0))}
                           </TableCell>
-                          <TableCell className="text-right font-semibold">
+                          <TableCell className="hidden sm:table-cell text-right font-semibold px-1 py-1 md:px-2 md:py-2">
                             {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0))}
                           </TableCell>
-                          <TableCell colSpan={2} />
-                          <TableCell className="text-center font-semibold text-primary">
+                          <TableCell className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2" colSpan={2} />
+                          <TableCell className="hidden md:table-cell text-center font-semibold text-primary px-1 py-1 md:px-2 md:py-2">
                             {(() => {
                               const partialCount = sortedOrders.reduce((count, order) => count + order.partialSettlements.length, 0)
                               const partialTotal = sortedOrders.reduce(
@@ -1296,7 +1296,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                               return `共 ${partialCount} 次 / ${formatCurrencyOneDecimal(partialTotal)}`
                             })()}
                           </TableCell>
-                          <TableCell />
+                          <TableCell className="px-1 py-1 md:px-2 md:py-2" />
                         </TableRow>
                       </TableBody>
                     </Table>
