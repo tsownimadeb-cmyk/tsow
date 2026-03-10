@@ -696,15 +696,6 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">備註</Label>
-            <Textarea
-              id="notes"
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={2}
-            />
-          </div>
 
           <div className="flex items-center space-x-2">
             <Checkbox
@@ -796,6 +787,16 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             </div>
 
             <div className="flex justify-end text-lg font-semibold">總計：{formatCurrencyOneDecimal(totalAmount)}</div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="notes">備註</Label>
+            <Textarea
+              id="notes"
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={2}
+            />
           </div>
 
           <DialogFooter>

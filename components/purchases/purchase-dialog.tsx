@@ -567,6 +567,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           <DialogDescription>{mode === "create" ? "填寫進貨單資料與明細" : "修改已儲存的進貨單資料與明細"}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="supplier">供應商</Label>
@@ -595,16 +596,6 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                 onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">備註</Label>
-            <Textarea
-              id="notes"
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={2}
-            />
           </div>
 
           <div className="space-y-2">
@@ -712,6 +703,16 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               <div className="text-sm text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</div>
               <div className="text-lg font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotalAmount)}</div>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="notes">備註</Label>
+            <Textarea
+              id="notes"
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={2}
+            />
           </div>
 
           <DialogFooter>
