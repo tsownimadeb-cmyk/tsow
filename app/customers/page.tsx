@@ -12,9 +12,16 @@ export default async function CustomersPage(props: any) {
   const PAGE_SIZE = 20;
   let page = 1;
   let raw: string | undefined;
-  if (searchParams && typeof searchParams === 'object' && Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
-    const val = searchParams.page;
-    raw = Array.isArray(val) ? val[0] : val;
+  let searchText = "";
+  if (searchParams && typeof searchParams === 'object') {
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
+      const val = searchParams.page;
+      raw = Array.isArray(val) ? val[0] : val;
+    }
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'search')) {
+      const val = searchParams.search;
+      searchText = Array.isArray(val) ? val[0] : val;
+    }
   }
   const parsed = Number(raw);
   if (!isNaN(parsed) && parsed > 0) page = parsed;
@@ -22,7 +29,7 @@ export default async function CustomersPage(props: any) {
   const to = from + PAGE_SIZE - 1;
 
   const supabase = await createClient();
-  const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to);
+  const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to, searchText);
   if (customersWarning) {
     console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
   }

@@ -11,7 +11,10 @@ import { createClient } from "@/lib/supabase/client"
 
 export function CustomersTable({ customers }: { customers: any[] }) {
   const supabase = createClient()
-  const [search, setSearch] = useState("")
+  // 取得當前 URL search 參數
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialSearch = searchParams?.get('search') || "";
+  const [search, setSearch] = useState(initialSearch)
   const [rows, setRows] = useState<any[]>(customers || [])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
@@ -56,11 +59,8 @@ export function CustomersTable({ customers }: { customers: any[] }) {
     }
   }
 
-  const filtered = (rows || []).filter(
-    (c) =>
-      c.name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.code?.toLowerCase().includes(search.toLowerCase())
-  )
+  // 不再前端 filter，直接顯示 props 傳入的 customers
+  const filtered = rows
 
   return (
     <div className="space-y-4 p-1">
@@ -69,7 +69,19 @@ export function CustomersTable({ customers }: { customers: any[] }) {
         <Input
           placeholder="搜尋名稱或編號..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearch(value);
+            // 變更 URL 並帶上搜尋參數
+            const params = new URLSearchParams(window.location.search);
+            if (value) {
+              params.set('search', value);
+            } else {
+              params.delete('search');
+            }
+            params.set('page', '1'); // 搜尋時回到第一頁
+            window.location.href = `/customers?${params.toString()}`;
+          }}
           className="pl-10 focus-visible:ring-blue-500"
         />
       </div>
