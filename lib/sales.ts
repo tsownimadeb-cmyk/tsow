@@ -1,13 +1,24 @@
 import type { PostgrestSingleResponse } from "@supabase/supabase-js"
 
-export async function fetchSalesRows(supabase: any, from: number = 0, to: number = 19): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
+export async function fetchSalesRows(
+  supabase: any,
+  from: number = 0,
+  to: number = 19,
+  searchText: string = ""
+): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
   const selectText = "id,order_no,customer_cno,delivery_method,order_date,total_amount,status,is_paid,notes,created_at,updated_at"
-  const result: PostgrestSingleResponse<any> = await supabase
+  let query = supabase
     .from("sales_orders")
     .select(selectText, { count: "exact" })
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
     .range(from, to)
+
+  if (searchText && searchText.trim() !== "") {
+    // 搜尋 order_no 或 customer_cno
+    query = query.or(`order_no.ilike.%${searchText}%,customer_cno.ilike.%${searchText}%`)
+  }
+  const result: PostgrestSingleResponse<any> = await query
 
   const salesRows = result.data || []
   const salesIds = salesRows.map((row: any) => row.id)

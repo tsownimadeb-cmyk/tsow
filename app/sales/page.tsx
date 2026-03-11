@@ -12,9 +12,16 @@ export default async function SalesPage(props: any) {
   const PAGE_SIZE = 20;
   let page = 1;
   let raw: string | undefined;
-  if (searchParams && typeof searchParams === 'object' && Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
-    const val = searchParams.page;
-    raw = Array.isArray(val) ? val[0] : val;
+  let searchText = "";
+  if (searchParams && typeof searchParams === 'object') {
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
+      const val = searchParams.page;
+      raw = Array.isArray(val) ? val[0] : val;
+    }
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'search')) {
+      const val = searchParams.search;
+      searchText = Array.isArray(val) ? val[0] : val;
+    }
   }
   const parsed = Number(raw);
   if (!isNaN(parsed) && parsed > 0) page = parsed;
@@ -23,8 +30,8 @@ export default async function SalesPage(props: any) {
 
   const supabase = await createClient();
 
-  // 分頁查詢銷貨單
-  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(supabase, from, to);
+  // 分頁查詢銷貨單（支援搜尋）
+  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(supabase, from, to, searchText);
 
   // 客戶與商品查詢（不分頁）
   const [{ data: customers }, { data: products }] = await Promise.all([

@@ -30,7 +30,10 @@ const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
 export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [search, setSearch] = useState("")
+  // 取得當前 URL search 參數
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialSearch = searchParams?.get('search') || "";
+  const [search, setSearch] = useState(initialSearch)
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
@@ -47,12 +50,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
     return "散客"
   }
 
-  const searchText = search.toLowerCase()
-  const filteredSales = sales.filter((sale) => {
-    const orderNumber = (sale.order_no || "").toLowerCase()
-    const customerName = getCustomerDisplayName(sale).toLowerCase()
-    return orderNumber.includes(searchText) || customerName.includes(searchText)
-  })
+  // 不再前端 filter，直接顯示 props 傳入的 sales
+  const filteredSales = sales
 
   const handleTogglePaid = (sale: SalesOrder) => {
     const saleId = sale.id
@@ -222,7 +221,19 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
           <Input
             placeholder="搜尋單號或客戶..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setSearch(value);
+              // 變更 URL 並帶上搜尋參數
+              const params = new URLSearchParams(window.location.search);
+              if (value) {
+                params.set('search', value);
+              } else {
+                params.delete('search');
+              }
+              params.set('page', '1'); // 搜尋時回到第一頁
+              router.push(`/sales?${params.toString()}`);
+            }}
             className="pl-10"
           />
         </div>
