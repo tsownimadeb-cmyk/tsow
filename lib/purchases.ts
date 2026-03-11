@@ -1,15 +1,27 @@
 
 import type { PostgrestSingleResponse } from "@supabase/supabase-js"
 
-export async function fetchPurchasesRows(supabase: any, from: number = 0, to: number = 19): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
+export async function fetchPurchasesRows(
+  supabase: any,
+  from: number = 0,
+  to: number = 19,
+  searchText: string = ""
+): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
   // 查詢進貨單主檔
   const selectText = "id,order_no,supplier_id,order_date,total_amount,shipping_fee,status,is_paid,notes,created_at,updated_at"
-  const result: PostgrestSingleResponse<any> = await supabase
+  let query = supabase
     .from("purchase_orders")
     .select(selectText, { count: "exact" })
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
     .range(from, to)
+
+  if (searchText && searchText.trim() !== "") {
+    // 搜尋 order_no 或 supplier_id 對應的 supplier name
+    // 這裡僅針對 order_no 做 ilike，supplier name 需額外查詢
+    query = query.or(`order_no.ilike.%${searchText}%`)
+  }
+  const result: PostgrestSingleResponse<any> = await query
 
   const purchaseRows = result.data || []
   const purchaseIds = purchaseRows.map((row: any) => row.id)

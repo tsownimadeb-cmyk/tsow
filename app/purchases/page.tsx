@@ -11,9 +11,16 @@ export default async function PurchasesPage(props: any) {
   const PAGE_SIZE = 20;
   let page = 1;
   let raw: string | undefined;
-  if (searchParams && typeof searchParams === 'object' && Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
-    const val = searchParams.page;
-    raw = Array.isArray(val) ? val[0] : val;
+  let searchText = "";
+  if (searchParams && typeof searchParams === 'object') {
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
+      const val = searchParams.page;
+      raw = Array.isArray(val) ? val[0] : val;
+    }
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'search')) {
+      const val = searchParams.search;
+      searchText = Array.isArray(val) ? val[0] : val;
+    }
   }
   const parsed = Number(raw);
   if (!isNaN(parsed) && parsed > 0) page = parsed;
@@ -22,8 +29,8 @@ export default async function PurchasesPage(props: any) {
 
   const supabase = await createClient();
 
-  // 分頁查詢進貨單
-  const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = await fetchPurchasesRows(supabase, from, to);
+  // 分頁查詢進貨單（支援搜尋）
+  const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = await fetchPurchasesRows(supabase, from, to, searchText);
 
   // 供應商與商品查詢（不分頁）
   const [suppliersResult, productsResult] = await Promise.all([

@@ -23,7 +23,10 @@ interface PurchasesTableProps {
 export function PurchasesTable({ purchases, suppliers, products }: PurchasesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [search, setSearch] = useState("")
+  // 取得當前 URL search 參數
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialSearch = searchParams?.get('search') || "";
+  const [search, setSearch] = useState(initialSearch)
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingPurchaseId, setDeletingPurchaseId] = useState<string | null>(null)
@@ -31,12 +34,8 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
   const supplierMap = new Map(suppliers.map((supplier) => [supplier.id, supplier]))
   const productMap = new Map(products.map((product) => [product.code, product]))
 
-  const searchText = search.toLowerCase()
-  const filteredPurchases = purchases.filter((purchase) => {
-    const orderNumber = (purchase.order_no || "").toLowerCase()
-    const supplierName = (supplierMap.get(purchase.supplier_id || "")?.name || "").toLowerCase()
-    return orderNumber.includes(searchText) || supplierName.includes(searchText)
-  })
+  // 不再前端 filter，直接顯示 props 傳入的 purchases
+  const filteredPurchases = purchases
 
   const handleTogglePaid = (purchase: PurchaseOrder) => {
     const purchaseId = purchase.id
@@ -251,9 +250,21 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜尋單號或供應商..."
+            placeholder="搜尋單號..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setSearch(value);
+              // 變更 URL 並帶上搜尋參數
+              const params = new URLSearchParams(window.location.search);
+              if (value) {
+                params.set('search', value);
+              } else {
+                params.delete('search');
+              }
+              params.set('page', '1'); // 搜尋時回到第一頁
+              router.push(`/purchases?${params.toString()}`);
+            }}
             className="pl-10"
           />
         </div>
