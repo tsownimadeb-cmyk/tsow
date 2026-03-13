@@ -270,7 +270,8 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
         </div>
       </div>
 
-      <div className="rounded-lg border">
+      {/* 桌面版表格（sm 以上顯示） */}
+      <div className="rounded-lg border hidden sm:block">
         {filteredPurchases.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
         ) : (
@@ -381,6 +382,41 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
               )
             })}
           </Accordion>
+        )}
+      </div>
+
+      {/* 手機版卡片（sm 以下顯示） */}
+      <div className="block sm:hidden">
+        {filteredPurchases.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {filteredPurchases.map((purchase) => {
+              const goodsAmount = Number(purchase.total_amount || 0)
+              const orderDate = new Date(purchase.order_date).toLocaleDateString("zh-TW")
+              return (
+                <div key={purchase.id} className="bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm">
+                  {/* 第一行：單號（粗體） */}
+                  <div className="font-bold text-base">{purchase.order_no || "-"}</div>
+                  {/* 第二行：日期與狀態標籤 */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">{orderDate}</span>
+                    {purchase.is_paid ? (
+                      <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
+                        <Check className="h-3 w-3" />已付款
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
+                        <X className="h-3 w-3" />未付款
+                      </Badge>
+                    )}
+                  </div>
+                  {/* 第三行：總金額（靠右） */}
+                  <div className="text-right font-semibold text-lg">{formatCurrencyOneDecimal(goodsAmount)}</div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
