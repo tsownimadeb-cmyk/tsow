@@ -460,7 +460,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             const coalescedStockQty = Number(product.stock_qty ?? 0)
             const { error: updateInventoryError } = await supabase
               .from("products")
-              .update({ stock_qty: Math.max(0, coalescedStockQty - delta) })
+              .update({ stock_qty: coalescedStockQty - delta })
               .eq("code", code)
 
             if (updateInventoryError) {
@@ -570,7 +570,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             const coalescedStockQty = Number(currentProduct.stock_qty ?? 0)
             const { error: updateInventoryError } = await supabase
               .from("products")
-              .update({ stock_qty: Math.max(0, coalescedStockQty - item.quantity) })
+              .update({ stock_qty: coalescedStockQty - item.quantity })
               .eq("code", item.code)
 
             if (updateInventoryError) {
