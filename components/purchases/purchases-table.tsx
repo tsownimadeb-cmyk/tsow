@@ -248,7 +248,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-24">
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -273,8 +273,8 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
         </div>
       </div>
 
-      {/* 桌面版表格（sm 以上顯示） */}
-      <div className="rounded-lg border hidden sm:block">
+      {/* 桌面版表格（md 以上顯示） */}
+      <div className="rounded-lg border hidden md:block">
         {filteredPurchases.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
         ) : (
@@ -388,8 +388,8 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
         )}
       </div>
 
-      {/* 手機版卡片（sm 以下顯示） */}
-      <div className="block sm:hidden">
+      {/* 手機版卡片（md 以下顯示） */}
+      <div className="block md:hidden">
         {filteredPurchases.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
         ) : (
@@ -405,17 +405,10 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                 <div
                   key={purchase.id}
                   className={`bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
-                  onClick={() => setExpandedId(isExpanded ? null : purchase.id)}
-                  style={{ cursor: 'pointer' }}
                 >
-                  {/* 第一行：單號（粗體） */}
-                  <div className="font-bold text-base flex items-center justify-between">
-                    <span>{purchase.order_no || "-"}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{supplierName}</span>
-                  </div>
-                  {/* 第二行：日期與狀態標籤 */}
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">{orderDate}</span>
+                  {/* 第一列：單號（左）+ 付款狀態（右） */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-base">{purchase.order_no || "-"}</span>
                     {purchase.is_paid ? (
                       <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
                         <Check className="h-3 w-3" />已付款
@@ -426,52 +419,53 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                       </Badge>
                     )}
                   </div>
-                  {/* 第三行：總金額（靠右） */}
-                  <div className="text-right font-semibold text-lg">{formatCurrencyOneDecimal(goodsAmount)}</div>
-                  {/* 展開明細內容 */}
+                  {/* 第二列：供應商名稱 */}
+                  <div className="text-xs text-gray-500">{supplierName}</div>
+                  {/* 第三列：日期（左）+ 總金額（右，加粗紅字） */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{orderDate}</span>
+                    <span className="font-bold text-red-600 text-base">{formatCurrencyOneDecimal(goodsAmount)}</span>
+                  </div>
+                  {/* 顯示明細按鈕 */}
+                  <button
+                    type="button"
+                    className="mt-2 flex items-center justify-center gap-1 text-sm text-primary font-medium focus:outline-none"
+                    onClick={() => setExpandedId(isExpanded ? null : purchase.id)}
+                  >
+                    {isExpanded ? (
+                      <>
+                        <span>隱藏明細</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
+                      </>
+                    ) : (
+                      <>
+                        <span>顯示明細</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                      </>
+                    )}
+                  </button>
+                  {/* 摺疊明細內容 */}
                   {isExpanded && (
                     <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
-                      {/* 商品明細表格 */}
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-sm">
-                          <thead>
-                            <tr>
-                              <th className="text-left font-medium">商品名稱</th>
-                              <th className="text-right font-medium">數量</th>
-                              <th className="text-right font-medium">單價</th>
-                              <th className="text-right font-medium">小計</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {purchase.items && purchase.items.length > 0 ? (
-                              purchase.items.map((item) => {
-                                const itemCode = (item as any).code || null
-                                const productName = item.product?.name || (itemCode
-                                  ? productMap.get(itemCode)?.name || itemCode
-                                  : "-")
-                                return (
-                                  <tr key={item.id}>
-                                    <td>{productName}</td>
-                                    <td className="text-right">{item.quantity}</td>
-                                    <td className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</td>
-                                    <td className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</td>
-                                  </tr>
-                                )
-                              })
-                            ) : (
-                              <tr>
-                                <td colSpan={4} className="text-center text-muted-foreground py-2">無商品明細</td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                      {/* 金額摘要 */}
-                      <div className="text-right space-y-1">
-                        <p className="text-xs text-muted-foreground">供應商貨款：{formatCurrencyOneDecimal(goodsAmount)}</p>
-                        <p className="text-xs text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</p>
-                        <p className="text-sm font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotal)}</p>
-                      </div>
+                      {purchase.items && purchase.items.length > 0 ? (
+                        <div className="flex flex-col gap-2">
+                          {purchase.items.map((item) => {
+                            const itemCode = (item as any).code || null
+                            const productName = item.product?.name || (itemCode
+                              ? productMap.get(itemCode)?.name || itemCode
+                              : "-")
+                            return (
+                              <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
+                                <span className="flex-1 truncate">{productName}</span>
+                                <span className="w-10 text-right">{item.quantity}</span>
+                                <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
+                      )}
                     </div>
                   )}
                 </div>
