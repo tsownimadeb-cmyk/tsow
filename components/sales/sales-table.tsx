@@ -213,8 +213,11 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
     }
   }
 
+  // 響應式卡片展開狀態
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-28">
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -239,7 +242,8 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
         </div>
       </div>
 
-      <div className="rounded-lg border">
+      {/* 桌面版 table（md 以上） */}
+      <div className="rounded-lg border hidden md:block">
         {filteredSales.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的銷貨單" : "尚無銷貨單資料"}</div>
         ) : (
@@ -344,6 +348,76 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
               )
             })}
           </Accordion>
+        )}
+      </div>
+
+      {/* 手機版卡片（md 以下） */}
+      <div className="block md:hidden">
+        {filteredSales.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的銷貨單" : "尚無銷貨單資料"}</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {filteredSales.map((sale) => {
+              const customerName = getCustomerDisplayName(sale)
+              const deliveryMethod = sale.delivery_method || "self_delivery"
+              const deliveryLabel = deliveryMethodMap[deliveryMethod as keyof typeof deliveryMethodMap] || "本車配送"
+              const isExpanded = expandedId === sale.id
+              return (
+                <div
+                  key={sale.id}
+                  className={`bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
+                  onClick={() => setExpandedId(isExpanded ? null : sale.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {/* 頂部：單號+付款狀態 */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-base">{sale.order_no}</span>
+                    {sale.is_paid ? (
+                      <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
+                        <Check className="h-3 w-3" />已付款
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
+                        <X className="h-3 w-3" />未付款
+                      </Badge>
+                    )}
+                  </div>
+                  {/* 中部：客戶名稱與配送方式 */}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs text-gray-500">{customerName}</span>
+                    <span className="text-xs text-gray-500">配送：{deliveryLabel}</span>
+                  </div>
+                  {/* 底部：日期+總金額 */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</span>
+                    <span className="font-bold text-base text-right">{formatCurrencyOneDecimal(Number(sale.total_amount))}</span>
+                  </div>
+                  {/* 摺疊明細 */}
+                  {isExpanded && (
+                    <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
+                      {sale.items && sale.items.length > 0 ? (
+                        <div className="flex flex-col gap-2">
+                          {sale.items.map((item) => {
+                            const itemCode = item.code || null
+                            const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
+                            return (
+                              <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
+                                <span className="flex-1 truncate">{productName}</span>
+                                <span className="w-10 text-right">{item.quantity}</span>
+                                <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
