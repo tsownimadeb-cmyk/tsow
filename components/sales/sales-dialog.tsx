@@ -621,6 +621,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           <DialogDescription>{mode === "create" ? "填寫銷貨單資料與明細" : "修改已儲存的銷貨單資料與明細"}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* 單號欄位 */}
           <div className="space-y-2">
             <Label htmlFor="order_no">單號</Label>
             <Input
@@ -632,7 +633,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* 客戶、日期、配送方式：桌面版為橫排，手機版為直排 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="customer">客戶</Label>
               <div className="flex items-center gap-2">
@@ -696,8 +698,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             </div>
           </div>
 
-
-          <div className="flex items-center space-x-2">
+          {/* 已付款 checkbox 與備註間距 */}
+          <div className="flex items-center space-x-2 mt-2">
             <Checkbox
               id="is_paid"
               checked={formData.is_paid}
@@ -706,6 +708,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
           </div>
 
+          {/* 銷貨明細：桌面 table + 手機卡片 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>銷貨明細</Label>
@@ -715,8 +718,9 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               </Button>
             </div>
 
-            <div className="rounded-lg border overflow-x-hidden">
-              <Table className="w-full table-auto">
+            {/* 桌面 table */}
+            <div className="rounded-lg border overflow-x-auto hidden sm:block">
+              <Table className="min-w-[600px] text-sm">
                 <TableHeader>
                   <TableRow>
                     <TableHead>商品</TableHead>
@@ -736,10 +740,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   ) : (
                     items.map((item, index) => (
                       <TableRow key={index}>
-                        <TableCell className="min-w-0 pr-2">
+                        <TableCell>
                           <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
-                            <SelectTrigger className="w-full min-w-0">
-                              <SelectValue placeholder="選擇商品" className="truncate" />
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="選擇商品" />
                             </SelectTrigger>
                             <SelectContent>
                               {products.map((product) => (
@@ -750,9 +754,9 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                             </SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell className="px-2">
+                        <TableCell>
                           <Input
-                            className="min-w-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             type="number"
                             min="1"
                             value={item.quantity}
@@ -760,9 +764,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                             onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
                           />
                         </TableCell>
-                        <TableCell className="px-2">
+                        <TableCell>
                           <Input
-                            className="min-w-0"
                             type="number"
                             min="0"
                             step="0.01"
@@ -771,7 +774,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                             onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
                           />
                         </TableCell>
-                        <TableCell className="text-right whitespace-nowrap px-2">
+                        <TableCell className="text-right">
                           {formatCurrencyOneDecimal(item.quantity * item.unit_price)}
                         </TableCell>
                         <TableCell>
@@ -786,9 +789,71 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               </Table>
             </div>
 
-            <div className="flex justify-end text-lg font-semibold">總計：{formatCurrencyOneDecimal(totalAmount)}</div>
+            {/* 手機卡片式明細 */}
+            <div className="sm:hidden flex flex-col gap-2">
+              {items.length === 0 ? (
+                <div className="text-center text-muted-foreground py-4 border rounded bg-white">尚無項目，請點擊「新增項目」</div>
+              ) : (
+                items.map((item, index) => (
+                  <div key={index} className="border rounded bg-white p-2 flex flex-col gap-1 relative">
+                    <button type="button" className="absolute top-2 right-2 text-muted-foreground" onClick={() => removeItem(index)}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs text-muted-foreground">商品</span>
+                      <div className="flex-1">
+                        <Select value={item.code} onValueChange={(v) => updateItem(index, 'code', v)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="選擇商品" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((product) => (
+                              <SelectItem key={product.code} value={product.code}>
+                                {product.code} - {product.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs text-muted-foreground">數量</span>
+                      <Input
+                        className="flex-1"
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => updateItem(index, 'quantity', Number.parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs text-muted-foreground">單價</span>
+                      <Input
+                        className="flex-1"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.unit_price}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => updateItem(index, 'unit_price', Number.parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs text-muted-foreground">小計</span>
+                      <span className="flex-1 text-right font-semibold">{formatCurrencyOneDecimal(item.quantity * item.unit_price)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-1 text-right">
+              <div className="text-sm text-muted-foreground">總計：{formatCurrencyOneDecimal(totalAmount)}</div>
+            </div>
           </div>
 
+          {/* 備註欄位 */}
           <div className="space-y-2">
             <Label htmlFor="notes">備註</Label>
             <Textarea
