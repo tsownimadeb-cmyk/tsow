@@ -37,6 +37,9 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
   // 不再前端 filter，直接顯示 props 傳入的 purchases
   const filteredPurchases = purchases
 
+  // 手機版展開明細的狀態
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   const handleTogglePaid = (purchase: PurchaseOrder) => {
     const purchaseId = purchase.id
     const currentStatus = Boolean(purchase.is_paid)
@@ -393,11 +396,23 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
           <div className="flex flex-col gap-2">
             {filteredPurchases.map((purchase) => {
               const goodsAmount = Number(purchase.total_amount || 0)
+              const shippingFee = Number(purchase.shipping_fee || 0)
+              const landedTotal = goodsAmount + shippingFee
               const orderDate = new Date(purchase.order_date).toLocaleDateString("zh-TW")
+              const isExpanded = expandedId === purchase.id
+              const supplierName = supplierMap.get(purchase.supplier_id || "")?.name || "-"
               return (
-                <div key={purchase.id} className="bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm">
+                <div
+                  key={purchase.id}
+                  className={`bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
+                  onClick={() => setExpandedId(isExpanded ? null : purchase.id)}
+                  style={{ cursor: 'pointer' }}
+                >
                   {/* 第一行：單號（粗體） */}
-                  <div className="font-bold text-base">{purchase.order_no || "-"}</div>
+                  <div className="font-bold text-base flex items-center justify-between">
+                    <span>{purchase.order_no || "-"}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{supplierName}</span>
+                  </div>
                   {/* 第二行：日期與狀態標籤 */}
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">{orderDate}</span>
@@ -413,6 +428,52 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                   </div>
                   {/* 第三行：總金額（靠右） */}
                   <div className="text-right font-semibold text-lg">{formatCurrencyOneDecimal(goodsAmount)}</div>
+                  {/* 展開明細內容 */}
+                  {isExpanded && (
+                    <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
+                      {/* 商品明細表格 */}
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left font-medium">商品名稱</th>
+                              <th className="text-right font-medium">數量</th>
+                              <th className="text-right font-medium">單價</th>
+                              <th className="text-right font-medium">小計</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {purchase.items && purchase.items.length > 0 ? (
+                              purchase.items.map((item) => {
+                                const itemCode = (item as any).code || null
+                                const productName = item.product?.name || (itemCode
+                                  ? productMap.get(itemCode)?.name || itemCode
+                                  : "-")
+                                return (
+                                  <tr key={item.id}>
+                                    <td>{productName}</td>
+                                    <td className="text-right">{item.quantity}</td>
+                                    <td className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</td>
+                                    <td className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</td>
+                                  </tr>
+                                )
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={4} className="text-center text-muted-foreground py-2">無商品明細</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* 金額摘要 */}
+                      <div className="text-right space-y-1">
+                        <p className="text-xs text-muted-foreground">供應商貨款：{formatCurrencyOneDecimal(goodsAmount)}</p>
+                        <p className="text-xs text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</p>
+                        <p className="text-sm font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotal)}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
