@@ -1056,7 +1056,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4">
+      {/* 搜尋與篩選列 */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -1094,24 +1095,26 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">應收合計</p>
-          <p className="text-2xl font-semibold">{renderAmount(totalAmount)}</p>
+      {/* 統計方塊：手機直排、桌面橫排，字體縮小 */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">應收合計</p>
+          <p className="text-lg sm:text-2xl font-semibold">{renderAmount(totalAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">已收金額</p>
-          <p className="text-2xl font-semibold">{renderAmount(paidAmount)}</p>
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">已收金額</p>
+          <p className="text-lg sm:text-2xl font-semibold">{renderAmount(paidAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">應收未付</p>
-          <p className="text-2xl font-semibold text-destructive">
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">應收未付</p>
+          <p className="text-lg sm:text-2xl font-semibold text-destructive">
             {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : formatCurrencyOneDecimal(outstandingAmount)}
           </p>
         </div>
       </div>
       <p className="text-xs text-muted-foreground">可抵扣溢收款：{renderAmount(overpaidAmount)}</p>
 
+      {/* 客戶卡片區塊 */}
       <div className="rounded-lg border">
         {customerSummaries.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
@@ -1136,173 +1139,173 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                   })
                   const visibleOrderCount = showAllCustomers ? summary.orderCount : sortedOrders.length
 
-                  return (
-                <>
-                <AccordionTrigger className="px-4 hover:no-underline">
-                  <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
-                    <div className="col-span-4">
-                      <p className="font-medium">{summary.customerName}</p>
-                      <p className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</p>
-                    </div>
-                    <div className="col-span-4 text-right text-sm text-muted-foreground">
-                      應收合計 {renderAmount(summary.totalDue)}
-                    </div>
-                    <div className="col-span-4 text-right text-base font-semibold text-destructive">
-                      總欠款 {renderAmount(summary.totalOutstanding)}
-                    </div>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4">
-                  <div className="mb-3 flex items-center justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleExportStatement(summary)}
-                      disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
-                    >
-                      匯出對帳單
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="sm"
-                          disabled={isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}`}
-                        >
-                          {isPending && processingCustomerKey === `${summary.customerCno}-${summary.customerName}` ? "處理中..." : "付款方式"}
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleBatchSettle(summary)}>
-                          現金
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleReceiveByCheck(summary)}>
-                          支票
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleOpenPartialSettle(summary)}>
-                          部分沖帳
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <div className="rounded-md border overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="text-xs md:text-base">
-                          <TableHead className="px-1 py-1 md:px-2 md:py-2 font-medium">銷貨單號</TableHead>
-                          <TableHead className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2 font-medium">日期</TableHead>
-                          <TableHead className="px-1 py-1 md:px-2 md:py-2 font-medium">商品</TableHead>
-                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">單筆金額</TableHead>
-                          <TableHead className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2 font-medium">已收金額</TableHead>
-                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">未收金額</TableHead>
-                          <TableHead className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2 font-medium">溢收款</TableHead>
-                          <TableHead className="hidden sm:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">狀態</TableHead>
-                          <TableHead className="hidden md:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">沖帳日期</TableHead>
-                          <TableHead className="hidden md:table-cell text-center px-1 py-1 md:px-2 md:py-2 font-medium">部分沖帳紀錄</TableHead>
-                          <TableHead className="text-right px-1 py-1 md:px-2 md:py-2 font-medium">操作</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {sortedOrders.map((order) => {
-                          const isPaid = order.outstanding <= 0
-                          const isPartiallyPaid = !isPaid && order.paidAmount > 0
-                          const isThisOrderProcessing = isRowActionPending && processingOrderId === order.id
-                          const partialSettlements = order.partialSettlements
 
-                          return (
-                            <TableRow key={order.id} className="text-xs md:text-base">
-                              <TableCell className="font-medium px-1 py-1 md:px-2 md:py-2">{order.orderNumber}</TableCell>
-                              <TableCell className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2">
-                                {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
-                              </TableCell>
-                              <TableCell className="px-1 py-1 md:px-2 md:py-2">{order.products}</TableCell>
-                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
-                              <TableCell className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
-                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
-                              <TableCell className="hidden sm:table-cell text-right px-1 py-1 md:px-2 md:py-2">{formatCurrencyOneDecimal(order.overpaidAmount)}</TableCell>
-                              <TableCell className="hidden sm:table-cell text-center px-1 py-1 md:px-2 md:py-2">
-                                <span className={isPaid ? "text-foreground" : isPartiallyPaid ? "text-primary" : "text-destructive"}>
-                                  {isPaid ? "已付款" : isPartiallyPaid ? "部分付款" : "未付款"}
-                                </span>
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground px-1 py-1 md:px-2 md:py-2">
-                                {order.paidAt && order.paidAmount > 0 ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground px-1 py-1 md:px-2 md:py-2">
-                                {partialSettlements.length > 0 ? (
-                                  <div className="space-y-1 text-left inline-block">
-                                    {partialSettlements.map((entry, index) => (
-                                      <div key={`${entry.at}-${entry.amount}-${index}`}>
-                                        {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 {formatCurrencyOneDecimal(entry.amount)}
-                                      </div>
-                                    ))}
+                  // --- 響應式卡片設計 ---
+                  return (
+                    <>
+                      <AccordionTrigger className="px-2 sm:px-4 hover:no-underline">
+                        {/* 三列設計：客戶名稱/代號、金額、總欠款 */}
+                        <div className="flex flex-col gap-1 w-full">
+                          <div className="flex flex-wrap items-center gap-2 justify-between">
+                            <span className="font-medium text-base sm:text-lg">{summary.customerName}</span>
+                            <span className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 justify-between text-xs sm:text-sm">
+                            <span>應收合計 {renderAmount(summary.totalDue)}</span>
+                            <span>已收 {renderAmount(summary.totalPaid)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 justify-between mt-1">
+                            <span className="text-destructive text-lg sm:text-xl font-bold">總欠款 {renderAmount(summary.totalOutstanding)}</span>
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="px-2 sm:px-4 pb-4">
+                        <div className="rounded-md border overflow-x-auto max-w-full p-2 sm:p-4">
+                          {/* 桌面 table，手機隱藏 */}
+                          <Table className="hidden sm:table min-w-0 text-xs sm:text-base">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>銷貨單號</TableHead>
+                                <TableHead className="hidden sm:table-cell">日期</TableHead>
+                                <TableHead>商品</TableHead>
+                                <TableHead className="text-right">單筆金額</TableHead>
+                                <TableHead className="hidden sm:table-cell text-right">已收金額</TableHead>
+                                <TableHead className="text-right">未收金額</TableHead>
+                                <TableHead className="hidden sm:table-cell text-right">溢收款</TableHead>
+                                <TableHead className="hidden sm:table-cell text-center">狀態</TableHead>
+                                <TableHead className="hidden md:table-cell text-center">沖帳日期</TableHead>
+                                <TableHead className="hidden md:table-cell text-center">部分沖帳紀錄</TableHead>
+                                <TableHead className="text-right">操作</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortedOrders.map((order) => {
+                                const isPaid = order.outstanding <= 0
+                                const isPartiallyPaid = !isPaid && order.paidAmount > 0
+                                const isThisOrderProcessing = isRowActionPending && processingOrderId === order.id
+                                const partialSettlements = order.partialSettlements
+                                return (
+                                  <TableRow key={order.id} className="text-xs sm:text-base">
+                                    <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                                    <TableCell className="hidden sm:table-cell">
+                                      {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
+                                    </TableCell>
+                                    <TableCell>{order.products}</TableCell>
+                                    <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
+                                    <TableCell className="hidden sm:table-cell text-right">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
+                                    <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
+                                    <TableCell className="hidden sm:table-cell text-right">{formatCurrencyOneDecimal(order.overpaidAmount)}</TableCell>
+                                    <TableCell className="hidden sm:table-cell text-center">
+                                      <span className={isPaid ? "text-foreground" : isPartiallyPaid ? "text-primary" : "text-destructive"}>
+                                        {isPaid ? "已付款" : isPartiallyPaid ? "部分付款" : "未付款"}
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground">
+                                      {order.paidAt && order.paidAmount > 0 ? new Date(order.paidAt).toLocaleString("zh-TW") : "-"}
+                                    </TableCell>
+                                    <TableCell className="hidden md:table-cell text-center text-xs text-muted-foreground">
+                                      {partialSettlements.length > 0 ? (
+                                        <div className="space-y-1 text-left inline-block">
+                                          {partialSettlements.map((entry, index) => (
+                                            <div key={`${entry.at}-${entry.amount}-${index}`}>
+                                              {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 {formatCurrencyOneDecimal(entry.amount)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : "-"}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {isPaid ? (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          disabled={isThisOrderProcessing}
+                                          onClick={() => {
+                                            setRestoreTargetOrder({
+                                              id: order.id,
+                                              salesOrderId: order.salesOrderId,
+                                              customerCno: order.customerCno,
+                                              orderNumber: order.orderNumber,
+                                              orderDate: order.orderDate,
+                                              amountDue: order.amountDue,
+                                            })
+                                          }}
+                                        >
+                                          {isThisOrderProcessing ? "處理中..." : "恢復未付"}
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          disabled={isThisOrderProcessing}
+                                          onClick={() => handleFullSettleAction(order)}
+                                        >
+                                          {isThisOrderProcessing ? "處理中..." : "沖帳"}
+                                        </Button>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })}
+                              <TableRow className="bg-muted/40 text-xs sm:text-base">
+                                <TableCell colSpan={3} className="text-right font-semibold">總計</TableCell>
+                                <TableCell className="text-right font-semibold">
+                                  {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.amountDue, 0))}
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell text-right font-semibold">
+                                  {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0))}
+                                </TableCell>
+                                <TableCell className="text-right font-semibold text-destructive">
+                                  {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.outstanding, 0))}
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell text-right font-semibold">
+                                  {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0))}
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell" colSpan={2} />
+                                <TableCell className="hidden md:table-cell text-center font-semibold text-primary">
+                                  {(() => {
+                                    const partialCount = sortedOrders.reduce((count, order) => count + order.partialSettlements.length, 0)
+                                    const partialTotal = sortedOrders.reduce(
+                                      (sum, order) => sum + order.partialSettlements.reduce((inner, entry) => inner + entry.amount, 0),
+                                      0,
+                                    )
+                                    return `共 ${partialCount} 次 / ${formatCurrencyOneDecimal(partialTotal)}`
+                                  })()}
+                                </TableCell>
+                                <TableCell />
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                          {/* 手機版明細：flex list，桌面隱藏 */}
+                          <div className="sm:hidden flex flex-col gap-2 mt-2">
+                            {sortedOrders.length === 0 ? (
+                              <div className="text-center text-muted-foreground py-2">無明細</div>
+                            ) : (
+                              sortedOrders.map((order) => (
+                                <div key={order.id} className="border rounded bg-white p-2 flex flex-col gap-1">
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="font-semibold">單號</span>
+                                    <span className="flex-1 truncate">{order.orderNumber}</span>
+                                    <span className="text-muted-foreground">{order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}</span>
                                   </div>
-                                ) : "-"}
-                              </TableCell>
-                              <TableCell className="text-right px-1 py-1 md:px-2 md:py-2">
-                                {isPaid ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={isThisOrderProcessing}
-                                    onClick={() => {
-                                      setRestoreTargetOrder({
-                                        id: order.id,
-                                        salesOrderId: order.salesOrderId,
-                                        customerCno: order.customerCno,
-                                        orderNumber: order.orderNumber,
-                                        orderDate: order.orderDate,
-                                        amountDue: order.amountDue,
-                                      })
-                                    }}
-                                  >
-                                    {isThisOrderProcessing ? "處理中..." : "恢復未付"}
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    disabled={isThisOrderProcessing}
-                                    onClick={() => handleFullSettleAction(order)}
-                                  >
-                                    {isThisOrderProcessing ? "處理中..." : "沖帳"}
-                                  </Button>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })}
-                        <TableRow className="bg-muted/40 text-xs md:text-base">
-                          <TableCell colSpan={3} className="text-right font-semibold px-1 py-1 md:px-2 md:py-2">總計</TableCell>
-                          <TableCell className="text-right font-semibold px-1 py-1 md:px-2 md:py-2">
-                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.amountDue, 0))}
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell text-right font-semibold px-1 py-1 md:px-2 md:py-2">
-                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.paidAmount, 0))}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold text-destructive px-1 py-1 md:px-2 md:py-2">
-                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.outstanding, 0))}
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell text-right font-semibold px-1 py-1 md:px-2 md:py-2">
-                            {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.overpaidAmount, 0))}
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell px-1 py-1 md:px-2 md:py-2" colSpan={2} />
-                          <TableCell className="hidden md:table-cell text-center font-semibold text-primary px-1 py-1 md:px-2 md:py-2">
-                            {(() => {
-                              const partialCount = sortedOrders.reduce((count, order) => count + order.partialSettlements.length, 0)
-                              const partialTotal = sortedOrders.reduce(
-                                (sum, order) => sum + order.partialSettlements.reduce((inner, entry) => inner + entry.amount, 0),
-                                0,
-                              )
-                              return `共 ${partialCount} 次 / ${formatCurrencyOneDecimal(partialTotal)}`
-                            })()}
-                          </TableCell>
-                          <TableCell className="px-1 py-1 md:px-2 md:py-2" />
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                </AccordionContent>
-                </>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="font-semibold">商品</span>
+                                    <span className="flex-1 truncate">{order.products}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="font-semibold">金額</span>
+                                    <span className="flex-1 text-right font-bold">{formatCurrencyOneDecimal(order.amountDue)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs mt-1">
+                                    <span className="font-semibold">未收</span>
+                                    <span className="flex-1 text-right text-destructive font-bold">{formatCurrencyOneDecimal(order.outstanding)}</span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </>
                   )
                 })()}
               </AccordionItem>
