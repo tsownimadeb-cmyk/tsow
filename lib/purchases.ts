@@ -17,9 +17,8 @@ export async function fetchPurchasesRows(
     .range(from, to)
 
   if (searchText && searchText.trim() !== "") {
-    // 搜尋 order_no 或 supplier_id 對應的 supplier name
-    // 這裡僅針對 order_no 做 ilike，supplier name 需額外查詢
-    query = query.or(`order_no.ilike.%${searchText}%`)
+    // 搜尋 order_no、notes（備註）
+    query = query.or(`order_no.ilike.%${searchText}%,notes.ilike.%${searchText}%`)
   }
   const result: PostgrestSingleResponse<any> = await query
 

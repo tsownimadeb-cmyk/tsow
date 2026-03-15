@@ -15,8 +15,8 @@ export async function fetchSalesRows(
     .range(from, to)
 
   if (searchText && searchText.trim() !== "") {
-    // 搜尋 order_no 或 customer_cno
-    query = query.or(`order_no.ilike.%${searchText}%,customer_cno.ilike.%${searchText}%`)
+    // 搜尋 order_no、customer_cno、notes（備註）
+    query = query.or(`order_no.ilike.%${searchText}%,customer_cno.ilike.%${searchText}%,notes.ilike.%${searchText}%`)
   }
   const result: PostgrestSingleResponse<any> = await query
 
