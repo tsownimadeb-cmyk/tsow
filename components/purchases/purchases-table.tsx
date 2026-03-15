@@ -312,6 +312,13 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4">
+                    {/* 備註欄位（有內容才顯示） */}
+                    {purchase.notes && (
+                      <div className="mb-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded">
+                        <span className="font-bold mr-2">備註：</span>
+                        <span className="whitespace-pre-line">{purchase.notes}</span>
+                      </div>
+                    )}
                     <div className="mb-3 flex justify-end">
                       <div className="flex items-center gap-2">
                         <PurchaseDialog suppliers={suppliers} products={products} mode="edit" purchase={purchase}>
@@ -446,27 +453,36 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                   </button>
                   {/* 摺疊明細內容 */}
                   {isExpanded && (
-                    <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
-                      {purchase.items && purchase.items.length > 0 ? (
-                        <div className="flex flex-col gap-2">
-                          {purchase.items.map((item) => {
-                            const itemCode = (item as any).code || null
-                            const productName = item.product?.name || (itemCode
-                              ? productMap.get(itemCode)?.name || itemCode
-                              : "-")
-                            return (
-                              <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
-                                <span className="flex-1 truncate">{productName}</span>
-                                <span className="w-10 text-right">{item.quantity}</span>
-                                <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
-                              </div>
-                            )
-                          })}
+                    <>
+                      {/* 備註欄位（有內容才顯示） */}
+                      {purchase.notes && (
+                        <div className="mb-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded">
+                          <span className="font-bold mr-2">備註：</span>
+                          <span className="whitespace-pre-line">{purchase.notes}</span>
                         </div>
-                      ) : (
-                        <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
                       )}
-                    </div>
+                      <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
+                        {purchase.items && purchase.items.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {purchase.items.map((item) => {
+                              const itemCode = (item as any).code || null
+                              const productName = item.product?.name || (itemCode
+                                ? productMap.get(itemCode)?.name || itemCode
+                                : "-")
+                              return (
+                                <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
+                                  <span className="flex-1 truncate">{productName}</span>
+                                  <span className="w-10 text-right">{item.quantity}</span>
+                                  <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               )
