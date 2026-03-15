@@ -1,23 +1,21 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle, CardDescription, CardAction } from "@/components/ui/card"
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
-import { Search, Phone, MapPin, User, Trash2, StickyNote } from "lucide-react"
-import { CustomerDialog } from "./customer-dialog"
-import { DeleteCustomerDialog } from "./delete-customer-dialog"
+import { Card } from "@/components/ui/card"
+import { Search, Phone, User, MapPin, ChevronDown } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 
 export function CustomersTable({ customers }: { customers: any[] }) {
   const [searchText, setSearchText] = useState("");
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const isMobile = useIsMobile();
+  // 新增每個客戶的 showHistory 狀態
+  const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
+  // 新增每個客戶的訂單資料
+  const [ordersMap, setOrdersMap] = useState<{ [code: string]: any[] }>({});
+  const [loadingMap, setLoadingMap] = useState<{ [code: string]: boolean }>({});
 
   const filteredCustomers = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -25,64 +23,60 @@ export function CustomersTable({ customers }: { customers: any[] }) {
     return customers.filter((c: any) => {
       return (
         String(c.code || "").toLowerCase().includes(keyword) ||
-        String(c.name || "").toLowerCase().includes(keyword) ||
-        String(c.tel1 || "").toLowerCase().includes(keyword)
+        String(c.name || "").toLowerCase().includes(keyword)
       );
     });
   }, [customers, searchText]);
 
-  const handleEditOpenChange = (open: boolean) => {
-    setEditOpen(open);
+
+  const handleToggleHistory = async (code: string) => {
+    setShowHistory((prev) => ({ ...prev, [code]: !prev[code] }));
+    // 若尚未查過，且要展開，才查詢
+    if (!ordersMap[code] && !loadingMap[code]) {
+      setLoadingMap((prev) => ({ ...prev, [code]: true }));
+      const supabase = createClient();
+      // 查詢 sales_orders，關聯欄位為 customer_cno
+      const { data, error } = await supabase
+        .from("sales_orders")
+        .select("id, order_no, order_date, total_amount, status")
+        .eq("customer_cno", code)
+        .order("order_date", { ascending: false });
+      setOrdersMap((prev) => ({ ...prev, [code]: error ? [] : data || [] }));
+      setLoadingMap((prev) => ({ ...prev, [code]: false }));
+    }
   };
 
   return (
-    <div className="space-y-4 p-1">
+    <div className="space-y-4">
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="搜尋名稱、編號或電話..."
+          placeholder="搜尋名稱或編號..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          className="pl-10 focus-visible:ring-blue-500"
+          className="pl-10"
         />
       </div>
       {filteredCustomers.length === 0 ? (
         <div className="px-6 py-10 text-center text-sm text-gray-400">查無資料</div>
       ) : (
-        <Accordion type="single" collapsible className="w-full space-y-3">
+        <Accordion type="single" collapsible className="w-full">
           {filteredCustomers.map((c: any) => (
             <AccordionItem key={c.code} value={String(c.code)}>
-              <Card className="w-full">
-                <CardHeader className="flex flex-row items-center justify-between gap-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
+              <Card
+                className="w-full rounded-xl border bg-white shadow-sm transition-all md:max-w-3xl mx-auto"
+              >
+                <AccordionTrigger className="px-6 py-4 hover:no-underline flex items-center">
+                  <div className="flex flex-1 items-center gap-4">
                     <span className="font-mono text-sm text-blue-600 min-w-[60px]">{c.code}</span>
-                    <CardTitle className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-slate-400" />
-                      {c.name}
-                    </CardTitle>
-                    <span className="flex items-center gap-1 font-medium text-slate-700">
-                      <Phone className="h-4 w-4 text-green-500" />
-                      {c.tel1 ? (
-                        <a href={`tel:${c.tel1}`} className="underline text-blue-700 hover:text-blue-900">{c.tel1}</a>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </span>
-                    {!isMobile && (
-                      <span className="flex items-center gap-1 text-sm text-slate-500">
-                        <MapPin className="h-4 w-4 text-red-400" />
-                        {c.addr || <span className="text-slate-400">—</span>}
-                      </span>
-                    )}
+                    <span className="font-bold text-gray-900 text-base">{c.name}</span>
                   </div>
-                  <CardAction>
-                    <AccordionTrigger className="hover:no-underline" />
-                  </CardAction>
-                </CardHeader>
+                  <ChevronDown className="ml-2 h-5 w-5 text-gray-400" />
+                </AccordionTrigger>
                 <AccordionContent className="px-6 pb-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
-                      <p className="text-xs text-gray-500">電話1</p>
+                      <p className="text-xs text-gray-500">電話</p>
                       <p className="mt-1 text-base font-semibold text-gray-700">
                         {c.tel1 ? (
                           <a href={`tel:${c.tel1}`} className="underline text-blue-700 hover:text-blue-900">{c.tel1}</a>
@@ -92,83 +86,64 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">電話2</p>
-                      <p className="mt-1 text-base font-semibold text-gray-700">
-                        {c.tel2 || c.tel11 ? (
-                          <a href={`tel:${c.tel2 || c.tel11}`} className="underline text-blue-700 hover:text-blue-900">{c.tel2 || c.tel11}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </p>
+                      <p className="text-xs text-gray-500">聯絡人</p>
+                      <p className="mt-1 text-base text-gray-700">{c.contact_person || <span className="text-slate-400">—</span>}</p>
                     </div>
-                    <div>
-                      <p className="text-xs text-gray-500">電話3</p>
-                      <p className="mt-1 text-base font-semibold text-gray-700">
-                        {c.fax ? (
-                          <a href={`tel:${c.fax}`} className="underline text-blue-700 hover:text-blue-900">{c.fax}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <p className="text-xs text-gray-500">地址</p>
-                      <p className="mt-1 text-base text-slate-700">
-                        {c.addr || <span className="text-slate-400">—</span>}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 flex items-center gap-1"><StickyNote className="inline h-3 w-3 mr-1" />備註</p>
-                      <p className="mt-1 text-base text-slate-700 whitespace-pre-line">
-                        {c.note ? c.note : <span className="text-slate-400">—</span>}
-                      </p>
+                      <p className="mt-1 text-base text-gray-700">{c.addr || <span className="text-slate-400">—</span>}</p>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEditingCustomer(c);
-                        setEditOpen(true);
-                      }}
+                  {/* 第二層摺疊開關按鈕 */}
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      className="w-full rounded-md border border-gray-200 bg-gray-50 py-2 text-sm font-medium text-blue-700 hover:bg-gray-100 transition"
+                      onClick={() => handleToggleHistory(c.code)}
                     >
-                      編輯
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => {
-                        setSelectedCustomer(c);
-                        setDeleteOpen(true);
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                      {showHistory[c.code] ? '隱藏完整訂單歷史紀錄' : '查看完整訂單歷史紀錄'}
+                    </button>
                   </div>
+                  {/* 第二層內容：歷史訂單明細表格（商品名稱暫維持橫線） */}
+                  {showHistory[c.code] && (
+                    <div className="mt-4 rounded-lg bg-gray-100 p-0 overflow-x-auto">
+                      {loadingMap[c.code] ? (
+                        <div className="p-6 text-center text-gray-400">載入中...</div>
+                      ) : (
+                        <table className="min-w-[480px] w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-200">
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">日期</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">單號</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap text-right">金額</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">狀態</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(ordersMap[c.code] && ordersMap[c.code].length > 0) ? (
+                              ordersMap[c.code].map((order: any) => (
+                                <tr key={order.id} className="border-b last:border-b-0">
+                                  <td className="px-3 py-2 whitespace-nowrap">{order.order_date ? new Date(order.order_date).toLocaleDateString() : '-'}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap">{order.order_no || '-'}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right">{typeof order.total_amount === 'number' ? order.total_amount.toLocaleString() : '-'}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap">{order.status === 'completed' ? '已完成' : order.status === 'cancelled' ? '已取消' : '處理中'}</td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={4} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
                 </AccordionContent>
               </Card>
             </AccordionItem>
           ))}
         </Accordion>
-      )}
-      {selectedCustomer && (
-        <DeleteCustomerDialog
-          customer={selectedCustomer}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
-      )}
-      {editingCustomer && (
-        <CustomerDialog
-          mode="edit"
-          customer={editingCustomer}
-          open={editOpen}
-          onOpenChange={handleEditOpenChange}
-        />
       )}
     </div>
   );

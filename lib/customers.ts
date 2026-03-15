@@ -7,6 +7,7 @@ export async function fetchCustomersRows(
   to: number = 19,
   searchText: string = ""
 ): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
+  // 僅查詢 customers 基本資料，避免 schema cache 關聯錯誤
   const selectText = "*"
   let query = supabase
     .from("customers")
