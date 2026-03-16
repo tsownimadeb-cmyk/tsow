@@ -145,12 +145,28 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
       return
     }
 
+
     try {
       setDeletingSaleId(saleId)
       const supabase = createClient()
 
+      // 取得銷貨明細，若 sales_order_items 為 undefined 則查詢 DB
+      let saleItems = sale.sales_order_items
+      if (!Array.isArray(saleItems)) {
+        const { data: items, error: itemsError } = await supabase
+          .from("sales_order_items")
+          .select("code,quantity")
+          .eq("sales_order_id", saleId)
+        if (itemsError) {
+          console.error('[DEBUG] 查詢銷貨明細失敗:', itemsError)
+          throw new Error(itemsError.message || '查詢銷貨明細失敗')
+        }
+        saleItems = items || []
+      }
+      console.log('[DEBUG] sales_order_items:', saleItems)
+
       const quantityByCode = new Map<string, number>()
-      for (const item of sale.sales_order_items || []) {
+      for (const item of saleItems) {
         const code = String(item.code || "").trim()
         const quantity = Number(item.quantity ?? 0)
         if (!code || !Number.isFinite(quantity) || quantity <= 0) continue
@@ -159,13 +175,17 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
 
       await Promise.all(
         Array.from(quantityByCode.entries()).map(async ([code, quantity]) => {
+          // DEBUG: 查詢商品現有庫存
           const { data: product, error: productError } = await supabase
             .from("products")
             .select("code,stock_qty")
             .eq("code", code)
             .single()
 
+          console.log(`[DEBUG] 處理商品: ${code}, 目前庫存:`, product?.stock_qty, '要加回:', quantity)
+
           if (productError || !product) {
+            console.error(`[DEBUG] 查詢商品錯誤:`, productError)
             throw new Error(productError?.message || `找不到商品 ${code}`)
           }
 
@@ -176,7 +196,10 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
             .eq("code", code)
 
           if (updateInventoryError) {
+            console.error(`[DEBUG] 更新庫存錯誤:`, updateInventoryError)
             throw new Error(updateInventoryError.message)
+          } else {
+            console.log(`[DEBUG] 商品 ${code} 庫存已加回，更新後:`, coalescedStockQty + quantity)
           }
         }),
       )
@@ -201,7 +224,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
         return
       }
 
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       toast({
         title: "錯誤",

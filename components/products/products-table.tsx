@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -18,6 +19,7 @@ interface ProductsTableProps {
 // 採用具名導出，確保在 page.tsx 引用時不會出錯
 export function ProductsTable({ products }: ProductsTableProps) {
   const { toast } = useToast()
+  const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
   const [searchText, setSearchText] = useState("")
 
@@ -54,7 +56,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
       if (error) throw error
 
       toast({ title: "成功", description: "商品已刪除" })
-      window.location.reload()
+      router.refresh()
     } catch (error: any) {
       toast({
         title: "錯誤",
@@ -102,8 +104,8 @@ export function ProductsTable({ products }: ProductsTableProps) {
                     {Number(p.purchase_qty_total || 0).toLocaleString()}
                   </div>
                   <div className="col-span-2 text-right text-sm font-semibold">
-                    <span className={Number(p.stock_qty || 0) < Number(p.safety_stock || 0) ? "text-red-600" : "text-gray-700"}>
-                      {Number(p.stock_qty || 0).toLocaleString()}
+                    <span className={Number(p.stock_qty) < Number(p.safety_stock || 0) ? "text-red-600" : "text-gray-700"}>
+                      {Number(p.stock_qty).toLocaleString()}
                     </span>
                   </div>
                 </div>
