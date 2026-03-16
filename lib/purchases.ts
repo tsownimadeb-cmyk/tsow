@@ -17,8 +17,19 @@ export async function fetchPurchasesRows(
     .range(from, to)
 
   if (searchText && searchText.trim() !== "") {
-    // 搜尋 order_no、notes（備註）
-    query = query.or(`order_no.ilike.%${searchText}%,notes.ilike.%${searchText}%`)
+    // 搜尋 order_no、notes（備註）、供應商名稱
+    // 先查詢符合名稱的 supplier id
+    const { data: supplierMatches } = await supabase
+      .from("suppliers")
+      .select("id")
+      .ilike("name", `%${searchText}%`)
+    const supplierIds = (supplierMatches || []).map((s: any) => s.id)
+    // 組合搜尋條件
+    let orConditions = [`order_no.ilike.%${searchText}%`, `notes.ilike.%${searchText}%`]
+    if (supplierIds.length > 0) {
+      orConditions.push(`supplier_id.in.(${supplierIds.join(",")})`)
+    }
+    query = query.or(orConditions.join(","))
   }
   const result: PostgrestSingleResponse<any> = await query
 
