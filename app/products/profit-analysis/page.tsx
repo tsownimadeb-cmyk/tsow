@@ -57,7 +57,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
   const startDate = isDateText(rawStartDate) ? String(rawStartDate) : ""
   const endDate = isDateText(rawEndDate) ? String(rawEndDate) : ""
 
-  const { rows: productsRaw, warning: productsWarning } = await fetchProductsRows(supabase)
+  const { rows: productsRaw, warning: productsWarning } = await fetchProductsRows(supabase, 0, 99999)
   if (productsWarning) {
     console.error("[ProductProfitAnalysisPage] products 查詢失敗:", productsWarning)
   }
