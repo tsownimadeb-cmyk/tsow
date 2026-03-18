@@ -41,7 +41,14 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const customerMap = new Map(
     customers.map((customer) => [customer.code, customer] as const),
   )
-  const productMap = new Map(products.map((product) => [product.code, product]))
+  // 統一建立商品編號對應商品資訊的 Map
+  const productMap = useMemo(() => {
+    const map = new Map<string, { name: string, unit: string | null }>()
+    for (const p of products) {
+      map.set(String(p.code).trim(), { name: p.name, unit: p.unit ?? null })
+    }
+    return map
+  }, [products])
 
   const getCustomerDisplayName = (sale: SalesOrder) => {
     const customerName = customerMap.get(sale.customer_cno || "")?.name
@@ -352,12 +359,13 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                         <TableBody>
                           {sale.items && sale.items.length > 0 ? (
                             sale.items.map((item) => {
-                              const itemCode = item.code || null
-                              const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
+                              const code = String(item.code ?? '').trim();
+                              const product = productMap.get(code);
+                              const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
                               return (
                                 <TableRow key={item.id}>
-                                  <TableCell>{productName}</TableCell>
-                                  <TableCell className="text-right">{item.quantity}</TableCell>
+                                  <TableCell>{displayName}</TableCell>
+                                  <TableCell className="text-right">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</TableCell>
                                   <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
                                   <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                                 </TableRow>
@@ -436,12 +444,13 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                         {sale.items && sale.items.length > 0 ? (
                           <div className="flex flex-col gap-2">
                             {sale.items.map((item) => {
-                              const itemCode = item.code || null
-                              const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
+                              const code = String(item.code ?? '').trim();
+                              const product = productMap.get(code);
+                              const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
                               return (
                                 <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
-                                  <span className="flex-1 truncate">{productName}</span>
-                                  <span className="w-10 text-right">{item.quantity}</span>
+                                  <span className="flex-1 truncate">{displayName}</span>
+                                  <span className="w-10 text-right">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</span>
                                   <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</span>
                                 </div>
                               )

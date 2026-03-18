@@ -1,113 +1,235 @@
 "use client"
 
-import { useState } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useState, useMemo, useEffect } from "react"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { MoreHorizontal, Pencil, Trash2, Search, Phone, Mail } from "lucide-react"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { createClient } from "@/lib/supabase/client"
+import { useToast } from "@/hooks/use-toast"
 import { SupplierDialog } from "./supplier-dialog"
 import { DeleteSupplierDialog } from "./delete-supplier-dialog"
-import type { Supplier } from "@/lib/types"
+import { formatCurrencyOneDecimal } from "@/lib/utils"
+import type { Supplier, PurchaseOrder, Product } from "@/lib/types"
+import { Phone, Search, Pencil, Trash2 } from "lucide-react"
+
+
 
 interface SuppliersTableProps {
   suppliers: Supplier[]
 }
 
 export function SuppliersTable({ suppliers }: SuppliersTableProps) {
-  const [search, setSearch] = useState("")
+  const [searchText, setSearchText] = useState("")
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
   const [deleteSupplier, setDeleteSupplier] = useState<Supplier | null>(null)
+  const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
+  const [history, setHistory] = useState<Record<string, PurchaseOrder[]>>({})
+  const [products, setProducts] = useState<Product[]>([])
+  const { toast } = useToast()
+  const isMobile = useIsMobile()
 
-  const filteredSuppliers = suppliers.filter(
-    (supplier) =>
-      supplier.name.toLowerCase().includes(search.toLowerCase()) ||
-      supplier.contact_person?.toLowerCase().includes(search.toLowerCase()),
-  )
+  // 取得所有商品，建立 code 對應 name/unit
+  useEffect(() => {
+    const fetchProducts = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from("products")
+        .select("code, name, unit")
+      if (!error && data) setProducts(data as Product[])
+    }
+    fetchProducts()
+  }, [])
+
+  // 建立商品編號對應商品資訊的 Map
+  const productMap = useMemo(() => {
+    const map = new Map<string, { name: string, unit: string | null }>()
+    for (const p of products) {
+      map.set(String(p.code).trim(), { name: p.name, unit: p.unit ?? null })
+    }
+    return map
+  }, [products])
+
+  const filteredSuppliers: Supplier[] = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase()
+    if (!keyword) return [...suppliers]
+    return suppliers.filter((s: Supplier) =>
+      s.name.toLowerCase().includes(keyword) ||
+      (s.contact_person || "").toLowerCase().includes(keyword)
+    )
+  }, [suppliers, searchText])
+
+  // 分段查詢進貨歷史
+  const fetchHistory = async (supplierId: string) => {
+    if (!supplierId) return
+    setHistoryLoadingId(supplierId)
+    try {
+      const supabase = createClient()
+      // 先查 purchase_orders
+      const { data: orders, error } = await supabase
+        .from("purchase_orders")
+        .select("id, order_no, order_date, total_amount, supplier_id, status, is_paid, notes, created_at, updated_at")
+        .eq("supplier_id", supplierId)
+        .order("order_date", { ascending: false })
+      if (error) throw error
+      // 查詢所有明細
+      const orderIds = (orders || []).map((o: any) => o.id)
+      let itemsByOrder: Record<string, any[]> = {}
+      if (orderIds.length > 0) {
+        const { data: items } = await supabase
+          .from("purchase_order_items")
+          .select("id, purchase_order_id, code, quantity, unit_price, subtotal, created_at")
+          .in("purchase_order_id", orderIds)
+        // 依訂單分組
+        for (const item of items || []) {
+          if (!itemsByOrder[item.purchase_order_id]) itemsByOrder[item.purchase_order_id] = []
+          itemsByOrder[item.purchase_order_id].push(item)
+        }
+      }
+      // 合併明細
+      const ordersWithItems = (orders || []).map((order: any) => ({
+        ...order,
+        items: itemsByOrder[order.id] || []
+      }))
+      setHistory((prev) => ({ ...prev, [supplierId]: ordersWithItems }))
+    } catch (error: any) {
+      toast({ title: "查詢失敗", description: error?.message || "無法取得進貨紀錄", variant: "destructive" })
+    } finally {
+      setHistoryLoadingId(null)
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="搜尋供應商名稱或聯絡人..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+    <div className="rounded-md border border-gray-200 bg-white">
+      <div className="px-6 py-4 border-b border-gray-200 bg-white">
+        <Input
+          placeholder="搜尋供應商名稱 / 聯絡人"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+      </div>
+      {filteredSuppliers.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-gray-400">
+          {suppliers.length === 0 ? "目前資料庫沒有供應商，請手動新增。" : "查無符合的供應商，請調整搜尋條件。"}
         </div>
-      </div>
-
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>供應商名稱</TableHead>
-              <TableHead>聯絡人</TableHead>
-              <TableHead>聯絡方式</TableHead>
-              <TableHead>地址</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredSuppliers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                  {search ? "找不到符合的供應商" : "尚無供應商資料"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredSuppliers.map((supplier) => (
-                <TableRow key={supplier.id}>
-                  <TableCell className="font-medium">{supplier.name}</TableCell>
-                  <TableCell>{supplier.contact_person || "-"}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1 text-sm">
-                      {supplier.phone && (
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          <Phone className="h-3 w-3" />
-                          {supplier.phone}
-                        </span>
-                      )}
-                      {supplier.email && (
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          <Mail className="h-3 w-3" />
-                          {supplier.email}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate">{supplier.address || "-"}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditSupplier(supplier)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          編輯
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => setDeleteSupplier(supplier)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          刪除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
+      ) : (
+        <Accordion type="single" collapsible className="w-full">
+          {filteredSuppliers.map((s, idx) => (
+            <AccordionItem key={s.id || `supplier-row-${idx}`} value={String(s.id || `supplier-row-${idx}`)}>
+              <AccordionTrigger className="px-6 hover:no-underline">
+                <div className="flex items-center w-full">
+                  <div className="flex-1 text-left text-base font-bold text-gray-900 truncate">{s.name}</div>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <div className={isMobile ? "space-y-2" : "grid grid-cols-3 gap-3"}>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">聯絡人</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">{s.contact_person || "—"}</p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">聯絡電話</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">
+                      {s.phone ? (
+                        <a href={`tel:${s.phone}`} className="hover:underline">{s.phone}</a>
+                      ) : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">地址</p>
+                    <p className="mt-1 text-base font-semibold text-gray-700">{s.address || "—"}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditSupplier(s)}
+                  >
+                    編輯
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteSupplier(s)}
+                  >
+                    刪除
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => fetchHistory(s.id)}
+                    disabled={historyLoadingId === s.id}
+                  >
+                    {historyLoadingId === s.id ? "載入中..." : "查看進貨歷史紀錄"}
+                  </Button>
+                </div>
+                {/* 進貨歷史表格 */}
+                {history[s.id] && (
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="min-w-[320px] w-full text-sm border">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="px-2 py-1 text-left">日期</th>
+                          <th className="px-2 py-1 text-left">商品名稱</th>
+                          <th className="px-2 py-1 text-left">數量</th>
+                          <th className="px-2 py-1 text-right">總金額</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history[s.id].length === 0 ? (
+                          <tr><td colSpan={4} className="text-center text-gray-400 py-4">無進貨紀錄</td></tr>
+                        ) : (
+                          history[s.id].flatMap((h) => (
+                            h.items && h.items.length > 0
+                              ? h.items.map((item: any, idx: number) => (
+                                  <tr key={h.id + '-' + item.id}>
+                                    {/* 日期只在第一個品項顯示 */}
+                                    {idx === 0 ? (
+                                      <td className="px-2 py-1 align-top" rowSpan={(h.items?.length) || 1}>{h.order_date}</td>
+                                    ) : null}
+                                    <td className={isMobile ? "px-2 py-1 break-words max-w-[120px]" : "px-2 py-1"}>
+                                      {(() => {
+                                        const code = String(item.code ?? '').trim();
+                                        const product = productMap.get(code);
+                                        if (product) {
+                                          return `${product.name}${product.unit ? ` (${product.unit})` : ''}`;
+                                        } else if (code) {
+                                          return `${code}(待查)`;
+                                        } else {
+                                          return "(查無明細)";
+                                        }
+                                      })()}
+                                    </td>
+                                    <td className={isMobile ? "px-2 py-1 break-words max-w-[80px]" : "px-2 py-1"}>
+                                      {item.quantity}
+                                      {item.code && productMap.get(item.code)?.unit ? ` (${productMap.get(item.code)?.unit})` : ""}
+                                    </td>
+                                    {/* 總金額只在第一個品項顯示 */}
+                                    {idx === 0 ? (
+                                      <td className="px-2 py-1 text-right align-top" rowSpan={(h.items?.length) || 1}>{formatCurrencyOneDecimal(h.total_amount)}</td>
+                                    ) : null}
+                                  </tr>
+                                ))
+                              : [
+                                  <tr key={h.id + '-empty'}>
+                                    <td className="px-2 py-1">{h.order_date}</td>
+                                    <td className="px-2 py-1 text-gray-400" colSpan={2}>(查無明細)</td>
+                                    <td className="px-2 py-1 text-right">{formatCurrencyOneDecimal(h.total_amount)}</td>
+                                  </tr>
+                                ]
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      )}
+      {/* 編輯/刪除 Dialogs */}
       {editSupplier && (
         <SupplierDialog
           mode="edit"
@@ -116,7 +238,6 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
           onOpenChange={(open) => !open && setEditSupplier(null)}
         />
       )}
-
       {deleteSupplier && (
         <DeleteSupplierDialog
           supplier={deleteSupplier}

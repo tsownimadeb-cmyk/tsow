@@ -1,5 +1,6 @@
 "use client"
 
+
 import { useState, useMemo, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
@@ -11,16 +12,33 @@ import { createClient } from "@/lib/supabase/client"
 export function CustomersTable({ customers }: { customers: any[] }) {
   const [searchText, setSearchText] = useState("");
   const isMobile = useIsMobile();
-  // 新增每個客戶的 showHistory 狀態
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
-  // 新增每個客戶的訂單資料
-  const [ordersMap, setOrdersMap] = useState<{ [code: string]: any[] }>({});
+  // 每個客戶的訂單明細資料
+  const [orderItemsMap, setOrderItemsMap] = useState<{ [code: string]: any[] }>({});
   const [loadingMap, setLoadingMap] = useState<{ [code: string]: boolean }>({});
+  // 全域商品對照
+  const [products, setProducts] = useState<{ code: string, name: string, unit: string | null }[]>([]);
+
+  // 初始化時抓取所有商品
+  useEffect(() => {
+    const fetchProducts = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase.from("products").select("code, name, unit");
+      if (!error && data) setProducts(data as any[]);
+    };
+    fetchProducts();
+  }, []);
+
+  const productMap = useMemo(() => {
+    const map = new Map<string, { name: string, unit: string | null }>();
+    for (const p of products) map.set(String(p.code).trim(), { name: p.name, unit: p.unit ?? null });
+    return map;
+  }, [products]);
 
   const filteredCustomers = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
     if (!keyword) return customers;
-    return customers.filter((c: any) => {
+    return (customers || []).filter((c: any) => {
       return (
         String(c.code || "").toLowerCase().includes(keyword) ||
         String(c.name || "").toLowerCase().includes(keyword)
@@ -29,19 +47,43 @@ export function CustomersTable({ customers }: { customers: any[] }) {
   }, [customers, searchText]);
 
 
+  // 查詢客戶所有訂單明細
   const handleToggleHistory = async (code: string) => {
     setShowHistory((prev) => ({ ...prev, [code]: !prev[code] }));
-    // 若尚未查過，且要展開，才查詢
-    if (!ordersMap[code] && !loadingMap[code]) {
+    if (!orderItemsMap[code] && !loadingMap[code]) {
       setLoadingMap((prev) => ({ ...prev, [code]: true }));
       const supabase = createClient();
-      // 查詢 sales_orders，關聯欄位為 customer_cno
-      const { data, error } = await supabase
+      // 查詢 sales_orders 取得所有 id
+      const { data: orders, error: orderError } = await supabase
         .from("sales_orders")
-        .select("id, order_no, order_date, total_amount, status")
+        .select("id, order_date, total_amount")
         .eq("customer_cno", code)
         .order("order_date", { ascending: false });
-      setOrdersMap((prev) => ({ ...prev, [code]: error ? [] : data || [] }));
+      if (orderError || !orders || orders.length === 0) {
+        setOrderItemsMap((prev) => ({ ...prev, [code]: [] }));
+        setLoadingMap((prev) => ({ ...prev, [code]: false }));
+        return;
+      }
+      const orderIds = orders.map((o: any) => o.id);
+      // 查詢所有明細
+      let items: any[] = [];
+      if (orderIds.length > 0) {
+        const { data: itemsData } = await supabase
+          .from("sales_order_items")
+          .select("sales_order_id, code, quantity")
+          .in("sales_order_id", orderIds);
+        items = itemsData || [];
+      }
+      // 合併明細與訂單資訊
+      const itemsWithOrder = items.map((item: any) => {
+        const order = orders.find((o: any) => o.id === item.sales_order_id);
+        return {
+          ...item,
+          order_date: order && order.order_date ? order.order_date : null,
+          total_amount: order && order.total_amount !== undefined ? order.total_amount : null,
+        };
+      });
+      setOrderItemsMap((prev) => ({ ...prev, [code]: itemsWithOrder }));
       setLoadingMap((prev) => ({ ...prev, [code]: false }));
     }
   };
@@ -127,7 +169,7 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                       {showHistory[c.code] ? '隱藏完整訂單歷史紀錄' : '查看完整訂單歷史紀錄'}
                     </button>
                   </div>
-                  {/* 第二層內容：歷史訂單明細表格（商品名稱暫維持橫線） */}
+                  {/* 第二層內容：歷史訂單明細表格（商品名稱、數量、總金額） */}
                   {showHistory[c.code] && (
                     <div className="mt-4 rounded-lg bg-gray-100 p-0 overflow-x-auto">
                       {loadingMap[c.code] ? (
@@ -137,21 +179,26 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                           <thead>
                             <tr className="bg-gray-200">
                               <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">日期</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">單號</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap text-right">金額</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">狀態</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">商品名稱</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">數量</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap text-right">總金額</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(ordersMap[c.code] && ordersMap[c.code].length > 0) ? (
-                              ordersMap[c.code].map((order: any) => (
-                                <tr key={order.id} className="border-b last:border-b-0">
-                                  <td className="px-3 py-2 whitespace-nowrap">{order.order_date ? new Date(order.order_date).toLocaleDateString() : '-'}</td>
-                                  <td className="px-3 py-2 whitespace-nowrap">{order.order_no || '-'}</td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-right">{typeof order.total_amount === 'number' ? order.total_amount.toLocaleString() : '-'}</td>
-                                  <td className="px-3 py-2 whitespace-nowrap">{order.status === 'completed' ? '已完成' : order.status === 'cancelled' ? '已取消' : '處理中'}</td>
-                                </tr>
-                              ))
+                            {(orderItemsMap[c.code] && orderItemsMap[c.code].length > 0) ? (
+                              orderItemsMap[c.code].map((item: any, idx: number) => {
+                                const code = String(item.code ?? '').trim();
+                                const product = productMap.get(code);
+                                const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
+                                return (
+                                  <tr key={item.sales_order_id + '-' + code + '-' + idx} className="border-b last:border-b-0">
+                                    <td className="px-3 py-2 whitespace-nowrap">{item.order_date ? new Date(item.order_date).toLocaleDateString() : '-'}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap">{displayName}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right">{typeof item.total_amount === 'number' ? item.total_amount.toLocaleString() : '-'}</td>
+                                  </tr>
+                                );
+                              })
                             ) : (
                               <tr>
                                 <td colSpan={4} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
