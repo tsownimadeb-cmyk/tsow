@@ -178,10 +178,19 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     const newItems = [...items]
     if (field === "code") {
       const product = products.find((p) => p.code === value)
+      let unitPrice = 0;
+      if (product) {
+        // 根據客戶價格等級決定價格欄位
+        const customer = customers.find((c) => c.code === formData.customer_cno);
+        const priceLevel = customer?.price_level || "sale";
+        unitPrice = priceLevel === "price"
+          ? Number(product.price ?? 0)
+          : Number(product.sale_price ?? product.price ?? 0);
+      }
       newItems[index] = {
         ...newItems[index],
         code: value as string,
-        unit_price: product ? Number(product.sale_price ?? product.price ?? 0) : 0,
+        unit_price: unitPrice,
       }
     } else {
       newItems[index] = { ...newItems[index], [field]: value }

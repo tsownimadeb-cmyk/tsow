@@ -93,6 +93,29 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                       <p className="text-xs text-gray-500">地址</p>
                       <p className="mt-1 text-base text-gray-700">{c.addr || <span className="text-slate-400">—</span>}</p>
                     </div>
+                    <div>
+                      <p className="text-xs text-gray-500">價格等級</p>
+                      <select
+                        className="mt-1 w-full rounded border border-gray-300 bg-white py-1 px-2 text-sm text-gray-700"
+                        value={c.price_level || "sale"}
+                        onChange={async (e) => {
+                          const newLevel = e.target.value;
+                          const supabase = createClient();
+                          const { error } = await supabase
+                            .from("customers")
+                            .update({ price_level: newLevel })
+                            .eq("code", c.code);
+                          if (!error) {
+                            c.price_level = newLevel;
+                          } else {
+                            alert("儲存價格等級失敗: " + error.message);
+                          }
+                        }}
+                      >
+                        <option value="sale">特價 (預設)</option>
+                        <option value="price">定價</option>
+                      </select>
+                    </div>
                   </div>
                   {/* 第二層摺疊開關按鈕 */}
                   <div className="mt-4">
