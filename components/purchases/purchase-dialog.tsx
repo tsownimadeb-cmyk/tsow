@@ -118,11 +118,15 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
   const updateItem = (index: number, field: keyof OrderItem, value: string | number) => {
     const newItems = [...items]
     if (field === "code") {
+        console.log('[進貨單DEBUG] products:', products)
       const product = products.find((p) => p.code === value)
+        console.log('[進貨單DEBUG] 選到商品:', product)
       newItems[index] = {
         ...newItems[index],
         code: value as string,
-        unit_price: product ? Number(product.base_price ?? product.purchase_price ?? product.cost ?? 0) : 0,
+        unit_price: product && typeof product.base_price === 'number' && product.base_price > 0
+          ? Number(product.base_price)
+          : 0,
       }
     } else {
       newItems[index] = { ...newItems[index], [field]: value }

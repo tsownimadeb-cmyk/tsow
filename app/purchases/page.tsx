@@ -35,7 +35,7 @@ export default async function PurchasesPage(props: any) {
   // 供應商與商品查詢（不分頁）
   const [suppliersResult, productsResult] = await Promise.all([
     supabase.from("suppliers").select("id,name,contact_person,phone,email,address,notes,created_at,updated_at").order("name"),
-    supabase.from("products").select("code,name").order("code"),
+    supabase.from("products").select("code,name,base_price,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock").order("code"),
   ]);
   const suppliers = suppliersResult.data || [];
   const products = productsResult.data || [];
