@@ -42,6 +42,8 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
     name: supplier?.name || "",
     contact_person: supplier?.contact_person || "",
     phone: supplier?.phone || "",
+    phone2: supplier?.phone2 || "",
+    phone3: supplier?.phone3 || "",
     email: supplier?.email || "",
     address: supplier?.address || "",
     notes: supplier?.notes || "",
@@ -55,6 +57,8 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
       name: formData.name,
       contact_person: formData.contact_person || null,
       phone: formData.phone || null,
+      phone2: formData.phone2 || null,
+      phone3: formData.phone3 || null,
       email: formData.email || null,
       address: formData.address || null,
       notes: formData.notes || null,
@@ -124,11 +128,27 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">電話</Label>
+              <Label htmlFor="phone">電話1</Label>
               <Input
                 id="phone"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone2">電話2</Label>
+              <Input
+                id="phone2"
+                value={formData.phone2}
+                onChange={(e) => setFormData({ ...formData, phone2: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone3">電話3</Label>
+              <Input
+                id="phone3"
+                value={formData.phone3}
+                onChange={(e) => setFormData({ ...formData, phone3: e.target.value })}
               />
             </div>
           </div>
