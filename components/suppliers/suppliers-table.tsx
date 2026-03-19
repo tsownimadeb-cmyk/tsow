@@ -129,11 +129,23 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">聯絡電話</p>
-                    <p className="mt-1 text-base font-semibold text-blue-600">
-                      {s.phone ? (
-                        <a href={`tel:${s.phone}`} className="hover:underline">{s.phone}</a>
-                      ) : "—"}
-                    </p>
+                    <div className="mt-1 space-y-1">
+                      <div className="text-base font-semibold text-blue-600">
+                        {s.phone ? (
+                          <a href={`tel:${s.phone}`} className="hover:underline">{s.phone}</a>
+                        ) : "—"}
+                      </div>
+                      <div className="text-base font-semibold text-blue-600">
+                        {s.phone2 ? (
+                          <a href={`tel:${s.phone2}`} className="hover:underline">{s.phone2}</a>
+                        ) : null}
+                      </div>
+                      <div className="text-base font-semibold text-blue-600">
+                        {s.phone3 ? (
+                          <a href={`tel:${s.phone3}`} className="hover:underline">{s.phone3}</a>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">地址</p>
