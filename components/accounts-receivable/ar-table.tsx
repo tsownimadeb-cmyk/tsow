@@ -1139,26 +1139,38 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                   })
                   const visibleOrderCount = showAllCustomers ? summary.orderCount : sortedOrders.length
 
-
                   // --- 響應式卡片設計 ---
                   return (
                     <>
-                      <AccordionTrigger className="px-2 sm:px-4 hover:no-underline">
-                        {/* 三列設計：客戶名稱/代號、金額、總欠款 */}
-                        <div className="flex flex-col gap-1 w-full">
-                          <div className="flex flex-wrap items-center gap-2 justify-between">
-                            <span className="font-medium text-base sm:text-lg">{summary.customerName}</span>
-                            <span className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</span>
+                      <>
+                        <AccordionTrigger className="px-2 sm:px-4 hover:no-underline">
+                          {/* 三列設計：客戶名稱/代號、金額、總欠款 */}
+                          <div className="flex flex-col gap-1 w-full">
+                            <div className="flex flex-wrap items-center gap-2 justify-between">
+                              <span className="font-medium text-base sm:text-lg">{summary.customerName}</span>
+                              <span className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 justify-between text-xs sm:text-sm">
+                              <span>應收合計 {renderAmount(summary.totalDue)}</span>
+                              <span>已收 {renderAmount(summary.totalPaid)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 justify-between mt-1">
+                              <span className="text-destructive text-lg sm:text-xl font-bold">總欠款 {renderAmount(summary.totalOutstanding)}</span>
+                            </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 justify-between text-xs sm:text-sm">
-                            <span>應收合計 {renderAmount(summary.totalDue)}</span>
-                            <span>已收 {renderAmount(summary.totalPaid)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 justify-between mt-1">
-                            <span className="text-destructive text-lg sm:text-xl font-bold">總欠款 {renderAmount(summary.totalOutstanding)}</span>
-                          </div>
+                        </AccordionTrigger>
+                        <div className="flex justify-end px-2 sm:px-4 mt-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleOpenPartialSettle(summary)}
+                            disabled={summary.totalOutstanding <= 0}
+                          >
+                            部分沖帳
+                          </Button>
                         </div>
-                      </AccordionTrigger>
+                      </>
                       <AccordionContent className="px-2 sm:px-4 pb-4">
                         <div className="rounded-md border overflow-x-auto max-w-full p-2 sm:p-4">
                           {/* 桌面 table，手機隱藏 */}
