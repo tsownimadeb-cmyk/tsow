@@ -391,6 +391,8 @@ export function Sidebar() {
       icon: Truck,
       children: [
         { name: "新建進貨", href: "/purchases?create=true", icon: Plus },
+        // 新增進貨退回子項目
+        { name: "進貨退回", href: "/purchases/returns", icon: require("lucide-react").RotateCcw },
         { name: "進貨分析", href: "/purchases/analysis", icon: ChartColumn },
       ],
     },
@@ -400,6 +402,8 @@ export function Sidebar() {
       icon: ShoppingCart,
       children: [
         { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
+        // 新增銷貨退回子項目
+        { name: "銷貨退回", href: "/sales-returns", icon: require("lucide-react").RotateCw },
         { name: "銷貨分析", href: "/sales/analysis", icon: ChartColumn },
       ],
     },

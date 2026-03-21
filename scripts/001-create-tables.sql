@@ -77,6 +77,30 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 進貨退回主檔
+CREATE TABLE IF NOT EXISTS purchase_returns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
+  supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+  return_date DATE DEFAULT CURRENT_DATE,
+  total_amount DECIMAL(12, 2) DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 進貨退回明細表
+CREATE TABLE IF NOT EXISTS purchase_return_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  purchase_return_id UUID REFERENCES purchase_returns(id) ON DELETE CASCADE,
+  product_pno VARCHAR(50) REFERENCES products(pno) ON DELETE SET NULL,
+  quantity INTEGER NOT NULL,
+  unit_price DECIMAL(12, 2) NOT NULL,
+  amount DECIMAL(12, 2) NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 銷貨單表
 CREATE TABLE IF NOT EXISTS sales_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
