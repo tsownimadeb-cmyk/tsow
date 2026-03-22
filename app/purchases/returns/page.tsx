@@ -95,7 +95,7 @@ export default function PurchaseReturnsPage() {
         </thead>
         <TableBody>
           {orderItems.map(item => (
-            <TableRow key={item.productId}>
+            <TableRow key={item.id}>
               <TableCell>{item.productName}</TableCell>
               <TableCell>{item.originalQty}</TableCell>
               <TableCell>{item.purchasePrice}</TableCell>

@@ -1,50 +1,117 @@
-import React from "react";
 
-// 假資料型別，實際可根據 props 傳入型別調整
+import React, { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+
 interface PurchaseOrder {
   id: string;
-  orderNumber: string;
-  supplierName: string;
+  order_no: string;
+  supplier_id: string;
+  order_date: string;
+  supplier_name?: string;
 }
+
 interface PurchaseOrderItem {
   id: string;
-  productId: string;
-  productName: string;
-  originalQty: number;
-  purchasePrice: number;
+  product_pno: string;
+  product_name?: string;
+  quantity: number;
+  unit_price: number;
 }
 
 interface OrderSelectorProps {
   onSelect: (order: PurchaseOrder, items: PurchaseOrderItem[]) => void;
 }
 
-// 簡易元件範例，實際可串接 API 或 AutoComplete
-const mockOrders: PurchaseOrder[] = [
-  { id: "1", orderNumber: "PO-001", supplierName: "供應商A" },
-  { id: "2", orderNumber: "PO-002", supplierName: "供應商B" },
-];
-const mockItems: PurchaseOrderItem[] = [
-  { id: "a", productId: "p1", productName: "商品A", originalQty: 10, purchasePrice: 100 },
-  { id: "b", productId: "p2", productName: "商品B", originalQty: 5, purchasePrice: 200 },
-];
-
 export default function OrderSelector({ onSelect }: OrderSelectorProps) {
+  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+
+  useEffect(() => {
+    const fetchOrders = async () => {
+      setLoading(true);
+      const supabase = createClient();
+      // 只查主表
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select("id,order_no,supplier_id,order_date,suppliers(name)")
+        .order("order_date", { ascending: false });
+      console.log("purchase_orders", data, error);
+      if (!error && data) {
+        setOrders(
+          data.map((o: any) => ({
+            id: o.id,
+            order_no: o.order_no,
+            supplier_id: o.supplier_id,
+            order_date: o.order_date,
+            supplier_name: o.suppliers?.name || "",
+          }))
+        );
+      }
+      setLoading(false);
+    };
+    fetchOrders();
+  }, []);
+
+  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    // DEBUG: 印出明細原始資料
+    console.log("[DEBUG] purchase_order_items 查詢結果", id);
+    setSelectedId(id);
+    const order = orders.find((o) => o.id === id);
+    if (!order) return;
+    const supabase = createClient();
+    // 查明細
+    const { data: items, error } = await supabase
+      .from("purchase_order_items")
+      .select("*")
+      .eq("purchase_order_id", id);
+    console.log("[DEBUG] items", items, error);
+    if (error || !items) {
+      console.log("明細資料錯誤", items, error);
+      onSelect(order, []);
+      return;
+    }
+    // 查商品名稱
+    const pnos = items.map((i: any) => i.product_pno).filter(Boolean);
+      console.log("[DEBUG] pnos", pnos);
+    let productMap: Record<string, string> = {};
+    if (pnos.length > 0) {
+      const { data: products, error: prodErr } = await supabase
+        .from("products")
+        .select("pno,pname")
+        .in("pno", pnos);
+      console.log("[DEBUG] products 查詢結果", products, prodErr);
+      if (!prodErr && products) {
+        productMap = Object.fromEntries(products.map((p: any) => [p.pno, p.pname]));
+        console.log("[DEBUG] productMap", productMap);
+      }
+    }
+    const mapped = items.map((i: any) => ({
+      id: i.id,
+      productId: i.product_pno,
+      productName: productMap[i.product_pno] || "",
+      originalQty: i.quantity,
+      purchasePrice: i.unit_price,
+    }));
+    console.log("[DEBUG] mapped", mapped);
+    onSelect(order, mapped);
+  };
+
   return (
     <div className="mb-4">
       <select
         className="border rounded px-2 py-1"
-        defaultValue=""
-        onChange={e => {
-          const order = mockOrders.find(o => o.id === e.target.value);
-          if (order) onSelect(order, mockItems);
-        }}
+        value={selectedId}
+        onChange={handleChange}
+        disabled={loading}
       >
         <option value="" disabled>
-          請選擇進貨單
+          {loading ? "載入中..." : "請選擇進貨單"}
         </option>
-        {mockOrders.map(order => (
+        {orders.map((order) => (
           <option key={order.id} value={order.id}>
-            {order.orderNumber} - {order.supplierName}
+            {order.order_date} - {order.supplier_name}
           </option>
         ))}
       </select>
