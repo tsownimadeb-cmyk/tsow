@@ -707,15 +707,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             </div>
           </div>
 
-          {/* 已付款 checkbox 與備註間距 */}
-          <div className="flex items-center space-x-2 mt-2">
-            <Checkbox
-              id="is_paid"
-              checked={formData.is_paid}
-              onCheckedChange={(checked) => setFormData({ ...formData, is_paid: Boolean(checked) })}
-            />
-            <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
-          </div>
+
 
           {/* 銷貨明細：桌面 table + 手機卡片 */}
           <div className="space-y-2">
@@ -863,24 +855,35 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           </div>
 
           {/* 備註欄位 */}
-          <div className="space-y-2">
+          <div className="flex flex-col gap-1">
             <Label htmlFor="notes">備註</Label>
             <Textarea
               id="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={2}
+              className="h-20 min-h-[80px]"
             />
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-              取消
-            </Button>
-            <Button type="submit" disabled={isPending || items.length === 0}>
-              {isPending ? "儲存中..." : mode === "create" ? "建立銷貨單" : "儲存變更"}
-            </Button>
-          </DialogFooter>
+          <div className="flex flex-col items-end gap-2 mt-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="is_paid"
+                checked={formData.is_paid}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_paid: Boolean(checked) })}
+              />
+              <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
+            </div>
+            <DialogFooter className="justify-end w-full">
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                取消
+              </Button>
+              <Button type="submit" disabled={isPending || items.length === 0}>
+                {isPending ? "儲存中..." : mode === "create" ? "建立銷貨單" : "儲存變更"}
+              </Button>
+            </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
