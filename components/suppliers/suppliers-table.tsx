@@ -101,12 +101,25 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
 
   return (
     <div className="rounded-md border border-gray-200 bg-white">
-      <div className="px-6 py-4 border-b border-gray-200 bg-white">
+      <div className="px-6 py-4 border-b border-gray-200 bg-white relative max-w-sm">
         <Input
           placeholder="搜尋供應商名稱 / 聯絡人"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
+          className="pr-8"
         />
+        {searchText && (
+          <button
+            type="button"
+            className="absolute right-8 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+            onClick={() => setSearchText("")}
+            aria-label="清除搜尋"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
       {filteredSuppliers.length === 0 ? (
         <div className="px-6 py-10 text-center text-sm text-gray-400">

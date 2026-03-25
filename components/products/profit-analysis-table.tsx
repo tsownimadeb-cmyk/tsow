@@ -65,9 +65,9 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
     const keyword = searchText.trim().toLowerCase()
     const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))
     if (!keyword) return base
-
-    return base.filter((product) => {
-      const haystacks = [
+                  const keyword = searchText.trim().toLowerCase()
+                  const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))
+                  if (!keyword) return base
         String(product.code || ""),
         String(product.name || ""),
         String(product.spec || ""),
