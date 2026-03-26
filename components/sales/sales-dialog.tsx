@@ -385,7 +385,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
         if (mode === "edit") {
           const saleId = String(sales?.id || "").trim()
-          const orderNo = String(sales?.order_no || "").trim()
+          const orderNo = String(formData.order_no || "").trim()
           const customerCno = resolveCustomerCno(formData.customer_cno)
           const notesForSave = resolveNotesForSave(formData.notes, formData.customer_cno)
 
@@ -394,7 +394,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             return
           }
           if (!orderNo) {
-            toastError("找不到銷貨單號，無法更新")
+            toastError("請輸入銷貨單號")
             return
           }
 
