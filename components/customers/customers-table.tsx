@@ -70,11 +70,11 @@ export function CustomersTable({ customers }: { customers: any[] }) {
       if (orderIds.length > 0) {
         const { data: itemsData } = await supabase
           .from("sales_order_items")
-          .select("sales_order_id, code, quantity")
+          .select("sales_order_id, code, quantity, unit_price")
           .in("sales_order_id", orderIds);
         items = itemsData || [];
       }
-      // 合併明細與訂單資訊
+      // 合併明細與訂單資訊，並依日期排序（新到舊）
       const itemsWithOrder = items.map((item: any) => {
         const order = orders.find((o: any) => o.id === item.sales_order_id);
         return {
@@ -82,6 +82,12 @@ export function CustomersTable({ customers }: { customers: any[] }) {
           order_date: order && order.order_date ? order.order_date : null,
           total_amount: order && order.total_amount !== undefined ? order.total_amount : null,
         };
+      });
+      // 依 order_date 由新到舊排序
+      itemsWithOrder.sort((a, b) => {
+        if (!a.order_date) return 1;
+        if (!b.order_date) return -1;
+        return new Date(b.order_date).getTime() - new Date(a.order_date).getTime();
       });
       setOrderItemsMap((prev) => ({ ...prev, [code]: itemsWithOrder }));
       setLoadingMap((prev) => ({ ...prev, [code]: false }));
@@ -187,13 +193,14 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                       {loadingMap[c.code] ? (
                         <div className="p-6 text-center text-gray-400">載入中...</div>
                       ) : (
-                        <table className="min-w-[480px] w-full text-sm">
+                        <table className="min-w-[700px] w-full text-sm table-fixed">
                           <thead>
                             <tr className="bg-gray-200">
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">日期</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">商品名稱</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">數量</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap text-right">總金額</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[110px]">日期</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 text-left min-w-[180px]">商品名稱</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[80px]">數量</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[90px]">單價</th>
+                              <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[100px]">總金額</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -201,19 +208,20 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                               orderItemsMap[c.code].map((item: any, idx: number) => {
                                 const code = String(item.code ?? '').trim();
                                 const product = productMap.get(code);
-                                const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
+                                const displayName = product ? product.name : `${code}(待查)`;
                                 return (
                                   <tr key={item.sales_order_id + '-' + code + '-' + idx} className="border-b last:border-b-0">
-                                    <td className="px-3 py-2 whitespace-nowrap">{item.order_date ? new Date(item.order_date).toLocaleDateString() : '-'}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap">{displayName}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-right">{typeof item.total_amount === 'number' ? item.total_amount.toLocaleString() : '-'}</td>
+                                    <td className="px-3 py-2 text-center align-middle">{item.order_date ? new Date(item.order_date).toLocaleDateString() : '-'}</td>
+                                    <td className="px-3 py-2 text-left align-middle">{displayName}</td>
+                                    <td className="px-3 py-2 text-center align-middle">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</td>
+                                    <td className="px-3 py-2 text-right align-middle">{typeof item.unit_price === 'number' ? item.unit_price.toLocaleString() : '-'}</td>
+                                    <td className="px-3 py-2 text-right align-middle">{typeof item.total_amount === 'number' ? item.total_amount.toLocaleString() : '-'}</td>
                                   </tr>
                                 );
                               })
                             ) : (
                               <tr>
-                                <td colSpan={4} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
+                                <td colSpan={5} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
                               </tr>
                             )}
                           </tbody>
