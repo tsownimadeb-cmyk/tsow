@@ -1,14 +1,13 @@
 -- 進銷貨系統資料庫結構
 
--- 客戶表
-CREATE TABLE IF NOT EXISTS customers (
-  cno VARCHAR(50) PRIMARY KEY,
-  compy VARCHAR(200) NOT NULL,
-  contact_person VARCHAR(100),
-  tel1 VARCHAR(50),
-  tel11 VARCHAR(50),
-  tel12 VARCHAR(50),
-  addr TEXT,
+CREATE TABLE IF NOT EXISTS sales_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_number VARCHAR(50) UNIQUE NOT NULL,
+  customer_cno VARCHAR(50) REFERENCES customers(cno) ON DELETE SET NULL,
+  order_date DATE DEFAULT CURRENT_DATE,
+  total_amount DECIMAL(12, 2) DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'pending',
+  is_paid BOOLEAN DEFAULT false,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
