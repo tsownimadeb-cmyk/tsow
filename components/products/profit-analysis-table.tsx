@@ -62,20 +62,19 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
   )
 
   const filteredProducts = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase()
-    const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))
-    if (!keyword) return base
-                  const keyword = searchText.trim().toLowerCase()
-                  const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))
-                  if (!keyword) return base
+    const keyword = searchText.trim().toLowerCase();
+    const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0));
+    if (!keyword) return base;
+    return base.filter(product => {
+      const haystacks = [
         String(product.code || ""),
         String(product.name || ""),
         String(product.spec || ""),
-        String(product.category || ""),
-      ]
-      return haystacks.some((value) => value.toLowerCase().includes(keyword))
-    })
-  }, [products, searchText])
+        String(product.category || "")
+      ];
+      return haystacks.some(value => value.toLowerCase().includes(keyword));
+    });
+  }, [products, searchText]);
 
   return (
     <div className="space-y-4">
