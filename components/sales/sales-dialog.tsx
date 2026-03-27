@@ -671,13 +671,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 >
                   散客
                 </Button>
-                <Button
-                  type="button"
-                  variant={formData.customer_cno === STOCK_ADJUSTMENT_CUSTOMER_VALUE ? "default" : "outline"}
-                  onClick={() => setFormData({ ...formData, customer_cno: STOCK_ADJUSTMENT_CUSTOMER_VALUE })}
-                >
-                  校正庫存
-                </Button>
+                {/* 校正庫存按鈕已移除 */}
               </div>
             </div>
             <div className="space-y-2">
