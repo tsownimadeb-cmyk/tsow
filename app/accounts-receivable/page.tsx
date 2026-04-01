@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import { ARTable } from "@/components/accounts-receivable/ar-table"
+import { ARTableClient } from "@/components/accounts-receivable/ar-table-client"
 import type { AccountsReceivable, Customer } from "@/lib/types"
 
 export const metadata = {
@@ -8,166 +8,312 @@ export const metadata = {
 }
 
 export default async function ARPage() {
-  const supabase = await createClient()
-  const { data: salesOrders, error: salesError } = await supabase
-    .from("sales_orders")
-    .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
-    .order("created_at", { ascending: false })
+  try {
+    const supabase = await createClient()
+    const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
+    const CHUNK_SIZE = 50
+    const salesOrderItemsFetchErrors: string[] = []
 
-  if (salesError) {
-    console.error("Error fetching sales orders:", salesError)
+    const logSupabaseChunkError = (label: string, error: unknown, meta: Record<string, unknown> = {}) => {
+      const normalized = {
+        message: (error as { message?: string })?.message || null,
+        details: (error as { details?: string })?.details || null,
+        hint: (error as { hint?: string })?.hint || null,
+        code: (error as { code?: string })?.code || null,
+      }
+      const ownProps = error && typeof error === "object" ? Object.getOwnPropertyNames(error) : []
+      const serialized = error && typeof error === "object"
+        ? JSON.stringify(error, ownProps)
+        : String(error)
+
+      console.error(label, {
+        ...meta,
+        normalized,
+        ownProps,
+        serialized,
+        raw: error,
+      })
+    }
+
+    const chunkArray = <T,>(items: T[], size: number) => {
+      const chunks: T[][] = []
+      for (let i = 0; i < items.length; i += size) {
+        chunks.push(items.slice(i, i + size))
+      }
+      return chunks
+    }
+
+    const { data: salesOrders, error: salesError } = await supabase
+      .from("sales_orders")
+      .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
+      .order("created_at", { ascending: false })
+
+    if (salesError) {
+      console.error("Error fetching sales orders:", salesError)
+      return (
+        <div className="p-6">
+          <h1 className="text-3xl font-bold mb-6">應收帳款管理</h1>
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-2">
+            <p className="text-destructive font-semibold">無法載入銷貨資料</p>
+            <p className="text-sm text-destructive/80">{salesError.message}</p>
+          </div>
+        </div>
+      )
+    }
+
+    const salesOrderIds = (salesOrders || []).map((so) => so.id)
+
+    const salesOrderItems: Array<Record<string, unknown>> = []
+    let salesOrderItemsFetchFailed = false
+    const failedSalesOrderIds = new Set<string>()
+
+    if (salesOrderIds.length) {
+      const salesOrderIdChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
+      for (const idChunk of salesOrderIdChunks) {
+        const { data: chunkItems, error: chunkError } = await supabase
+          .from("sales_order_items")
+          .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+          .in("sales_order_id", idChunk)
+
+        if (chunkError) {
+          salesOrderItemsFetchFailed = true
+          idChunk.forEach((id) => failedSalesOrderIds.add(id))
+          logSupabaseChunkError("Error fetching sales_order_items chunk", chunkError, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+          })
+          salesOrderItemsFetchErrors.push(
+            (chunkError as { message?: string })?.message || "讀取 sales_order_items 分段資料失敗",
+          )
+          continue
+        }
+
+        if (chunkItems?.length) {
+          salesOrderItems.push(...(chunkItems as Array<Record<string, unknown>>))
+        }
+      }
+
+      if (salesOrderItemsFetchFailed && failedSalesOrderIds.size > 0) {
+        const recoveredSalesOrderIds = new Set<string>()
+        for (const salesOrderId of failedSalesOrderIds) {
+          const { data: fallbackItems, error: fallbackError } = await supabase
+            .from("sales_order_items")
+            .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+            .eq("sales_order_id", salesOrderId)
+
+          if (fallbackError) {
+            logSupabaseChunkError("Fallback fetch failed for sales_order_items", fallbackError, { salesOrderId })
+            continue
+          }
+
+          if (fallbackItems?.length) {
+            salesOrderItems.push(...(fallbackItems as Array<Record<string, unknown>>))
+          }
+
+          recoveredSalesOrderIds.add(salesOrderId)
+        }
+
+        recoveredSalesOrderIds.forEach((id) => failedSalesOrderIds.delete(id))
+        salesOrderItemsFetchFailed = failedSalesOrderIds.size > 0
+      }
+    }
+
+    const dedupedSalesOrderItems = Array.from(
+      new Map(
+        salesOrderItems.map((item) => {
+          const id = String((item as { id?: string | null }).id || "")
+          const fallbackKey = [
+            String((item as { sales_order_id?: string | null }).sales_order_id || ""),
+            String((item as { code?: string | null }).code || ""),
+            String((item as { created_at?: string | null }).created_at || ""),
+          ].join("|")
+          return [id || fallbackKey, item]
+        }),
+      ).values(),
+    )
+
+    const productCodes = Array.from(
+      new Set(
+        dedupedSalesOrderItems
+          .map((item) => normalizeCode((item as { code?: string | null }).code))
+          .filter((code): code is string => Boolean(code)),
+      ),
+    )
+
+    const products: Array<Record<string, unknown>> = []
+    if (productCodes.length) {
+      const productCodeChunks = chunkArray(productCodes, CHUNK_SIZE)
+      for (const codeChunk of productCodeChunks) {
+        const { data: chunkProducts, error: chunkError } = await supabase
+          .from("products")
+          .select("code,name,unit")
+          .in("code", codeChunk)
+
+        if (chunkError) {
+          logSupabaseChunkError("Error fetching products chunk", chunkError, {
+            chunkSize: codeChunk.length,
+            sampleCode: codeChunk[0] || null,
+          })
+          continue
+        }
+
+        if (chunkProducts?.length) {
+          products.push(...(chunkProducts as Array<Record<string, unknown>>))
+        }
+      }
+    }
+
+    console.log("當前產品表總筆數:", products.length)
+
+    const { data: customers } = await supabase
+      .from("customers")
+      .select("*")
+      .order("code", { ascending: true })
+
+    const customersList = (customers || []) as Customer[]
+    const customerMap = new Map(customersList.map((customer) => [customer.code, customer] as const))
+    const productMap = new Map(
+      products.map((product) => [normalizeCode((product as { code?: string | null }).code), product]),
+    )
+
+    const salesOrderItemsMap = dedupedSalesOrderItems.reduce((map, item) => {
+      const itemCode = (item as { code?: string | null }).code
+      const salesOrderId = String((item as { sales_order_id?: string | null }).sales_order_id || "")
+      if (!salesOrderId) return map
+
+      const productCode = normalizeCode(itemCode)
+      const current = map.get(salesOrderId) || []
+      current.push({
+        ...item,
+        product_pno: itemCode || null,
+        code: productCode || null,
+        product: productCode ? productMap.get(productCode) : undefined,
+      })
+      map.set(salesOrderId, current)
+      return map
+    }, new Map<string, Array<Record<string, unknown>>>())
+
+    const { data: arRows, error: arError } = await supabase
+      .from("accounts_receivable")
+      .select("*")
+      .order("created_at", { ascending: false })
+
+    if (arError) {
+      console.error("Error fetching accounts_receivable:", arError)
+    }
+
+    const arMap = (arRows || []).reduce((map, row) => {
+      if (!row.sales_order_id) return map
+
+      const current = map.get(row.sales_order_id)
+      if (!current) {
+        map.set(row.sales_order_id, row)
+        return map
+      }
+
+      const currentUpdatedAt = new Date(current.updated_at || current.created_at || 0).getTime()
+      const candidateUpdatedAt = new Date(row.updated_at || row.created_at || 0).getTime()
+
+      if (candidateUpdatedAt > currentUpdatedAt) {
+        map.set(row.sales_order_id, row)
+      }
+
+      return map
+    }, new Map<string, any>())
+
+    const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
+      const existing = arMap.get(so.id)
+      const salesTotalAmount = Number(so.total_amount)
+      const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
+      const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
+      const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
+
+      const existingPaidAmount = existing
+        ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
+        : so.is_paid
+          ? amountDue
+          : 0
+
+      let paidAmount = Number.isFinite(existingPaidAmount)
+        ? existingPaidAmount
+        : so.is_paid
+          ? amountDue
+          : 0
+
+      if (so.is_paid && paidAmount <= 0) {
+        paidAmount = amountDue
+      }
+
+      if (paidAmount > amountDue) {
+        paidAmount = amountDue
+      }
+
+      return {
+        id: existing?.id || `virtual-${so.id}`,
+        sales_order_id: so.id,
+        customer_cno: effectiveCustomerCno,
+        amount_due: amountDue,
+        paid_amount: paidAmount,
+        overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
+        paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
+        due_date: existing?.due_date || so.order_date,
+        status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
+        notes: existing?.notes || so.notes || null,
+        created_at: existing?.created_at || so.created_at,
+        updated_at: existing?.updated_at || so.updated_at,
+        sales_order: {
+          ...so,
+          items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
+        },
+        customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
+      }
+    })
+
+    return (
+      <div className="p-6 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">應收帳款管理</h1>
+          <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄</p>
+        </div>
+
+        {arError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-1">
+            <p className="text-sm text-destructive font-semibold">`accounts_receivable` 讀取失敗，已改用銷貨資料即時計算</p>
+            <p className="text-xs text-destructive/80">{arError.message}</p>
+          </div>
+        )}
+
+        {salesOrderItemsFetchFailed && (
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 space-y-1">
+            <p className="text-sm text-amber-700 font-semibold">`sales_order_items` 部分讀取失敗，且逐筆重試後仍有異常</p>
+            <p className="text-xs text-amber-700/80">{salesOrderItemsFetchErrors[0] || "請查看伺服器日誌中的 chunk 錯誤詳情"}</p>
+          </div>
+        )}
+
+        <ARTableClient
+          records={enrichedRecords}
+          allCustomers={customersList.map((customer) => ({
+            code: customer.code,
+            name: customer.name || customer.code,
+          }))}
+        />
+      </div>
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "發生未知網路錯誤"
+    console.error("ARPage fatal error:", {
+      message,
+      error,
+    })
+
     return (
       <div className="p-6">
         <h1 className="text-3xl font-bold mb-6">應收帳款管理</h1>
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-2">
-          <p className="text-destructive font-semibold">無法載入銷貨資料</p>
-          <p className="text-sm text-destructive/80">{salesError.message}</p>
+          <p className="text-destructive font-semibold">載入應收帳款時發生網路錯誤</p>
+          <p className="text-sm text-destructive/80">{message}</p>
         </div>
       </div>
     )
   }
-
-  const salesOrderIds = (salesOrders || []).map((so) => so.id)
-
-  const { data: salesOrderItems } = salesOrderIds.length
-    ? await supabase.from("sales_order_items").select("*").in("sales_order_id", salesOrderIds)
-    : { data: [] }
-
-  const productCodes = Array.from(
-    new Set(
-      (salesOrderItems || [])
-        .map((item) => item.code)
-        .filter((code): code is string => Boolean(code)),
-    ),
-  )
-
-  const { data: products } = productCodes.length
-    ? await supabase.from("products").select("*").in("code", productCodes)
-    : { data: [] }
-
-  const { data: customers } = await supabase
-    .from("customers")
-    .select("*")
-    .order("code", { ascending: true })
-
-  const customersList = (customers || []) as Customer[]
-
-  const customerMap = new Map(
-    customersList.map((customer) => [customer.code, customer] as const),
-  )
-  const productMap = new Map((products || []).map((product) => [product.code, product]))
-
-  const salesOrderItemsMap = (salesOrderItems || []).reduce((map, item) => {
-    const productCode = item.code
-    const current = map.get(item.sales_order_id) || []
-    current.push({
-      ...item,
-      code: productCode ?? null,
-      product: productCode ? productMap.get(productCode) : undefined,
-    })
-    map.set(item.sales_order_id, current)
-    return map
-  }, new Map<string, Array<Record<string, unknown>>>())
-
-  const { data: arRows, error: arError } = await supabase
-    .from("accounts_receivable")
-    .select("*")
-    .order("created_at", { ascending: false })
-
-  if (arError) {
-    console.error("Error fetching accounts_receivable:", arError)
-  }
-
-  const arMap = (arRows || []).reduce((map, row) => {
-    if (!row.sales_order_id) return map
-
-    const current = map.get(row.sales_order_id)
-    if (!current) {
-      map.set(row.sales_order_id, row)
-      return map
-    }
-
-    const currentUpdatedAt = new Date(current.updated_at || current.created_at || 0).getTime()
-    const candidateUpdatedAt = new Date(row.updated_at || row.created_at || 0).getTime()
-
-    if (candidateUpdatedAt > currentUpdatedAt) {
-      map.set(row.sales_order_id, row)
-    }
-
-    return map
-  }, new Map<string, any>())
-
-  // 不在頁面渲染階段自動寫入資料庫，避免因權限或約束造成錯誤
-  // 缺少的應收資料以即時計算方式顯示，實際落地由操作流程（例如一鍵沖帳）或 SQL 腳本處理
-
-  const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
-    const existing = arMap.get(so.id)
-    const salesTotalAmount = Number(so.total_amount)
-    const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
-    const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
-    const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
-
-    const existingPaidAmount = existing
-      ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
-      : so.is_paid
-        ? amountDue
-        : 0
-    let paidAmount = Number.isFinite(existingPaidAmount)
-      ? existingPaidAmount
-      : so.is_paid
-        ? amountDue
-        : 0
-
-    if (so.is_paid && paidAmount <= 0) {
-      paidAmount = amountDue
-    }
-
-    if (paidAmount > amountDue) {
-      paidAmount = amountDue
-    }
-
-    return {
-      id: existing?.id || `virtual-${so.id}`,
-      sales_order_id: so.id,
-      customer_cno: effectiveCustomerCno,
-      amount_due: amountDue,
-      paid_amount: paidAmount,
-      overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
-      paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
-      due_date: existing?.due_date || so.order_date,
-      status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
-      notes: existing?.notes || so.notes || null,
-      created_at: existing?.created_at || so.created_at,
-      updated_at: existing?.updated_at || so.updated_at,
-      sales_order: {
-        ...so,
-        items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
-      },
-      customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
-    }
-  })
-
-  return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">應收帳款管理</h1>
-        <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄</p>
-      </div>
-
-      {arError && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-1">
-          <p className="text-sm text-destructive font-semibold">`accounts_receivable` 讀取失敗，已改用銷貨資料即時計算</p>
-          <p className="text-xs text-destructive/80">{arError.message}</p>
-        </div>
-      )}
-
-      <ARTable
-        records={enrichedRecords}
-        allCustomers={customersList.map((customer) => ({
-          code: customer.code,
-          name: customer.name || customer.code,
-        }))}
-      />
-    </div>
-  )
 }

@@ -674,15 +674,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 {/* 校正庫存按鈕已移除 */}
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="order_date">銷貨日期</Label>
-              <Input
-                id="order_date"
-                type="date"
-                value={formData.order_date}
-                onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
-              />
-            </div>
+            <div className="space-y-2" />
             <div className="space-y-2">
               <Label htmlFor="delivery_method">配送方式</Label>
               <Select
@@ -856,18 +848,29 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={2}
-              className="h-20 min-h-[80px]"
+              className="min-h-[56px]"
             />
           </div>
 
           <div className="flex flex-col items-end gap-2 mt-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="is_paid"
-                checked={formData.is_paid}
-                onCheckedChange={(checked) => setFormData({ ...formData, is_paid: Boolean(checked) })}
-              />
-              <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
+            <div className="flex items-end justify-end gap-4 w-full">
+              <div className="space-y-1 w-[180px]">
+                <Label htmlFor="order_date" className="text-sm">銷貨日期</Label>
+                <Input
+                  id="order_date"
+                  type="date"
+                  value={formData.order_date}
+                  onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center gap-2 h-10">
+                <Checkbox
+                  id="is_paid"
+                  checked={formData.is_paid}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_paid: Boolean(checked) })}
+                />
+                <Label htmlFor="is_paid" className="text-sm font-medium cursor-pointer">已付款</Label>
+              </div>
             </div>
             <DialogFooter className="justify-end w-full">
               <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>

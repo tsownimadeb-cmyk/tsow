@@ -100,6 +100,7 @@ export interface SalesOrderItem {
   id: string
   sales_order_id: string
   code: string | null
+  product_pno?: string | null
   quantity: number
   unit_price: number
   subtotal: number

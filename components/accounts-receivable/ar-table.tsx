@@ -170,6 +170,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       orderNumber: string
       orderDate: string | null
       products: string
+      rawProductPnos: string
       amountDue: number
       paidAmount: number
       overpaidAmount: number
@@ -193,17 +194,28 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       current.totalOverpaid += Math.max(0, Number(record.overpaid_amount ?? 0) || 0)
       current.totalOutstanding += outstanding
       current.orderCount += 1
+      const orderItems = record.sales_order?.items || []
+      const productNames = orderItems
+        .map((item) => {
+          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
+          const productName = String(item.product?.name || "").trim()
+          return productName || `[明細原始代碼:${rawPno || "空白"}]`
+        })
+        .filter(Boolean)
+      const rawPnoList = orderItems
+        .map((item) => {
+          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
+          return rawPno || "(空白)"
+        })
+
       current.orders.push({
         id: record.id,
         salesOrderId: record.sales_order_id,
         customerCno: record.customer_cno || null,
         orderNumber: record.sales_order?.order_no || "-",
         orderDate: record.sales_order?.order_date || record.due_date || null,
-        products:
-          record.sales_order?.items
-            ?.map((item) => item.product?.name || item.code || "-")
-            .filter(Boolean)
-            .join("、") || "-",
+        products: productNames.join("、") || "-",
+        rawProductPnos: rawPnoList.join("、") || "-",
         amountDue: record.amount_due,
         paidAmount: record.paid_amount,
         overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
@@ -213,6 +225,20 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         partialSettlements: parsePartialSettlementNotes(record.notes),
       })
     } else {
+      const orderItems = record.sales_order?.items || []
+      const productNames = orderItems
+        .map((item) => {
+          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
+          const productName = String(item.product?.name || "").trim()
+          return productName || `[明細原始代碼:${rawPno || "空白"}]`
+        })
+        .filter(Boolean)
+      const rawPnoList = orderItems
+        .map((item) => {
+          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
+          return rawPno || "(空白)"
+        })
+
       map.set(key, {
         customerName,
         customerCno,
@@ -228,11 +254,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             customerCno: record.customer_cno || null,
             orderNumber: record.sales_order?.order_no || "-",
             orderDate: record.sales_order?.order_date || record.due_date || null,
-            products:
-              record.sales_order?.items
-                ?.map((item) => item.product?.name || item.code || "-")
-                .filter(Boolean)
-                .join("、") || "-",
+            products: productNames.join("、") || "-",
+            rawProductPnos: rawPnoList.join("、") || "-",
             amountDue: record.amount_due,
             paidAmount: record.paid_amount,
             overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
@@ -1192,6 +1215,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                 <TableHead>銷貨單號</TableHead>
                                 <TableHead className="hidden sm:table-cell">日期</TableHead>
                                 <TableHead>商品</TableHead>
+                                <TableHead className="hidden md:table-cell">明細原始代碼</TableHead>
                                 <TableHead className="text-right">單筆金額</TableHead>
                                 <TableHead className="hidden sm:table-cell text-right">已收金額</TableHead>
                                 <TableHead className="text-right">未收金額</TableHead>
@@ -1215,6 +1239,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                       {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
                                     </TableCell>
                                     <TableCell>{order.products}</TableCell>
+                                    <TableCell className="hidden md:table-cell text-muted-foreground">{order.rawProductPnos}</TableCell>
                                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
                                     <TableCell className="hidden sm:table-cell text-right">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
                                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
@@ -1271,7 +1296,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                 )
                               })}
                               <TableRow className="bg-muted/40 text-xs sm:text-base">
-                                <TableCell colSpan={3} className="text-right font-semibold">總計</TableCell>
+                                <TableCell colSpan={4} className="text-right font-semibold">總計</TableCell>
                                 <TableCell className="text-right font-semibold">
                                   {formatCurrencyOneDecimal(sortedOrders.reduce((sum, order) => sum + order.amountDue, 0))}
                                 </TableCell>
@@ -1314,6 +1339,10 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                   <div className="flex items-center gap-2 text-xs">
                                     <span className="font-semibold">商品</span>
                                     <span className="flex-1 truncate">{order.products}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="font-semibold">原始代碼</span>
+                                    <span className="flex-1 truncate text-muted-foreground">{order.rawProductPnos}</span>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
                                     <span className="font-semibold">金額</span>
