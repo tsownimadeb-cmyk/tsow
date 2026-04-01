@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 type SalesOrder = {
   id: string;
   orderDate: string;
-  customerName: string;
+  customerCno: string;
 };
 
 type SalesOrderItem = {
@@ -21,27 +21,43 @@ export default function OrderSelector({ onSelect }: {
   onSelect: (order: SalesOrder, items: SalesOrderItem[]) => void;
 }) {
   const [orders, setOrders] = useState<SalesOrder[]>([]);
+  const [customers, setCustomers] = useState<Record<string, string>>({});
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
 
   useEffect(() => {
-    // 載入銷貨單列表（從 Supabase）
-    const fetchOrders = async () => {
+    // 載入銷貨單列表與客戶姓名（從 Supabase）
+    const fetchOrdersAndCustomers = async () => {
       const supabase = createClient();
-      const { data, error } = await supabase
+      // 1. 先查銷貨單
+      const { data: orderData, error: orderError } = await supabase
         .from("sales_orders")
         .select("id, order_no, customer_cno, order_date")
         .order("order_date", { ascending: false });
-      if (!error && data) {
-        setOrders(
-          data.map((o: any) => ({
-            id: o.id,
-            orderDate: o.order_date,
-            customerName: o.customer_cno,
-          }))
-        );
+      if (orderError || !orderData) return;
+
+      setOrders(
+        orderData.map((o: any) => ({
+          id: o.id,
+          orderDate: o.order_date,
+          customerCno: o.customer_cno,
+        }))
+      );
+
+      // 2. 查詢所有用到的 customer_cno
+      const cnos = Array.from(new Set(orderData.map((o: any) => o.customer_cno).filter(Boolean)));
+      if (cnos.length === 0) return;
+      const { data: customerData, error: customerError } = await supabase
+        .from("customers")
+        .select("code, name")
+        .in("code", cnos);
+      if (customerError || !customerData) return;
+      const customerMap: Record<string, string> = {};
+      for (const c of customerData) {
+        customerMap[c.code] = c.name;
       }
+      setCustomers(customerMap);
     };
-    fetchOrders();
+    fetchOrdersAndCustomers();
   }, []);
 
   const handleSelect = (orderId: string) => {
@@ -65,7 +81,7 @@ export default function OrderSelector({ onSelect }: {
         <option value="">請選擇</option>
         {orders.map(order => (
           <option key={order.id} value={order.id}>
-            {order.orderDate} - {order.customerName}
+            {order.orderDate} - {customers[order.customerCno] || order.customerCno || "未知客戶"}
           </option>
         ))}
       </select>
