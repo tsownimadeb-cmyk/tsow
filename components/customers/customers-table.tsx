@@ -9,7 +9,8 @@ import { Search, Phone, User, MapPin, ChevronDown } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 
-export function CustomersTable({ customers }: { customers: any[] }) {
+export function CustomersTable({ customers: customersProp }: { customers: any[] }) {
+  const [customers, setCustomers] = useState(customersProp);
   const [searchText, setSearchText] = useState("");
   const isMobile = useIsMobile();
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
@@ -166,7 +167,7 @@ export function CustomersTable({ customers }: { customers: any[] }) {
                             .update({ price_level: newLevel })
                             .eq("code", c.code);
                           if (!error) {
-                            c.price_level = newLevel;
+                            setCustomers((prev) => prev.map((item) => item.code === c.code ? { ...item, price_level: newLevel } : item));
                           } else {
                             alert("儲存價格等級失敗: " + error.message);
                           }
