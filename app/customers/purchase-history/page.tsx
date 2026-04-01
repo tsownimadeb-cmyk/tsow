@@ -61,6 +61,16 @@ const toSafeNumber = (value: unknown) => {
 }
 
 const normalizeText = (value: unknown) => String(value ?? "").trim()
+const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
+const CHUNK_SIZE = 50
+
+const chunkArray = <T,>(items: T[], size: number) => {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
 
 const formatDate = (value: string | null) => {
   if (!value) return "-"
@@ -154,27 +164,75 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   const salesOrders = (salesOrdersData || []) as SalesOrderRow[]
   const salesOrderIds = salesOrders.map((row) => normalizeText(row.id)).filter(Boolean)
 
-  const [{ data: salesItemsData }, { data: arData }] = await Promise.all([
-    salesOrderIds.length
-      ? supabase.from("sales_order_items").select("sales_order_id,code,quantity,unit_price,subtotal").in("sales_order_id", salesOrderIds)
-      : Promise.resolve({ data: [] as SalesItemRow[] }),
-    salesOrderIds.length
-      ? supabase.from("accounts_receivable").select("sales_order_id,status,amount_due,paid_amount").in("sales_order_id", salesOrderIds)
-      : Promise.resolve({ data: [] as AccountsReceivableRow[] }),
-  ])
+  const salesItems: SalesItemRow[] = []
+  const receivables: AccountsReceivableRow[] = []
 
-  const salesItems = (salesItemsData || []) as SalesItemRow[]
-  const receivables = (arData || []) as AccountsReceivableRow[]
+  if (salesOrderIds.length) {
+    for (const idChunk of chunkArray(salesOrderIds, CHUNK_SIZE)) {
+      const { data: chunkItems, error: chunkItemsError } = await supabase
+        .from("sales_order_items")
+        .select("sales_order_id,code,quantity,unit_price,subtotal")
+        .in("sales_order_id", idChunk)
 
-  const productCodes = Array.from(new Set(salesItems.map((item) => normalizeText(item.code)).filter(Boolean)))
-  const { data: productsData } = productCodes.length
-    ? await supabase.from("products").select("code,name,cost").in("code", productCodes)
-    : { data: [] as ProductRow[] }
+      if (chunkItemsError) {
+        console.error("Error fetching sales_order_items chunk", {
+          chunkSize: idChunk.length,
+          sampleSalesOrderId: idChunk[0] || null,
+          message: chunkItemsError.message,
+          details: chunkItemsError.details,
+          hint: chunkItemsError.hint,
+          code: chunkItemsError.code,
+        })
+      } else if (chunkItems?.length) {
+        salesItems.push(...(chunkItems as SalesItemRow[]))
+      }
 
-  const products = (productsData || []) as ProductRow[]
+      const { data: chunkReceivables, error: chunkArError } = await supabase
+        .from("accounts_receivable")
+        .select("sales_order_id,status,amount_due,paid_amount")
+        .in("sales_order_id", idChunk)
+
+      if (chunkArError) {
+        console.error("Error fetching accounts_receivable chunk", {
+          chunkSize: idChunk.length,
+          sampleSalesOrderId: idChunk[0] || null,
+          message: chunkArError.message,
+          details: chunkArError.details,
+          hint: chunkArError.hint,
+          code: chunkArError.code,
+        })
+      } else if (chunkReceivables?.length) {
+        receivables.push(...(chunkReceivables as AccountsReceivableRow[]))
+      }
+    }
+  }
+
+  const productCodes = Array.from(new Set(salesItems.map((item) => normalizeCode(item.code)).filter(Boolean)))
+  const products: ProductRow[] = []
+  if (productCodes.length) {
+    for (const codeChunk of chunkArray(productCodes, CHUNK_SIZE)) {
+      const { data: chunkProducts, error: chunkProductsError } = await supabase
+        .from("products")
+        .select("code,name,cost")
+        .in("code", codeChunk)
+
+      if (chunkProductsError) {
+        console.error("Error fetching products chunk", {
+          chunkSize: codeChunk.length,
+          sampleCode: codeChunk[0] || null,
+          message: chunkProductsError.message,
+          details: chunkProductsError.details,
+          hint: chunkProductsError.hint,
+          code: chunkProductsError.code,
+        })
+      } else if (chunkProducts?.length) {
+        products.push(...(chunkProducts as ProductRow[]))
+      }
+    }
+  }
   const customerNameMap = new Map(customers.map((customer) => [normalizeText(customer.code), normalizeText(customer.name) || normalizeText(customer.code)]))
   const productMap = new Map(
-    products.map((product) => [normalizeText(product.code), { name: normalizeText(product.name) || normalizeText(product.code), cost: toSafeNumber(product.cost) }]),
+    products.map((product) => [normalizeCode(product.code), { name: normalizeText(product.name) || normalizeText(product.code), cost: toSafeNumber(product.cost) }]),
   )
   const orderItemsMap = new Map<string, SalesItemRow[]>()
   const receivableByOrderId = new Map<string, AccountsReceivableRow>()
@@ -197,7 +255,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   for (const [salesOrderId, items] of orderItemsMap) {
     let totalGrossProfit = 0
     for (const item of items) {
-      const code = normalizeText(item.code)
+      const code = normalizeCode(item.code)
       const quantity = toSafeNumber(item.quantity)
       const subtotal = toSafeNumber(item.subtotal)
       const itemCost = toSafeNumber(productMap.get(code)?.cost)
@@ -279,21 +337,21 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
       const orderId = normalizeText(order.id)
       const customerCode = normalizeText(order.customer_cno)
       const orderItems = orderItemsMap.get(orderId) || []
-      const itemSummary = orderItems.length
-        ? orderItems
-            .map((item) => {
-              const code = normalizeText(item.code)
-              const productName = productMap.get(code)?.name || code || "未知商品"
-              return productName
-            })
-            .join("、")
-        : "-"
+      const firstItem = orderItems[0]
+      const firstCode = normalizeCode(firstItem?.code)
+      const firstProductName = productMap.get(firstCode)?.name || firstCode || "未知商品"
+      const itemSummary = orderItems.length === 0
+        ? "-"
+        : orderItems.length === 1
+          ? firstProductName
+          : `${firstProductName} 等 ${orderItems.length} 件`
 
-      const unitPriceSummary = orderItems.length
-        ? orderItems
-            .map((item) => formatCurrencyOneDecimal(toSafeNumber(item.unit_price)))
-            .join("、")
-        : "-"
+      const firstUnitPrice = toSafeNumber(firstItem?.unit_price)
+      const unitPriceSummary = orderItems.length === 0
+        ? "-"
+        : orderItems.length === 1
+          ? formatCurrencyOneDecimal(firstUnitPrice)
+          : `${formatCurrencyOneDecimal(firstUnitPrice)} 等 ${orderItems.length} 件`
 
       const totalQuantity = orderItems.reduce((sum, item) => sum + toSafeNumber(item.quantity), 0)
 
