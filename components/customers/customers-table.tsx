@@ -173,7 +173,7 @@ export function CustomersTable({ customers: customersProp }: { customers: any[] 
                           }
                         }}
                       >
-                        <option value="sale">特價 (預設)</option>
+                        <option value="sale">特價</option>
                         <option value="price">定價</option>
                       </select>
                     </div>
