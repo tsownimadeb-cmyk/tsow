@@ -852,9 +852,9 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             />
           </div>
 
-          <div className="flex flex-col items-end gap-2 mt-2">
-            <div className="flex items-end justify-end gap-4 w-full">
-              <div className="space-y-1 w-[180px]">
+          <div className="mt-2 flex flex-col items-end gap-2">
+            <div className="flex w-full items-end justify-end gap-4">
+              <div className="w-[180px] space-y-1">
                 <Label htmlFor="order_date" className="text-sm">銷貨日期</Label>
                 <Input
                   id="order_date"
@@ -863,7 +863,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
                 />
               </div>
-              <div className="flex items-center gap-2 h-10">
+              <div className="flex h-10 items-center gap-2 self-end">
                 <Checkbox
                   id="is_paid"
                   checked={formData.is_paid}

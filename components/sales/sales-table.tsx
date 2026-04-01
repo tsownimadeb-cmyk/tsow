@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition, useMemo } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Search, Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { useDebounce } from "@/hooks/use-debounce"
 import { SalesDialog } from "@/components/sales/sales-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { SalesOrder, Customer, Product } from "@/lib/types"
@@ -34,9 +35,25 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const initialSearch = searchParams?.get('search') || "";
   const [search, setSearch] = useState(initialSearch)
+  const debouncedSearch = useDebounce(search, 500)
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const currentSearch = params.get("search") || ""
+    if (debouncedSearch === currentSearch) return
+
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch)
+    } else {
+      params.delete("search")
+    }
+    params.set("page", "1")
+    router.replace(`/sales?${params.toString()}`)
+  }, [debouncedSearch, router])
 
   const customerMap = new Map(
     customers.map((customer) => [customer.code, customer] as const),
@@ -252,34 +269,16 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜尋單號或客戶..."
+            placeholder="搜尋單號、客戶名稱..."
             value={search}
-            onChange={(e) => {
-              const value = e.target.value;
-              setSearch(value);
-              // 變更 URL 並帶上搜尋參數
-              const params = new URLSearchParams(window.location.search);
-              if (value) {
-                params.set('search', value);
-              } else {
-                params.delete('search');
-              }
-              params.set('page', '1'); // 搜尋時回到第一頁
-              router.push(`/sales?${params.toString()}`);
-            }}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-10 pr-8"
           />
           {search && (
             <button
               type="button"
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-              onClick={() => {
-                setSearch("");
-                const params = new URLSearchParams(window.location.search);
-                params.delete('search');
-                params.set('page', '1');
-                router.push(`/sales?${params.toString()}`);
-              }}
+              onClick={() => setSearch("")}
               aria-label="清除搜尋"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
