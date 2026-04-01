@@ -643,45 +643,57 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           </div>
 
           {/* 客戶、日期、配送方式：桌面版為橫排，手機版為直排 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="customer">客戶</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Select
-                    value={customerSelectValue}
-                    onValueChange={(value) => setFormData({ ...formData, customer_cno: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="選擇客戶" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.code} value={customer.code}>
-                          {customer.code} - {customer.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  type="button"
-                  variant={formData.customer_cno === WALK_IN_CUSTOMER_VALUE ? "default" : "outline"}
-                  onClick={() => setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })}
-                >
-                  散客
-                </Button>
-                {/* 校正庫存按鈕已移除 */}
-              </div>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+            {/* 客戶選擇器 */}
+            <div className="flex-1">
+              <Label htmlFor="customer" className="mb-1 block text-sm font-medium">客戶</Label>
+              <Select
+                value={customerSelectValue}
+                onValueChange={(value) => setFormData({ ...formData, customer_cno: value })}
+              >
+                <SelectTrigger id="customer" className="h-10">
+                  <SelectValue placeholder="選擇客戶" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers.map((customer) => (
+                    <SelectItem key={customer.code} value={customer.code}>
+                      {customer.code} - {customer.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2" />
-            <div className="space-y-2">
-              <Label htmlFor="delivery_method">配送方式</Label>
+            {/* 散客按鈕 */}
+            <div className="flex flex-col items-end justify-end">
+              <Label className="mb-1 block text-sm font-medium invisible">散客</Label>
+              <Button
+                type="button"
+                className="h-10"
+                variant={formData.customer_cno === WALK_IN_CUSTOMER_VALUE ? "default" : "outline"}
+                onClick={() => setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })}
+              >
+                散客
+              </Button>
+            </div>
+            {/* 銷貨日期 */}
+            <div className="flex flex-col min-w-[180px]">
+              <Label htmlFor="order_date" className="mb-1 block text-sm font-medium">銷貨日期</Label>
+              <Input
+                id="order_date"
+                type="date"
+                className="h-10"
+                value={formData.order_date}
+                onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
+              />
+            </div>
+            {/* 配送方式 */}
+            <div className="flex flex-col min-w-[180px]">
+              <Label htmlFor="delivery_method" className="mb-1 block text-sm font-medium">配送方式</Label>
               <Select
                 value={formData.delivery_method}
                 onValueChange={(value: DeliveryMethod) => setFormData({ ...formData, delivery_method: value })}
               >
-                <SelectTrigger id="delivery_method">
+                <SelectTrigger id="delivery_method" className="h-10">
                   <SelectValue placeholder="選擇配送方式" />
                 </SelectTrigger>
                 <SelectContent>
@@ -854,15 +866,6 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
           <div className="mt-2 flex flex-col items-end gap-2">
             <div className="flex w-full items-end justify-end gap-4">
-              <div className="w-[180px] space-y-1">
-                <Label htmlFor="order_date" className="text-sm">銷貨日期</Label>
-                <Input
-                  id="order_date"
-                  type="date"
-                  value={formData.order_date}
-                  onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
-                />
-              </div>
               <div className="flex h-10 items-center gap-2 self-end">
                 <Checkbox
                   id="is_paid"
