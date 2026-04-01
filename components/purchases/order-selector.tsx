@@ -55,46 +55,60 @@ export default function OrderSelector({ onSelect }: OrderSelectorProps) {
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
-    // DEBUG: 印出明細原始資料
-    console.log("[DEBUG] purchase_order_items 查詢結果", id);
     setSelectedId(id);
     const order = orders.find((o) => o.id === id);
     if (!order) return;
     const supabase = createClient();
-    // 查明細
-    const { data: items, error } = await supabase
+    // 查明細（新舊欄位相容）
+    let items: any[] | null = null;
+    let usingLegacy = false;
+    const { data: itemsByCode, error: errByCode } = await supabase
       .from("purchase_order_items")
-      .select("*")
+      .select("id, code, quantity, unit_price")
       .eq("purchase_order_id", id);
-    console.log("[DEBUG] items", items, error);
-    if (error || !items) {
-      console.log("明細資料錯誤", items, error);
+    if (!errByCode && itemsByCode && itemsByCode.length > 0) {
+      items = itemsByCode;
+    } else {
+      const { data: itemsByPno, error: errByPno } = await supabase
+        .from("purchase_order_items")
+        .select("id, product_pno, quantity, unit_price")
+        .eq("purchase_order_id", id);
+      if (!errByPno && itemsByPno && itemsByPno.length > 0) {
+        items = itemsByPno;
+        usingLegacy = true;
+      }
+    }
+    if (!items) {
       onSelect(order, []);
       return;
     }
-    // 查商品名稱
-    const pnos = items.map((i: any) => i.product_pno).filter(Boolean);
-      console.log("[DEBUG] pnos", pnos);
+    // 查商品名稱（新舊欄位相容）
+    const codes = Array.from(new Set(items.map(i => String((usingLegacy ? i.product_pno : i.code) || "").trim()).filter(Boolean)));
     let productMap: Record<string, string> = {};
-    if (pnos.length > 0) {
-      const { data: products, error: prodErr } = await supabase
+    if (codes.length > 0) {
+      const { data: products } = await supabase
         .from("products")
-        .select("pno,pname")
-        .in("pno", pnos);
-      console.log("[DEBUG] products 查詢結果", products, prodErr);
-      if (!prodErr && products) {
-        productMap = Object.fromEntries(products.map((p: any) => [p.pno, p.pname]));
-        console.log("[DEBUG] productMap", productMap);
+        .select("code, name")
+        .in("code", codes);
+      if (products && products.length > 0) {
+        productMap = Object.fromEntries(products.map((p: any) => [String(p.code || ""), String(p.name || "")]));
+      } else {
+        const { data: legacyProducts } = await supabase
+          .from("products")
+          .select("pno, pname")
+          .in("pno", codes);
+        if (legacyProducts && legacyProducts.length > 0) {
+          productMap = Object.fromEntries(legacyProducts.map((p: any) => [String(p.pno || ""), String(p.pname || "")]));
+        }
       }
     }
     const mapped = items.map((i: any) => ({
       id: i.id,
-      productId: i.product_pno,
-      productName: productMap[i.product_pno] || "",
+      productId: usingLegacy ? i.product_pno : i.code,
+      productName: productMap[String((usingLegacy ? i.product_pno : i.code) || "")] || String((usingLegacy ? i.product_pno : i.code) || ""),
       originalQty: i.quantity,
       purchasePrice: i.unit_price,
     }));
-    console.log("[DEBUG] mapped", mapped);
     onSelect(order, mapped);
   };
 

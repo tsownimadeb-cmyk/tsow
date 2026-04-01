@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 type SalesOrder = {
   id: string;
   orderDate: string;
-  customerCno: string;
+  customerCno: string | null;
 };
 
 type SalesOrderItem = {
@@ -60,18 +60,78 @@ export default function OrderSelector({ onSelect }: {
     fetchOrdersAndCustomers();
   }, []);
 
-  const handleSelect = (orderId: string) => {
+  const handleSelect = async (orderId: string) => {
     setSelectedOrderId(orderId);
-    // TODO: 載入該銷貨單明細
     const order = orders.find(o => o.id === orderId);
-    if (order) {
-      // 假資料
-      const items: SalesOrderItem[] = [
-        { id: "i1", productId: "p1", productName: "商品1", originalQty: 10, salePrice: 100 },
-        { id: "i2", productId: "p2", productName: "商品2", originalQty: 5, salePrice: 200 },
-      ];
-      onSelect(order, items);
+    if (!order) return;
+    // 查詢該銷貨單的明細
+    const supabase = createClient();
+    const { data: itemsDataByCode, error: itemsErrorByCode } = await supabase
+      .from("sales_order_items")
+      .select("id, code, quantity, unit_price")
+      .eq("sales_order_id", orderId);
+
+    let itemsData: any[] | null = itemsDataByCode;
+    let usingLegacyProductPno = false;
+
+    if (itemsErrorByCode) {
+      const { data: itemsDataByPno, error: itemsErrorByPno } = await supabase
+        .from("sales_order_items")
+        .select("id, product_pno, quantity, unit_price")
+        .eq("sales_order_id", orderId);
+
+      if (itemsErrorByPno || !itemsDataByPno) {
+        onSelect(order, []);
+        return;
+      }
+
+      itemsData = itemsDataByPno;
+      usingLegacyProductPno = true;
     }
+
+    if (!itemsData) {
+      onSelect(order, []);
+      return;
+    }
+
+    const codes = Array.from(
+      new Set(
+        itemsData
+          .map((item: any) => String((usingLegacyProductPno ? item.product_pno : item.code) || "").trim())
+          .filter(Boolean)
+      )
+    );
+    let productNameMap: Record<string, string> = {};
+    if (codes.length > 0) {
+      const { data: productData } = await supabase
+        .from("products")
+        .select("code, name")
+        .in("code", codes);
+
+      if (productData) {
+        productNameMap = Object.fromEntries(productData.map((p: any) => [String(p.code || ""), String(p.name || "")]));
+      } else {
+        const { data: legacyProductData } = await supabase
+          .from("products")
+          .select("pno, pname")
+          .in("pno", codes);
+        if (legacyProductData) {
+          productNameMap = Object.fromEntries(legacyProductData.map((p: any) => [String(p.pno || ""), String(p.pname || "")]));
+        }
+      }
+    }
+
+    // 轉換明細格式
+    const items: SalesOrderItem[] = itemsData.map((item: any) => ({
+      id: item.id,
+      productId: usingLegacyProductPno ? item.product_pno : item.code,
+      productName:
+        productNameMap[String((usingLegacyProductPno ? item.product_pno : item.code) || "")] ||
+        String((usingLegacyProductPno ? item.product_pno : item.code) || ""),
+      originalQty: item.quantity,
+      salePrice: item.unit_price,
+    }));
+    onSelect(order, items);
   };
 
   return (

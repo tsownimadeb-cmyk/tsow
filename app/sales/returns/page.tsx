@@ -82,42 +82,46 @@ export default function SalesReturnsPage() {
       <h2 className="text-2xl font-bold mb-4">銷貨退回</h2>
       {/* 1. 選取銷貨單 */}
       <OrderSelector onSelect={handleOrderSelect} />
-      {/* 2. 明細表格 */}
-      <Table>
-        <thead>
-          <tr>
-            <th>商品名稱</th>
-            <th>原銷貨數量</th>
-            <th>售價</th>
-            <th>退回數量</th>
-            <th>退回原因</th>
-          </tr>
-        </thead>
-        <TableBody>
-          {orderItems.map(item => (
-            <TableRow key={item.id}>
-              <TableCell>{item.productName}</TableCell>
-              <TableCell>{item.originalQty}</TableCell>
-              <TableCell>{item.salePrice}</TableCell>
-              <TableCell>
+      {/* 2. 明細表格（Grid 版） */}
+      <div className="w-full mt-4">
+        {/* 表頭 */}
+        <div className="grid grid-cols-[30%_15%_15%_15%_25%] bg-muted text-sm font-semibold border-b">
+          <div className="py-2 px-3 text-left">商品名稱</div>
+          <div className="py-2 px-3 text-right">原銷貨數量</div>
+          <div className="py-2 px-3 text-right">售價</div>
+          <div className="py-2 px-3 text-center">退回數量</div>
+          <div className="py-2 px-3 text-center">退回原因</div>
+        </div>
+        {/* 內容 */}
+        {orderItems.map(item => {
+          const ret = returnItems.find(r => r.productId === item.productId) || {};
+          return (
+            <div key={item.id} className="grid grid-cols-[30%_15%_15%_15%_25%] border-b last:border-0 items-center">
+              <div className="py-2 px-3 text-left break-all">{item.productName}</div>
+              <div className="py-2 px-3 text-right tabular-nums">{item.originalQty}</div>
+              <div className="py-2 px-3 text-right tabular-nums">{item.salePrice}</div>
+              <div className="py-2 px-3 flex justify-center items-center">
                 <Input
                   type="number"
                   min={0}
                   max={item.originalQty}
-                  value={returnItems.find(r => r.productId === item.productId)?.returnQty || ""}
+                  value={ret.returnQty ?? ""}
                   onChange={e => handleReturnQtyChange(item.productId, Number(e.target.value))}
+                  className="h-9 w-full text-right"
+                  style={{ maxWidth: 80 }}
                 />
-              </TableCell>
-              <TableCell>
+              </div>
+              <div className="py-2 px-3 flex items-center">
                 <Input
-                  value={returnItems.find(r => r.productId === item.productId)?.reason || ""}
+                  value={ret.reason ?? ""}
                   onChange={e => handleReasonChange(item.productId, e.target.value)}
+                  className="h-9 w-full text-left"
                 />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
       {/* 3. 儲存按鈕 */}
       <Button onClick={handleSave} disabled={saving}>儲存</Button>
     </div>
