@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableRow, TableCell } from "@/components/ui/table";
@@ -71,10 +74,85 @@ export default function SalesReturnsPage() {
   };
 
   // 儲存
+  const router = typeof window !== "undefined" ? require("next/navigation").useRouter() : null;
+
   const handleSave = async () => {
+    if (!selectedOrder) return;
     setSaving(true);
-    // TODO: 呼叫 API 實作
-    setSaving(false);
+    const supabase = createClient();
+    try {
+      // 1. 過濾有退回的明細
+      const itemsToReturn = returnItems.filter(item => Number(item.returnQty) > 0);
+      if (itemsToReturn.length === 0) {
+        toast({ title: "請輸入退回數量", description: "至少需有一項商品退回。", variant: "destructive" });
+        setSaving(false);
+        return;
+      }
+
+      // 2. Insert sales_returns 主表（狀態 completed，正確欄位）
+      const { data: returnMain, error: returnMainError } = await supabase
+        .from("sales_returns")
+        .insert([
+          {
+            sales_order_id: selectedOrder.id,
+            order_number: selectedOrder.orderNumber, // 銷貨單號
+            customer_code: selectedOrder.customerCode, // 客戶編號
+            status: "completed",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ])
+        .select();
+      if (returnMainError || !returnMain || !returnMain[0]) {
+        throw new Error(returnMainError?.message || "建立退回主表失敗");
+      }
+      const salesReturnId = returnMain[0].id;
+
+      // 3. Insert sales_return_items 明細表（正確欄位）
+      const itemsPayload = itemsToReturn.map(item => ({
+        sales_return_id: salesReturnId,
+        product_code: item.productId,
+        quantity: item.returnQty,
+        unit_price: item.salePrice,
+        reason: item.reason,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: itemsError } = await supabase
+        .from("sales_return_items")
+        .insert(itemsPayload);
+      if (itemsError) throw new Error(itemsError.message || "退回明細寫入失敗");
+
+      // 4. 更新 products 的庫存（加回退回數量）
+      for (const item of itemsToReturn) {
+        // 先查出當前庫存
+        const { data: productData, error: selectError } = await supabase
+          .from("products")
+          .select("stock_qty")
+          .eq("code", item.productId)
+          .single();
+        if (selectError || !productData) throw new Error(selectError?.message || `無法查詢商品 ${item.productName}`);
+        
+        // 計算新庫存
+        const newStockQty = (productData.stock_qty || 0) + item.returnQty;
+        
+        // 更新庫存
+        const { error: updateError } = await supabase
+          .from("products")
+          .update({ stock_qty: newStockQty, updated_at: new Date().toISOString() })
+          .eq("code", item.productId);
+        if (updateError) throw new Error(updateError.message || `商品 ${item.productName} 庫存更新失敗`);
+      }
+
+      toast({ title: "退回成功", description: "銷貨退回已完成。", variant: "success" });
+      setTimeout(() => {
+        if (router) router.push("/sales");
+      }, 800);
+    } catch (err: any) {
+      toast({ title: "儲存失敗", description: err.message || String(err), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

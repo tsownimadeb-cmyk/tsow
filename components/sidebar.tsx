@@ -392,7 +392,7 @@ export function Sidebar() {
       children: [
         { name: "新建進貨", href: "/purchases?create=true", icon: Plus },
         // 新增進貨退回子項目
-        { name: "進貨退回", href: "/purchases/returns", icon: require("lucide-react").RotateCcw },
+        { name: "進貨退回", href: "/purchase-returns", icon: require("lucide-react").RotateCcw },
         { name: "進貨分析", href: "/purchases/analysis", icon: ChartColumn },
       ],
     },

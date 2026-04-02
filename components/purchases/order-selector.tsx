@@ -12,10 +12,10 @@ interface PurchaseOrder {
 
 interface PurchaseOrderItem {
   id: string;
-  product_pno: string;
-  product_name?: string;
-  quantity: number;
-  unit_price: number;
+  productId: string;
+  productName: string;
+  originalQty: number;
+  purchasePrice: number;
 }
 
 interface OrderSelectorProps {

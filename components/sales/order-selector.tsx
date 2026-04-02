@@ -5,8 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 
 type SalesOrder = {
   id: string;
+  orderNumber: string;
   orderDate: string;
-  customerCno: string | null;
+  customerCode: string | null;
+  customerName: string | null;
 };
 
 type SalesOrderItem = {
@@ -35,13 +37,14 @@ export default function OrderSelector({ onSelect }: {
         .order("order_date", { ascending: false });
       if (orderError || !orderData) return;
 
-      setOrders(
-        orderData.map((o: any) => ({
-          id: o.id,
-          orderDate: o.order_date,
-          customerCno: o.customer_cno,
-        }))
-      );
+      const ordersList = orderData.map((o: any) => ({
+        id: o.id,
+        orderNumber: o.order_no || "",
+        orderDate: o.order_date,
+        customerCode: o.customer_cno,
+        customerName: "", // 將在下方填入
+      }));
+      setOrders(ordersList);
 
       // 2. 查詢所有用到的 customer_cno
       const cnos = Array.from(new Set(orderData.map((o: any) => o.customer_cno).filter(Boolean)));
@@ -56,6 +59,12 @@ export default function OrderSelector({ onSelect }: {
         customerMap[c.code] = c.name;
       }
       setCustomers(customerMap);
+      // 更新 orders，填入客戶名稱
+      const updatedOrders = ordersList.map((o: any) => ({
+        ...o,
+        customerName: o.customerCode ? customerMap[o.customerCode] || "" : "",
+      }));
+      setOrders(updatedOrders);
     };
     fetchOrdersAndCustomers();
   }, []);
@@ -141,7 +150,7 @@ export default function OrderSelector({ onSelect }: {
         <option value="">請選擇</option>
         {orders.map(order => (
           <option key={order.id} value={order.id}>
-            {order.orderDate} - {customers[order.customerCno] || order.customerCno || "未知客戶"}
+            {order.orderDate} - {order.customerName || "未知客戶"}
           </option>
         ))}
       </select>
