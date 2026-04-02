@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Search, Phone, User, MapPin, ChevronDown } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
+import { CustomerDialog } from "@/components/customers/customer-dialog"
 
 export function CustomersTable({ customers: customersProp }: { customers: any[] }) {
   const [customers, setCustomers] = useState(customersProp);
@@ -124,14 +125,30 @@ export function CustomersTable({ customers: customersProp }: { customers: any[] 
         <Accordion type="single" collapsible className="w-full">
           {filteredCustomers.map((c: any) => (
             <AccordionItem key={c.code} value={String(c.code)}>
-              <Card
-                className="w-full rounded-xl border bg-white shadow-sm transition-all md:max-w-3xl mx-auto"
-              >
-                <AccordionTrigger className="px-6 py-4 hover:no-underline flex items-center">
-                  <div className="flex flex-1 items-center gap-4">
+              <Card className="w-full rounded-xl border bg-white shadow-sm transition-all md:max-w-3xl mx-auto">
+                <div className="flex items-start justify-between px-6 pt-4">
+                  <div className="flex items-center gap-4">
                     <span className="font-mono text-sm text-blue-600 min-w-[60px]">{c.code}</span>
                     <span className="font-bold text-gray-900 text-base">{c.name}</span>
                   </div>
+                  {/* 編輯按鈕入口 */}
+                  <div>
+                    <CustomerDialog mode="edit" customer={c}>
+                      <button
+                        type="button"
+                        className="rounded-full p-1.5 hover:bg-gray-100 focus:outline-none border border-gray-200"
+                        title="編輯客戶"
+                        aria-label="編輯客戶"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13h3l8-8a2.828 2.828 0 10-4-4l-8 8v3zm0 0v3h3" />
+                        </svg>
+                      </button>
+                    </CustomerDialog>
+                  </div>
+                </div>
+                <AccordionTrigger className="px-6 py-2 hover:no-underline flex items-center">
+                  <div className="flex-1" />
                   <ChevronDown className="ml-2 h-5 w-5 text-gray-400" />
                 </AccordionTrigger>
                 <AccordionContent className="px-6 pb-4">
