@@ -3,8 +3,6 @@
 import { useRef, useState, type ChangeEvent } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Download, Upload, Settings } from "lucide-react"
 import {
@@ -14,7 +12,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuItem,
-  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu"
 
 type ProductCsvRow = {
@@ -125,7 +122,7 @@ export function ProductsBatchActions() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
-  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
+  // 直接同步刪除，不再需要 UI 控制
 
   const toastApi = {
     success: (message: string) =>
@@ -226,7 +223,7 @@ export function ProductsBatchActions() {
     event.target.value = ""
     if (!file) return
 
-    const isConfirmed = window.confirm("這將會根據商品編號 (code) 覆蓋現有資料，確定執行嗎？")
+    const isConfirmed = window.confirm("這將會根據商品編號 (code) 覆蓋現有資料，並同步刪除未在匯入檔案中的商品。此操作無法復原，確定執行嗎？")
     if (!isConfirmed) return
 
     try {
@@ -274,16 +271,8 @@ export function ProductsBatchActions() {
 
       const upsertPayload = rows.filter((row) => row.code)
       const csvCodes = Array.from(new Set(upsertPayload.map((row) => row.code)))
-
       if (upsertPayload.length === 0) {
         throw new Error("沒有可匯入的資料，請確認 code 欄位")
-      }
-
-      if (syncDeleteMissing) {
-        const secondConfirm = window.confirm(
-          "已啟用同步刪除：系統將刪除所有不在 CSV 內的商品。此操作無法復原，確定繼續嗎？",
-        )
-        if (!secondConfirm) return
       }
 
       const supabase = createClient()
@@ -301,25 +290,24 @@ export function ProductsBatchActions() {
 
       if (error) throw error
 
-      if (syncDeleteMissing) {
-        const { data: existingRows, error: existingError } = await supabase
+      // 匯入後自動同步刪除未在 CSV 內的商品
+      const { data: existingRows, error: existingError } = await supabase
+        .from("products")
+        .select("code")
+
+      if (existingError) throw existingError
+
+      const codesToDelete = (existingRows || [])
+        .map((row: { code?: string | null }) => String(row.code || "").trim())
+        .filter((code) => code && !csvCodes.includes(code))
+
+      if (codesToDelete.length > 0) {
+        const { error: deleteError } = await supabase
           .from("products")
-          .select("code")
+          .delete()
+          .in("code", codesToDelete)
 
-        if (existingError) throw existingError
-
-        const codesToDelete = (existingRows || [])
-          .map((row: { code?: string | null }) => String(row.code || "").trim())
-          .filter((code) => code && !csvCodes.includes(code))
-
-        if (codesToDelete.length > 0) {
-          const { error: deleteError } = await supabase
-            .from("products")
-            .delete()
-            .in("code", codesToDelete)
-
-          if (deleteError) throw deleteError
-        }
+        if (deleteError) throw deleteError
       }
 
       toastApi.success("批次更新完成")
@@ -331,42 +319,35 @@ export function ProductsBatchActions() {
     }
   }
 
-  return (
-    <div className="flex items-center gap-2">
-      <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            disabled={isExporting || isImporting}
-            aria-label="商品批次操作"
-            title="商品批次操作"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuLabel>批次操作</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleExportCsv} disabled={isExporting || isImporting}>
-            <Download className="mr-2 h-4 w-4" />
-            {isExporting ? "匯出中..." : "匯出 CSV"}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleImportClick} disabled={isExporting || isImporting}>
-            <Upload className="mr-2 h-4 w-4" />
-            {isImporting ? "匯入中..." : "匯入批次修改"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={syncDeleteMissing}
-            onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
-            disabled={isExporting || isImporting}
-          >
-            同步刪除缺少 code
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  )
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Settings className="mr-2 h-4 w-4" />
+              批次操作
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>批次操作</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleExportCsv} disabled={isExporting || isImporting}>
+              <Download className="mr-2 h-4 w-4" />
+              {isExporting ? "匯出中..." : "匯出 CSV"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleImportClick} disabled={isExporting || isImporting}>
+              <Upload className="mr-2 h-4 w-4" />
+              {isImporting ? "匯入中..." : "匯入批次修改"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    )
 }

@@ -41,8 +41,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               新增商品
             </Button>
           </ProductDialog>
-          {/* 庫存重算按鈕 Client Component */}
-          <RecalcStockBtn />
+          {/* 庫存重算按鈕 Client Component（已隱藏） */}
+          {/* <RecalcStockBtn /> */}
           <div className="flex-1" />
           <ProductsBatchActions />
         </div>

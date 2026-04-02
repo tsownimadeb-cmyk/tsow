@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -201,7 +200,7 @@ export function CustomersBatchActions() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
-  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
+  const syncDeleteMissing = true
 
   const toastApi = {
     success: (message: string) =>
@@ -262,7 +261,7 @@ export function CustomersBatchActions() {
     event.target.value = ""
     if (!file) return
 
-    const isConfirmed = window.confirm("這將根據 code 覆蓋現有客戶資料，確定執行嗎？")
+    const isConfirmed = window.confirm("這將根據 code 覆蓋現有客戶資料，並同步刪除未在匯入檔案中的客戶。此操作無法復原，確定執行嗎？")
     if (!isConfirmed) return
 
     try {
@@ -319,13 +318,6 @@ export function CustomersBatchActions() {
           }
         })
         .filter((row): row is CustomerCsvRow => Boolean(row))
-
-      if (syncDeleteMissing) {
-        const secondConfirm = window.confirm(
-          "已啟用同步刪除：系統將刪除所有不在 CSV 內的客戶（code）。此操作無法復原，確定繼續嗎？",
-        )
-        if (!secondConfirm) return
-      }
 
       const usedCodes = new Set<string>()
       for (const row of rows) {
@@ -394,14 +386,6 @@ export function CustomersBatchActions() {
             <Upload className="mr-2 h-4 w-4" />
             {isImporting ? "匯入中..." : "匯入批次修改"}
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={syncDeleteMissing}
-            onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
-            disabled={isExporting || isImporting}
-          >
-            同步刪除缺少 code
-          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

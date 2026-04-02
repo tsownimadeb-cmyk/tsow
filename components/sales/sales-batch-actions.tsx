@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -688,7 +687,7 @@ export function SalesBatchActions() {
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
-  const [syncDeleteMissing, setSyncDeleteMissing] = useState(false)
+  const syncDeleteMissing = true
 
   const importProgressText = (() => {
     if (!isImporting) return "匯入批次修改"
@@ -795,7 +794,7 @@ export function SalesBatchActions() {
     event.target.value = ""
     if (!file) return
 
-    const isConfirmed = window.confirm("這將根據單號與商品編號覆蓋現有資料，確定執行嗎？")
+    const isConfirmed = window.confirm("這將根據單號與商品編號覆蓋現有資料，並同步刪除未在匯入檔案中的銷貨資料。此操作無法復原，確定執行嗎？")
     if (!isConfirmed) return
 
     try {
@@ -894,13 +893,6 @@ export function SalesBatchActions() {
           .map((row) => String(row.item_code || "").trim().toUpperCase())
           .filter(Boolean),
       )
-
-      if (syncDeleteMissing) {
-        const secondConfirm = window.confirm(
-          "已啟用同步刪除：系統將刪除所有不在 CSV 內的銷貨明細（order_no + item_code）。此操作無法復原，確定繼續嗎？",
-        )
-        if (!secondConfirm) return
-      }
 
       const supabase = createClient()
       const [initialOrders, productCodes, customerCodes] = await Promise.all([
@@ -1279,14 +1271,6 @@ export function SalesBatchActions() {
             <Upload className="mr-2 h-4 w-4" />
             {importProgressText}
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={syncDeleteMissing}
-            onCheckedChange={(checked) => setSyncDeleteMissing(Boolean(checked))}
-            disabled={isExporting || isImporting}
-          >
-            同步刪除缺少單號+商品編號
-          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {isImporting && importProgress && (
