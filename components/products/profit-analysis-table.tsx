@@ -4,153 +4,129 @@ import { useMemo, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
-import { formatCurrencyOneDecimal } from "@/lib/utils"
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "recharts"
 import type { ProductListRowWithProfit } from "@/lib/products"
 
 interface ProfitAnalysisTableProps {
   products: ProductListRowWithProfit[]
 }
 
-const dashboardChartConfig = {
-  topTier: {
-    label: "前三名",
-    color: "var(--chart-2)",
-  },
-  midTier: {
-    label: "中段",
-    color: "var(--chart-1)",
-  },
-  lowTier: {
-    label: "後段",
-    color: "var(--chart-5)",
-  },
-  value: {
-    label: "實收現金毛利",
-    color: "var(--chart-1)",
-  },
-} satisfies ChartConfig
+const formatAmount = (value: number | string | null | undefined) => {
+  const amount = Number(value ?? 0)
+  const safeAmount = Number.isFinite(amount) ? amount : 0
+  return safeAmount.toLocaleString("zh-TW", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
+}
+
+const formatCurrency = (value: number | string | null | undefined) => {
+  return `$${formatAmount(value)}`
+}
+
+const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`
+
+const getMarginTheme = (margin: number) => {
+  if (margin >= 0.3) {
+    return {
+      bar: "bg-emerald-500",
+      text: "text-emerald-700",
+    }
+  }
+
+  if (margin < 0.1) {
+    return {
+      bar: "bg-red-500",
+      text: "text-red-700",
+    }
+  }
+
+  return {
+    bar: "bg-amber-500",
+    text: "text-amber-700",
+  }
+}
 
 export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
   const [searchText, setSearchText] = useState("")
-
-  const topProfitProducts = useMemo(
-    () =>
-      [...products]
-        .sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))
-        .slice(0, 10),
-    [products],
-  )
-
-  const topProfitChartData = useMemo(
-    () =>
-      topProfitProducts.map((product, index) => ({
-        code: String(product.code || "-"),
-        name: String(product.name || "-").trim(),
-        shortName: String(product.name || "-").trim().slice(0, 8) || String(product.code || "-"),
-        rank: index + 1,
-        cashGrossProfit: Number(product.cash_gross_profit || 0),
-        fill:
-          index < 3
-            ? "var(--chart-2)"
-            : index >= 7 || Number(product.cash_gross_profit || 0) <= 0
-              ? "var(--chart-5)"
-              : "var(--chart-1)",
-      })),
-    [topProfitProducts],
-  )
+  const [expandedProductCodes, setExpandedProductCodes] = useState<Set<string>>(new Set())
 
   const filteredProducts = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    const base = [...products].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0));
-    if (!keyword) return base;
+    const keyword = searchText.trim().toLowerCase()
+    const base = [...products].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))
+    if (!keyword) return base
+
     return base.filter(product => {
       const haystacks = [
         String(product.code || ""),
         String(product.name || ""),
         String(product.spec || ""),
-        String(product.category || "")
-      ];
-      return haystacks.some(value => value.toLowerCase().includes(keyword));
-    });
-  }, [products, searchText]);
+        String(product.category || ""),
+      ]
+      return haystacks.some((value) => value.toLowerCase().includes(keyword))
+    })
+  }, [products, searchText])
+
+  const stats = useMemo(() => {
+    const soldProducts = filteredProducts.filter((product) => Number(product.sales_qty_total || 0) > 0)
+    const totalCashGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.cash_gross_profit || 0), 0)
+    const totalCashReceived = soldProducts.reduce((sum, product) => sum + Number(product.cash_received_total || 0), 0)
+    const averageCashGrossMargin = totalCashReceived > 0 ? totalCashGrossProfit / totalCashReceived : 0
+
+    const topProduct =
+      soldProducts.length > 0
+        ? [...soldProducts].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))[0]
+        : null
+
+    return {
+      totalCashGrossProfit,
+      averageCashGrossMargin,
+      topProduct,
+    }
+  }, [filteredProducts])
+
+  const toggleExpand = (productCode: string) => {
+    setExpandedProductCodes((current) => {
+      const next = new Set(current)
+      if (next.has(productCode)) {
+        next.delete(productCode)
+      } else {
+        next.add(productCode)
+      }
+      return next
+    })
+  }
 
   return (
     <div className="space-y-4">
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {topProfitProducts.map((product, index) => (
-            <Card key={`top-profit-${product.code}-${index}`}>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-sm">
-                  <span>TOP {index + 1}</span>
-                  <span className="text-xs text-muted-foreground">獲利王</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                <p className="text-sm font-semibold text-foreground truncate">{product.name || "-"}</p>
-                <p className="text-xs text-muted-foreground">{product.code || "-"}</p>
-                <p className="text-sm font-semibold text-emerald-600">{formatCurrencyOneDecimal(product.cash_gross_profit)}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle>TOP1~10 實收現金毛利圖</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">總實收毛利</CardTitle>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={dashboardChartConfig} className="h-[260px] w-full">
-              <BarChart data={topProfitChartData} margin={{ top: 28, right: 12, left: 8, bottom: 32 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="shortName"
-                  tickLine={false}
-                  axisLine={false}
-                  interval={0}
-                  tickMargin={12}
-                  angle={-45}
-                  textAnchor="end"
-                  height={56}
-                />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      className="bg-white rounded-md border border-border shadow-sm"
-                      labelFormatter={(_, payload) => {
-                        const item = payload?.[0]?.payload
-                        if (!item) return "-"
-                        return `TOP${item.rank} ${item.name} (${item.code})`
-                      }}
-                      formatter={(value) => (
-                        <div className="flex min-w-[12rem] items-center justify-between gap-3">
-                          <span className="text-muted-foreground">實收現金毛利</span>
-                          <span className="text-foreground font-mono font-medium tabular-nums">
-                            {formatCurrencyOneDecimal(Number(value || 0))}
-                          </span>
-                        </div>
-                      )}
-                    />
-                  }
-                />
-                <Bar dataKey="cashGrossProfit" fill="var(--chart-1)" radius={[4, 4, 0, 0]}>
-                  {topProfitChartData.map((item) => (
-                    <Cell key={`bar-${item.code}-${item.rank}`} fill={item.fill} />
-                  ))}
-                  <LabelList
-                    dataKey="cashGrossProfit"
-                    position="top"
-                    offset={8}
-                    fill="hsl(var(--foreground))"
-                    fontSize={11}
-                    formatter={(value: number) => formatCurrencyOneDecimal(value)}
-                  />
-                </Bar>
-              </BarChart>
-            </ChartContainer>
+            <p className="text-3xl font-bold text-emerald-600">{formatCurrency(stats.totalCashGrossProfit)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">平均毛利率</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className={`text-3xl font-bold ${getMarginTheme(stats.averageCashGrossMargin).text}`}>
+              {formatPercent(stats.averageCashGrossMargin)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">最高毛利商品</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <p className="truncate text-lg font-semibold text-foreground">{stats.topProduct?.name || "-"}</p>
+            <p className="text-sm text-muted-foreground">{stats.topProduct?.code || ""}</p>
+            <p className="text-xl font-bold text-emerald-600">
+              {stats.topProduct ? formatCurrency(stats.topProduct.cash_gross_profit) : "-"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -167,15 +143,8 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>編號</TableHead>
               <TableHead>商品名稱</TableHead>
-              <TableHead className="text-center">狀態</TableHead>
               <TableHead className="text-right">已售數量</TableHead>
-              <TableHead className="text-right">單位成本</TableHead>
-              <TableHead className="text-right">銷貨收入</TableHead>
-              <TableHead className="text-right">銷貨成本(COGS)</TableHead>
-              <TableHead className="text-right">帳面毛利</TableHead>
-              <TableHead className="text-right">帳面毛利率</TableHead>
               <TableHead className="text-right">實收金額</TableHead>
               <TableHead className="text-right">實收現金毛利</TableHead>
               <TableHead className="text-right">實收毛利率</TableHead>
@@ -184,7 +153,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
           <TableBody>
             {filteredProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="py-8 text-center text-sm text-gray-400">
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-gray-400">
                   查無符合的商品，請調整搜尋條件。
                 </TableCell>
               </TableRow>
@@ -198,6 +167,9 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                 const salesAmount = Number(product.sales_amount_total || 0)
                 const cashReceived = Number(product.cash_received_total || 0)
                 const cashCollectionRatio = salesAmount > 0 ? cashReceived / salesAmount : 0
+                const productCode = String(product.code || "-")
+                const isExpanded = expandedProductCodes.has(productCode)
+                const marginTheme = getMarginTheme(cashGrossMargin)
 
                 const isGoldenProduct = cashGrossMargin > 0.2
                 const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
@@ -220,37 +192,82 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                       : "bg-slate-100 text-slate-700 border-slate-200"
 
                 return (
-                  <TableRow key={product.code}>
-                    <TableCell className="font-mono text-sm text-gray-600">{product.code}</TableCell>
-                    <TableCell>
-                      <div className="font-medium text-gray-900">{product.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {product.spec || "—"} {product.unit || ""}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusClassName}`}>
-                        {statusLabel}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{Number(product.sales_qty_total || 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-right">{formatCurrencyOneDecimal(unitCost)}</TableCell>
-                    <TableCell className="text-right text-blue-600">{formatCurrencyOneDecimal(Number(product.sales_amount_total || 0))}</TableCell>
-                    <TableCell className="text-right">{formatCurrencyOneDecimal(Number(product.cogs_total || 0))}</TableCell>
-                    <TableCell className="text-right">
-                      <span className={grossProfit >= 0 ? "text-emerald-600 font-semibold" : "text-red-600 font-semibold"}>
-                        {formatCurrencyOneDecimal(grossProfit)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{`${(grossMargin * 100).toFixed(1)}%`}</TableCell>
-                    <TableCell className="text-right text-blue-600">{formatCurrencyOneDecimal(Number(product.cash_received_total || 0))}</TableCell>
-                    <TableCell className="text-right">
-                      <span className={cashGrossProfit >= 0 ? "text-emerald-600 font-semibold" : "text-red-600 font-semibold"}>
-                        {formatCurrencyOneDecimal(cashGrossProfit)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{`${(cashGrossMargin * 100).toFixed(1)}%`}</TableCell>
-                  </TableRow>
+                  <>
+                    <TableRow key={productCode} className="align-top">
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(productCode)}
+                          className="w-full text-left"
+                        >
+                          <div className="font-medium text-gray-900">{product.name || "-"}</div>
+                          <div className="text-xs text-gray-500">
+                            {productCode} ・ {product.spec || "—"} {product.unit || ""}
+                          </div>
+                          <div className="mt-1">
+                            <span
+                              className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${statusClassName}`}
+                            >
+                              {statusLabel}
+                            </span>
+                            <span className="ml-2 text-[10px] text-gray-400">
+                              {isExpanded ? "點擊收合細節" : "點擊展開細節"}
+                            </span>
+                          </div>
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-right">{formatAmount(product.sales_qty_total)}</TableCell>
+                      <TableCell className="text-right text-blue-600">{formatCurrency(cashReceived)}</TableCell>
+                      <TableCell className="text-right">
+                        <span className={cashGrossProfit >= 0 ? "text-emerald-600 font-semibold" : "text-red-600 font-semibold"}>
+                          {formatCurrency(cashGrossProfit)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`font-semibold ${marginTheme.text}`}>{formatPercent(cashGrossMargin)}</span>
+                          <div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className={`h-full ${marginTheme.bar}`}
+                              style={{ width: `${Math.max(0, Math.min(100, cashGrossMargin * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded ? (
+                      <TableRow key={`${productCode}-details`} className="bg-slate-50/70">
+                        <TableCell colSpan={5}>
+                          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">單位成本</p>
+                              <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(unitCost)}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">銷貨收入</p>
+                              <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">銷貨成本 (COGS)</p>
+                              <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">帳面毛利</p>
+                              <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {formatCurrency(grossProfit)}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">帳面毛利率</p>
+                              <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>
+                                {formatPercent(grossMargin)}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </>
                 )
               })
             )}
