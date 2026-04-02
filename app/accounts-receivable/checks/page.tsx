@@ -11,6 +11,7 @@ export default async function AccountsReceivableChecksPage() {
   const supabase = await createClient()
   const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
   const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
+  const AR_PAYMENT_TAG = "[AR_PAYMENT]"
 
   const { data: receivableRows, error: receivableError } = await supabase
     .from("accounts_receivable")
@@ -45,7 +46,8 @@ export default async function AccountsReceivableChecksPage() {
       checkBank ||
       checkIssueDate ||
       notes.includes(AR_CHECK_LINKED_TAG) ||
-      notes.includes(AR_CHECK_STATUS_TAG),
+      notes.includes(AR_CHECK_STATUS_TAG) ||
+      (notes.includes(AR_PAYMENT_TAG) && notes.includes("|支票")),
     )
   })
 

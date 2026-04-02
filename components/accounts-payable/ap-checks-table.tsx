@@ -112,6 +112,8 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
   const [editingCheckBank, setEditingCheckBank] = useState("")
   const [editingCheckIssueDate, setEditingCheckIssueDate] = useState("")
   const [editingDueDate, setEditingDueDate] = useState("")
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<(typeof checkRows)[number] | null>(null)
   const [isPending, startTransition] = useTransition()
   const linkedSupplierId = searchParams.get("supplierId")
   const linkedOrderIds = new Set(
@@ -367,6 +369,34 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
     })
   }
 
+  const handleDeleteCheck = () => {
+    if (!deleteTarget) return
+    setProcessingId(deleteTarget.id)
+    setShowDeleteDialog(false)
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const { error } = await supabase
+          .from("accounts_payable")
+          .delete()
+          .eq("id", deleteTarget.id)
+        if (error) throw new Error(error.message || "刪除失敗")
+        toast({ title: "成功", description: "已刪除支票資料" })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "刪除支票資料失敗",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingId(null)
+        setDeleteTarget(null)
+      }
+    })
+  }
+
   const clearLegacyDueDates = () => {
     const targets = records.filter((record) => {
       if (record.id.startsWith("virtual-")) return false
@@ -527,7 +557,7 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
                     <TableCell className="text-right text-destructive">{formatCurrencyOneDecimal(row.outstanding)}</TableCell>
                     <TableCell>{statusBadge(row.checkStatus)}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2 w-48">
                         <Button
                           size="sm"
                           variant="outline"
@@ -559,6 +589,17 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
                           onClick={() => updateCheck(row, "cleared")}
                         >
                           已兌現
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={isRowPending}
+                          onClick={() => {
+                            setDeleteTarget(row)
+                            setShowDeleteDialog(true)
+                          }}
+                        >
+                          刪除
                         </Button>
                       </div>
                     </TableCell>
@@ -612,6 +653,23 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
             </Button>
             <Button onClick={saveCheckMeta} disabled={isPending || !editingCheckId}>
               儲存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>確定要刪除這筆支票資料嗎？</DialogTitle>
+            <DialogDescription>此操作無法還原，請確認是否刪除。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={isPending}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteCheck} disabled={isPending}>
+              確認刪除
             </Button>
           </DialogFooter>
         </DialogContent>

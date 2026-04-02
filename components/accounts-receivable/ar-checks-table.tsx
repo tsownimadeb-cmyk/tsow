@@ -77,8 +77,15 @@ const parseLatestCheckStatus = (notes: string | null | undefined): CheckStatus |
 const deriveCheckStatus = (record: ARCheckRecord): CheckStatus => {
   const latestStatus = parseLatestCheckStatus(record.notes)
 
-  if (latestStatus === "bounced") {
-    return "bounced"
+  if (latestStatus) {
+    if (latestStatus === "pending") {
+      const dueDateTime = record.dueDate ? new Date(record.dueDate).getTime() : NaN
+      if (!Number.isNaN(dueDateTime) && dueDateTime < Date.now()) {
+        return "overdue"
+      }
+    }
+
+    return latestStatus
   }
 
   if (record.status === "paid" || (record.paidAmount > 0 && record.paidAmount >= record.amountDue)) {
@@ -112,6 +119,8 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
   const [editingCheckBank, setEditingCheckBank] = useState("")
   const [editingCheckIssueDate, setEditingCheckIssueDate] = useState("")
   const [editingDueDate, setEditingDueDate] = useState("")
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const linkedCustomerCno = searchParams.get("customerCno")
   const linkedOrderIds = new Set(
@@ -366,6 +375,39 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
     })
   }
 
+  const handleDeleteCheck = () => {
+    if (!deleteTargetId) return
+
+    setProcessingId(deleteTargetId)
+    setShowDeleteDialog(false)
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const { error } = await supabase
+          .from("accounts_receivable")
+          .delete()
+          .eq("id", deleteTargetId)
+
+        if (error) {
+          throw new Error(error.message || "刪除失敗")
+        }
+
+        toast({ title: "成功", description: "已刪除支票資料" })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "刪除支票資料失敗",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingId(null)
+        setDeleteTargetId(null)
+      }
+    })
+  }
+
   const clearLegacyDueDates = () => {
     const targets = records.filter((record) => {
       if (record.id.startsWith("virtual-")) return false
@@ -524,7 +566,7 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
                     <TableCell className="text-right text-destructive">{formatCurrencyOneDecimal(row.outstanding)}</TableCell>
                     <TableCell>{statusBadge(row.checkStatus)}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2 w-48">
                         <Button
                           size="sm"
                           variant="outline"
@@ -556,6 +598,17 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
                           onClick={() => updateCheck(row, "cleared")}
                         >
                           已兌現
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={isRowPending}
+                          onClick={() => {
+                            setDeleteTargetId(row.id)
+                            setShowDeleteDialog(true)
+                          }}
+                        >
+                          刪除
                         </Button>
                       </div>
                     </TableCell>
@@ -609,6 +662,26 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
             </Button>
             <Button onClick={saveCheckMeta} disabled={isPending || !editingCheckId}>
               儲存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open)
+        if (!open) setDeleteTargetId(null)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>確定要刪除這筆支票資料嗎？</DialogTitle>
+            <DialogDescription>此操作無法還原，請確認是否刪除。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={isPending}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteCheck} disabled={isPending || !deleteTargetId}>
+              確認刪除
             </Button>
           </DialogFooter>
         </DialogContent>

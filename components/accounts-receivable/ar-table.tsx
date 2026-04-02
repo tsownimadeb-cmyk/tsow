@@ -46,6 +46,10 @@ interface ARTableProps {
 }
 
 const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
+const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
+const AR_PAYMENT_TAG = "[AR_PAYMENT]"
+
+type PaymentMethod = "cash" | "check"
 
 export function ARTable({ records, allCustomers = [] }: ARTableProps) {
   const router = useRouter()
@@ -74,6 +78,23 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     }>
   } | null>(null)
   const [partialPaymentAmount, setPartialPaymentAmount] = useState("")
+  const [fullSettleTarget, setFullSettleTarget] = useState<{
+    id: string
+    salesOrderId: string | null
+    customerCno: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+    paidAmount: number
+    overpaidAmount: number
+    outstanding: number
+    notes: string | null
+  } | null>(null)
+  const [fullSettleAmount, setFullSettleAmount] = useState("")
+  const [fullSettlePaymentMethod, setFullSettlePaymentMethod] = useState<PaymentMethod>("cash")
+  const [checkNo, setCheckNo] = useState("")
+  const [checkBank, setCheckBank] = useState("")
+  const [checkDueDate, setCheckDueDate] = useState("")
   const [restoreTargetOrder, setRestoreTargetOrder] = useState<{
     id: string
     salesOrderId: string | null
@@ -114,6 +135,31 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     const timestamp = new Date().toISOString()
     const entry = `${AR_CHECK_LINKED_TAG}${timestamp}`
     const base = (existingNotes || "").trim()
+    return base ? `${base}\n${entry}` : entry
+  }
+
+  const appendARCheckStatusNote = (existingNotes: string | null | undefined, status: "pending" | "overdue" | "cleared" | "bounced") => {
+    const timestamp = new Date().toISOString()
+    const entry = `${AR_CHECK_STATUS_TAG}${timestamp}|${status}`
+    const base = (existingNotes || "").trim()
+    return base ? `${base}\n${entry}` : entry
+  }
+
+  const buildPaymentNote = (params: {
+    existingNotes: string | null | undefined
+    paymentMethod: PaymentMethod
+    checkNo?: string
+    checkBank?: string
+    checkDueDate?: string
+  }) => {
+    const timestamp = new Date().toISOString()
+    const paymentLabel = params.paymentMethod === "cash" ? "現金" : "支票"
+    const details =
+      params.paymentMethod === "check"
+        ? `|check_no=${params.checkNo || ""}|bank=${params.checkBank || ""}|due_date=${params.checkDueDate || ""}`
+        : ""
+    const entry = `${AR_PAYMENT_TAG}${timestamp}|${paymentLabel}${details}`
+    const base = (params.existingNotes || "").trim()
     return base ? `${base}\n${entry}` : entry
   }
 
@@ -281,6 +327,9 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     dueDate: string | null
     status: "unpaid" | "partially_paid" | "paid"
     notes?: string | null
+    checkNo?: string | null
+    checkBank?: string | null
+    checkIssueDate?: string | null
   }) => {
     const supabase = createClient()
     const writePayload: Record<string, unknown> = {
@@ -298,6 +347,18 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       writePayload.notes = payload.notes
     }
 
+    if (payload.checkNo !== undefined) {
+      writePayload.check_no = payload.checkNo
+    }
+
+    if (payload.checkBank !== undefined) {
+      writePayload.check_bank = payload.checkBank
+    }
+
+    if (payload.checkIssueDate !== undefined) {
+      writePayload.check_issue_date = payload.checkIssueDate
+    }
+
     const runUpdate = async (data: Record<string, unknown>) => {
       return supabase
         .from("accounts_receivable")
@@ -307,15 +368,33 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         .limit(1)
     }
 
-    const isMissingNotesColumnError = (message?: string) => {
+    const getMissingColumnField = (message?: string): string | null => {
       const text = (message || "").toLowerCase()
-      return text.includes("notes") && (text.includes("column") || text.includes("schema cache") || text.includes("could not find"))
+      if (!(text.includes("column") || text.includes("schema cache") || text.includes("could not find"))) {
+        return null
+      }
+
+      const missingColumnMap: Array<{ token: string; field: string }> = [
+        { token: "notes", field: "notes" },
+        { token: "check_no", field: "check_no" },
+        { token: "check_bank", field: "check_bank" },
+        { token: "check_issue_date", field: "check_issue_date" },
+      ]
+
+      for (const item of missingColumnMap) {
+        if (text.includes(item.token)) {
+          return item.field
+        }
+      }
+
+      return null
     }
 
     let { data: updatedRows, error: updateError } = await runUpdate(writePayload)
-    if (updateError && Object.prototype.hasOwnProperty.call(writePayload, "notes") && isMissingNotesColumnError(updateError.message)) {
+    const missingUpdateField = getMissingColumnField(updateError?.message)
+    if (updateError && missingUpdateField && Object.prototype.hasOwnProperty.call(writePayload, missingUpdateField)) {
       const fallbackPayload = { ...writePayload }
-      delete fallbackPayload.notes
+      delete fallbackPayload[missingUpdateField]
       ;({ data: updatedRows, error: updateError } = await runUpdate(fallbackPayload))
     }
 
@@ -336,9 +415,10 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       .from("accounts_receivable")
       .insert(insertPayload)
 
-    if (insertError && Object.prototype.hasOwnProperty.call(insertPayload, "notes") && isMissingNotesColumnError(insertError.message)) {
+    const missingInsertField = getMissingColumnField(insertError?.message)
+    if (insertError && missingInsertField && Object.prototype.hasOwnProperty.call(insertPayload, missingInsertField)) {
       const fallbackInsertPayload = { ...insertPayload }
-      delete fallbackInsertPayload.notes
+      delete fallbackInsertPayload[missingInsertField]
       ;({ error: insertError } = await supabase
         .from("accounts_receivable")
         .insert(fallbackInsertPayload))
@@ -512,7 +592,15 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     amountDue: number
     paidAmount: number
     overpaidAmount: number
-  }, paymentAmount: number) => {
+    notes?: string | null
+  }, paymentAmount: number, options?: {
+    nextNotes?: string | null
+    nextDueDate?: string | null
+    checkNo?: string | null
+    checkBank?: string | null
+    checkIssueDate?: string | null
+    isCheckPending?: boolean
+  }) => {
     if (!order.salesOrderId) {
       toast({
         title: "錯誤",
@@ -535,6 +623,38 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     const currentPaid = Math.max(0, Math.min(order.paidAmount, order.amountDue))
     const baseNeedAmount = Math.max(0, order.amountDue - currentPaid)
     const supabase = createClient()
+
+    if (options?.isCheckPending) {
+      const pendingDbStatus: "unpaid" | "partially_paid" | "paid" =
+        currentPaid <= 0
+          ? "unpaid"
+          : currentPaid >= order.amountDue
+            ? "paid"
+            : "partially_paid"
+
+      await upsertReceivableBySalesOrder({
+        salesOrderId: order.salesOrderId,
+        customerCno: order.customerCno,
+        amountDue: order.amountDue,
+        paidAmount: currentPaid,
+        overpaidAmount: Math.max(0, Number(order.overpaidAmount || 0)),
+        paidAt: order.paidAt || null,
+        dueDate: options.nextDueDate !== undefined ? options.nextDueDate : order.orderDate,
+        status: pendingDbStatus,
+        notes: options.nextNotes !== undefined ? options.nextNotes : order.notes,
+        checkNo: options.checkNo,
+        checkBank: options.checkBank,
+        checkIssueDate: options.checkIssueDate,
+      })
+
+      toast({
+        title: "成功",
+        description: `單號 ${order.orderNumber} 已建立支票待兌現`,
+      })
+      router.refresh()
+      return
+    }
+
     let remainingNeed = baseNeedAmount
     let consumedCarryover = 0
 
@@ -617,8 +737,12 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       paidAmount: nextPaidAmount,
       overpaidAmount: nextOverpaidAmount,
       paidAt: nextPaidAmount > 0 ? settledAt : null,
-      dueDate: order.orderDate,
+      dueDate: options?.nextDueDate !== undefined ? options.nextDueDate : order.orderDate,
       status: nextStatus,
+      notes: options?.nextNotes !== undefined ? options.nextNotes : order.notes,
+      checkNo: options?.checkNo,
+      checkBank: options?.checkBank,
+      checkIssueDate: options?.checkIssueDate,
     })
 
     let autoAllocatedAmount = 0
@@ -827,6 +951,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     paidAmount: number
     overpaidAmount: number
     outstanding: number
+    notes: string | null
   }) => {
     if (order.outstanding <= 0) {
       toast({
@@ -836,10 +961,69 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       return
     }
 
-    setProcessingOrderId(order.id)
+    setFullSettleTarget(order)
+    setFullSettleAmount(order.outstanding.toString())
+    setFullSettlePaymentMethod("cash")
+    setCheckNo("")
+    setCheckBank("")
+    setCheckDueDate("")
+  }
+
+  const handleConfirmFullSettle = () => {
+    if (!fullSettleTarget) return
+
+    const payment = Number(fullSettleAmount.replace(/,/g, ""))
+    if (!Number.isFinite(payment) || payment <= 0) {
+      toast({
+        title: "錯誤",
+        description: "請輸入正確的沖帳金額",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (fullSettlePaymentMethod === "check") {
+      if (!checkNo.trim() || !checkBank.trim() || !checkDueDate) {
+        toast({
+          title: "錯誤",
+          description: "支票支付需填寫支票號碼、銀行名稱與到期日",
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    const normalizedCheckNo = checkNo.trim()
+    const normalizedCheckBank = checkBank.trim()
+    const normalizedCheckDueDate = checkDueDate || null
+    const baseNotes =
+      fullSettlePaymentMethod === "check"
+        ? buildCheckLinkedNote(fullSettleTarget.notes)
+        : fullSettleTarget.notes
+    const statusNotes =
+      fullSettlePaymentMethod === "check"
+        ? appendARCheckStatusNote(baseNotes, "pending")
+        : baseNotes
+    const nextNotes = buildPaymentNote({
+      existingNotes: statusNotes,
+      paymentMethod: fullSettlePaymentMethod,
+      checkNo: normalizedCheckNo,
+      checkBank: normalizedCheckBank,
+      checkDueDate: normalizedCheckDueDate || undefined,
+    })
+
+    setProcessingOrderId(fullSettleTarget.id)
     startRowActionTransition(async () => {
       try {
-        await settleSingleOrder(order, order.outstanding)
+        await settleSingleOrder(fullSettleTarget, payment, {
+          nextNotes,
+          nextDueDate: fullSettlePaymentMethod === "check" ? normalizedCheckDueDate : fullSettleTarget.orderDate,
+          checkNo: fullSettlePaymentMethod === "check" ? normalizedCheckNo : undefined,
+          checkBank: fullSettlePaymentMethod === "check" ? normalizedCheckBank : undefined,
+          checkIssueDate: fullSettlePaymentMethod === "check" ? new Date().toISOString().slice(0, 10) : undefined,
+          isCheckPending: fullSettlePaymentMethod === "check",
+        })
+        setFullSettleTarget(null)
       } catch (error) {
         toast({
           title: "錯誤",
@@ -1410,6 +1594,105 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             </Button>
             <Button type="button" onClick={handleConfirmPartialSettle} disabled={isPending || !partialSettleTarget}>
               {isPending ? "處理中..." : "確認沖帳"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(fullSettleTarget)} onOpenChange={(open) => !open && setFullSettleTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>沖帳</DialogTitle>
+            <DialogDescription>
+              {fullSettleTarget
+                ? `單號 ${fullSettleTarget.orderNumber} 未收金額：${formatCurrencyOneDecimal(fullSettleTarget.outstanding)}`
+                : "請確認沖帳資料"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="full-settle-amount">本次沖帳金額</Label>
+              <Input
+                id="full-settle-amount"
+                type="number"
+                min={0}
+                step="0.01"
+                value={fullSettleAmount}
+                onChange={(e) => setFullSettleAmount(e.target.value)}
+                disabled={isRowActionPending}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>支付方式</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={fullSettlePaymentMethod === "cash" ? "default" : "outline"}
+                  onClick={() => setFullSettlePaymentMethod("cash")}
+                  disabled={isRowActionPending}
+                >
+                  現金
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={fullSettlePaymentMethod === "check" ? "default" : "outline"}
+                  onClick={() => setFullSettlePaymentMethod("check")}
+                  disabled={isRowActionPending}
+                >
+                  支票支付
+                </Button>
+              </div>
+            </div>
+
+            {fullSettlePaymentMethod === "check" && (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label htmlFor="check-no">支票號碼</Label>
+                  <Input
+                    id="check-no"
+                    value={checkNo}
+                    onChange={(e) => setCheckNo(e.target.value)}
+                    disabled={isRowActionPending}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="check-bank">銀行名稱</Label>
+                  <Input
+                    id="check-bank"
+                    value={checkBank}
+                    onChange={(e) => setCheckBank(e.target.value)}
+                    disabled={isRowActionPending}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="check-due-date">到期日</Label>
+                  <Input
+                    id="check-due-date"
+                    type="date"
+                    value={checkDueDate}
+                    onChange={(e) => setCheckDueDate(e.target.value)}
+                    disabled={isRowActionPending}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setFullSettleTarget(null)}
+              disabled={isRowActionPending}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={handleConfirmFullSettle} disabled={isRowActionPending || !fullSettleTarget}>
+              {isRowActionPending ? "處理中..." : "確認儲存"}
             </Button>
           </DialogFooter>
         </DialogContent>
