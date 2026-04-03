@@ -2,7 +2,8 @@ import { unstable_noStore as noStore } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatAmountOneDecimal, formatCurrencyOneDecimal } from "@/lib/utils"
+import { formatAmountOneDecimal, formatCurrencyOneDecimal, formatAmountNoDecimal } from "@/lib/utils"
+import { RankMobileCard } from "./rank-mobile"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -308,7 +309,7 @@ export default async function SalesAnalysisPage({ searchParams }: SalesAnalysisP
   const yearOptions = [year - 2, year - 1, year]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-x-hidden">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">銷貨分析</h1>
@@ -320,60 +321,89 @@ export default async function SalesAnalysisPage({ searchParams }: SalesAnalysisP
         </form>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      {/* 年度切換區：手機水平滾動 */}
+      <div className="flex gap-2 overflow-x-auto pb-2 md:overflow-visible md:pb-0">
         {yearOptions.map((candidateYear) => (
-          <Button key={candidateYear} variant={candidateYear === year ? "default" : "outline"} size="sm" asChild>
+          <Button key={candidateYear} variant={candidateYear === year ? "default" : "outline"} size="sm" asChild className="min-w-[90px]">
             <Link href={`/sales/analysis?year=${candidateYear}`}>{candidateYear} 年</Link>
           </Button>
         ))}
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>累積貢獻排行（誰是你的年度冠軍？）</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">排名</TableHead>
-                  <TableHead>客戶</TableHead>
-                  <TableHead className="text-right">年度累積毛利</TableHead>
-                  <TableHead className="text-right">貢獻占比</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {cumulativeContributionRanks.length === 0 ? (
+        {/* 桌面版表格 */}
+        <div className="hidden md:block">
+          <Card>
+            <CardHeader>
+              <CardTitle>累積貢獻排行（誰是你的年度冠軍？）</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground">本年度尚無銷貨資料</TableCell>
+                    <TableHead className="w-16">排名</TableHead>
+                    <TableHead>客戶</TableHead>
+                    <TableHead className="text-right">年度累積毛利</TableHead>
+                    <TableHead className="text-right">貢獻占比</TableHead>
                   </TableRow>
-                ) : (
-                  cumulativeContributionRanks.map((row, index) => (
-                    <TableRow key={`cumulative-${row.customerCode}`}>
-                      <TableCell>#{index + 1}</TableCell>
-                      <TableCell>{row.customerName}</TableCell>
-                      <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalGrossProfit)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-3">
-                          <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full bg-primary/40"
-                              style={{
-                                width: `${maxContributionRatio > 0 ? (row.contributionRatio / maxContributionRatio) * 100 : 0}%`,
-                              }}
-                            />
-                          </div>
-                          <span className="w-14 text-right tabular-nums">{formatAmountOneDecimal(row.contributionRatio * 100)}%</span>
-                        </div>
-                      </TableCell>
+                </TableHeader>
+                <TableBody>
+                  {cumulativeContributionRanks.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">本年度尚無銷貨資料</TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                  ) : (
+                    cumulativeContributionRanks.map((row, index) => (
+                      <TableRow key={`cumulative-${row.customerCode}`}>
+                        <TableCell>#{index + 1}</TableCell>
+                        <TableCell>{row.customerName}</TableCell>
+                        <TableCell className="text-right">${formatAmountNoDecimal(row.totalGrossProfit)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-3">
+                            <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary/40"
+                                style={{
+                                  width: `${maxContributionRatio > 0 ? (row.contributionRatio / maxContributionRatio) * 100 : 0}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="w-14 text-right tabular-nums">{formatAmountOneDecimal(row.contributionRatio * 100)}%</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+        {/* 手機版排行卡片 */}
+        <div className="block md:hidden space-y-3">
+          <div className="font-semibold text-lg mb-1">累積貢獻排行</div>
+          {cumulativeContributionRanks.length === 0 ? (
+            <div className="text-center text-muted-foreground py-6">本年度尚無銷貨資料</div>
+          ) : (
+            cumulativeContributionRanks.map((row, index) => {
+              let highlight: "gold" | "silver" | "bronze" | undefined
+              if (index === 0) highlight = "gold"
+              else if (index === 1) highlight = "silver"
+              else if (index === 2) highlight = "bronze"
+              let subInfo = `貢獻占比 ${formatAmountOneDecimal(row.contributionRatio * 100)}%`
+              return (
+                <RankMobileCard
+                  key={`cumulative-m-${row.customerCode}`}
+                  rank={index + 1}
+                  name={row.customerName}
+                  value={`$${formatAmountNoDecimal(row.totalGrossProfit)}`}
+                  subInfo={subInfo}
+                  highlight={highlight}
+                />
+              )
+            })
+          )}
+        </div>
 
         <Card>
           <CardHeader>

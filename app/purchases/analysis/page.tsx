@@ -8,6 +8,19 @@ import { formatAmountOneDecimal, formatCurrencyOneDecimal } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 
+// 整數隱藏小數點、加千分位
+function formatAmountNoDecimal(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0)
+  const safeAmount = Number.isFinite(amount) ? amount : 0
+  return safeAmount % 1 === 0
+    ? safeAmount.toLocaleString("zh-TW", { maximumFractionDigits: 0 })
+    : safeAmount.toLocaleString("zh-TW", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+function formatCurrencyNoDecimal(value: number | string | null | undefined) {
+  return `$${formatAmountNoDecimal(value)}`
+}
+
 type PurchaseOrderRow = {
   id: string
   supplier_id: string | null
@@ -271,75 +284,96 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
         </form>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">年度進貨金額</CardTitle>
+      {/* 統計卡片：手機2欄Grid，縮小padding與標題 */}
+      {/* 統計卡片：手機2欄Grid，縮小padding與標題 */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="p-3">
+          <CardHeader className="pb-1 px-2">
+            <CardTitle className="text-xs font-medium">年度進貨金額</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{formatCurrencyOneDecimal(totalPurchaseAmount)}</div>
+          <CardContent className="px-2 pb-2 pt-1">
+            <div className="text-lg sm:text-xl font-bold text-foreground">{formatCurrencyNoDecimal(totalPurchaseAmount)}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">年度進貨單數</CardTitle>
+        <Card className="p-3">
+          <CardHeader className="pb-1 px-2">
+            <CardTitle className="text-xs font-medium">年度進貨單數</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{formatAmountOneDecimal(purchases.length)}</div>
+          <CardContent className="px-2 pb-2 pt-1">
+            <div className="text-lg sm:text-xl font-bold text-foreground">{formatAmountNoDecimal(purchases.length)}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">完成率</CardTitle>
+        <Card className="p-3">
+          <CardHeader className="pb-1 px-2">
+            <CardTitle className="text-xs font-medium">完成率</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{formatAmountOneDecimal(completionRate)}%</div>
+          <CardContent className="px-2 pb-2 pt-1">
+            <div className="text-lg sm:text-xl font-bold text-foreground">{formatAmountNoDecimal(completionRate)}%</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">年度運費總額</CardTitle>
+        <Card className="p-3">
+          <CardHeader className="pb-1 px-2">
+            <CardTitle className="text-xs font-medium">年度運費總額</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{formatCurrencyOneDecimal(totalShippingFee)}</div>
+          <CardContent className="px-2 pb-2 pt-1">
+            <div className="text-lg sm:text-xl font-bold text-foreground">{formatCurrencyNoDecimal(totalShippingFee)}</div>
           </CardContent>
         </Card>
       </div>
 
+      {/* 供應商排行：手機清單，桌面表格 */}
       <Card>
         <CardHeader>
           <CardTitle>供應商進貨排行（依金額）</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>供應商</TableHead>
-                <TableHead className="text-right">進貨單數</TableHead>
-                <TableHead className="text-right">進貨總額</TableHead>
-                <TableHead className="text-right">平均每單</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {supplierMetrics.length ? (
-                supplierMetrics.map((row) => (
-                  <TableRow key={row.supplierId}>
-                    <TableCell>{row.supplierName}</TableCell>
-                    <TableCell className="text-right">{formatAmountOneDecimal(row.orderCount)}</TableCell>
-                    <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalAmount)}</TableCell>
-                    <TableCell className="text-right">{formatCurrencyOneDecimal(row.averageOrderAmount)}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
+          {/* 手機版清單 */}
+          <div className="block sm:hidden divide-y">
+            {supplierMetrics.length ? (
+              supplierMetrics.map((vendor, idx) => (
+                <div key={vendor.supplierName || idx} className="flex justify-between items-center py-2">
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-medium truncate">{vendor.supplierName}</span>
+                    <span className="text-xs text-gray-500">單數：{formatAmountNoDecimal(vendor.orderCount)}</span>
+                  </div>
+                  <span className="text-right font-bold text-emerald-700 min-w-[90px]">{formatCurrencyNoDecimal(vendor.totalAmount)}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-muted-foreground py-4">本年度無進貨資料</div>
+            )}
+          </div>
+          {/* 桌面版表格 */}
+          <div className="hidden sm:block">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">本年度無進貨資料</TableCell>
+                  <TableHead>供應商</TableHead>
+                  <TableHead className="text-right">進貨單數</TableHead>
+                  <TableHead className="text-right">進貨總額</TableHead>
+                  <TableHead className="text-right">平均每單</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {supplierMetrics.length ? (
+                  supplierMetrics.map((row) => (
+                    <TableRow key={row.supplierId}>
+                      <TableCell>{row.supplierName}</TableCell>
+                      <TableCell className="text-right">{formatAmountNoDecimal(row.orderCount)}</TableCell>
+                      <TableCell className="text-right">{formatCurrencyNoDecimal(row.totalAmount)}</TableCell>
+                      <TableCell className="text-right">{formatCurrencyNoDecimal(row.averageOrderAmount)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">本年度無進貨資料</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
-
       <Card>
         <CardHeader>
           <CardTitle>商品進貨排行（依金額）</CardTitle>

@@ -16,6 +16,7 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
+import { APSupplierMobileCard } from "./ap-mobile-card"
 import type { AccountsPayable } from "@/lib/types"
 
 interface APTableProps {
@@ -344,7 +345,7 @@ export function APTable({ records }: APTableProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 overflow-x-hidden">
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -387,7 +388,7 @@ export function APTable({ records }: APTableProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground mb-1">應付合計</p>
           <p className="text-2xl font-semibold">{renderAmount(totalAmount)}</p>
@@ -404,7 +405,8 @@ export function APTable({ records }: APTableProps) {
         </div>
       </div>
 
-      <div className="rounded-lg border">
+      {/* 桌面版表格 */}
+      <div className="rounded-lg border hidden md:block">
         {supplierSummaries.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
             {search ? "找不到符合的供應商歸戶資料" : showAllSuppliers ? "尚無供應商歸戶資料" : "目前沒有欠款供應商"}
@@ -491,6 +493,29 @@ export function APTable({ records }: APTableProps) {
               )
             })}
           </Accordion>
+        )}
+      </div>
+      {/* 手機版卡片列表 */}
+      <div className="block md:hidden space-y-4">
+        {supplierSummaries.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            {search ? "找不到符合的供應商歸戶資料" : showAllSuppliers ? "尚無供應商歸戶資料" : "目前沒有欠款供應商"}
+          </div>
+        ) : (
+          supplierSummaries.map((summary) => (
+            <APSupplierMobileCard
+              key={`${summary.supplierId}-${summary.supplierName}`}
+              supplierName={summary.supplierName}
+              supplierId={summary.supplierId}
+              totalDue={summary.totalDue}
+              totalOutstanding={summary.totalOutstanding}
+              orderCount={summary.orderCount}
+              onExport={() => handleExportStatement(summary)}
+              onBatchSettle={() => handleBatchSettle(summary)}
+              onPayByCheck={() => handlePayByCheck(summary)}
+              orders={summary.orders}
+            />
+          ))
         )}
       </div>
     </div>

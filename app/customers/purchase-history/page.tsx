@@ -3,6 +3,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { PurchaseHistoryMobileCard } from "@/components/customers/purchase-history-mobile-card"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -426,44 +427,66 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
               客戶購買時間軸
             </summary>
             <div className="mt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>日期</TableHead>
-                    <TableHead>客戶</TableHead>
-                    <TableHead>單號</TableHead>
-                    <TableHead>品項</TableHead>
-                    <TableHead>單價</TableHead>
-                    <TableHead className="text-right">數量</TableHead>
-                    <TableHead className="text-right">金額</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {timelineRows.length === 0 ? (
+              {/* 桌面版表格 */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        尚無銷貨資料
-                      </TableCell>
+                      <TableHead>日期</TableHead>
+                      <TableHead>客戶</TableHead>
+                      <TableHead>單號</TableHead>
+                      <TableHead>品項</TableHead>
+                      <TableHead>單價</TableHead>
+                      <TableHead className="text-right">數量</TableHead>
+                      <TableHead className="text-right">金額</TableHead>
                     </TableRow>
-                  ) : (
-                    timelineRows.map((row) => (
-                      <TableRow key={`${row.orderNo}-${row.orderDate}-${row.customerName}`}>
-                        <TableCell>{formatDate(row.orderDate)}</TableCell>
-                        <TableCell>{row.customerName}</TableCell>
-                        <TableCell>{row.orderNo}</TableCell>
-                        <TableCell className="max-w-[520px] truncate" title={row.itemSummary}>
-                          {row.itemSummary}
+                  </TableHeader>
+                  <TableBody>
+                    {timelineRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground">
+                          尚無銷貨資料
                         </TableCell>
-                        <TableCell className="max-w-[320px] truncate" title={row.unitPriceSummary}>
-                          {row.unitPriceSummary}
-                        </TableCell>
-                        <TableCell className="text-right">{row.totalQuantity.toLocaleString("zh-TW")}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalAmount)}</TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      timelineRows.map((row) => (
+                        <TableRow key={`${row.orderNo}-${row.orderDate}-${row.customerName}`}>
+                          <TableCell>{formatDate(row.orderDate)}</TableCell>
+                          <TableCell>{row.customerName}</TableCell>
+                          <TableCell>{row.orderNo}</TableCell>
+                          <TableCell className="max-w-[520px] truncate" title={row.itemSummary}>
+                            {row.itemSummary}
+                          </TableCell>
+                          <TableCell className="max-w-[320px] truncate" title={row.unitPriceSummary}>
+                            {row.unitPriceSummary}
+                          </TableCell>
+                          <TableCell className="text-right">{row.totalQuantity.toLocaleString("zh-TW")}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalAmount)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {/* 行動版卡片 */}
+              <div className="block md:hidden space-y-3">
+                {timelineRows.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-6">尚無銷貨資料</div>
+                ) : (
+                  timelineRows.map((row) => (
+                    <PurchaseHistoryMobileCard
+                      key={`${row.orderNo}-${row.orderDate}-${row.customerName}`}
+                      orderDate={row.orderDate}
+                      orderNo={row.orderNo}
+                      customerName={row.customerName}
+                      itemSummary={row.itemSummary}
+                      unitPriceSummary={row.unitPriceSummary}
+                      totalQuantity={row.totalQuantity}
+                      totalAmount={row.totalAmount}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </details>
         </CardContent>

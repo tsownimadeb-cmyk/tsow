@@ -1,3 +1,11 @@
+export function formatAmountNoDecimal(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0)
+  const safeAmount = Number.isFinite(amount) ? amount : 0
+  return safeAmount.toLocaleString('zh-TW', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })
+}
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 

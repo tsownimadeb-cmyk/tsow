@@ -6,6 +6,7 @@ import { Search } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { cn, formatCurrencyOneDecimal } from "@/lib/utils"
+import { ARCheckMobileCard } from "./ar-check-mobile-card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -459,7 +460,7 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 overflow-x-hidden">
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -525,7 +526,7 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
         </div>
       )}
 
-      <div className="rounded-lg border">
+      <div className="rounded-lg border hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -620,42 +621,80 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
         </Table>
       </div>
 
+      <div className="block md:hidden space-y-4">
+        {checkRows.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">查無符合條件的支票資料</div>
+        ) : (
+          checkRows.map((row) => (
+            <ARCheckMobileCard
+              key={row.id}
+              customerName={row.customerName}
+              orderNo={row.orderNo}
+              checkNo={row.checkNo}
+              checkBank={row.checkBank}
+              checkIssueDate={row.checkIssueDate}
+              dueDate={row.dueDate}
+              amountDue={row.amountDue}
+              paidAmount={row.paidAmount}
+              outstanding={row.outstanding}
+              checkStatus={row.checkStatus}
+              statusBadge={statusBadge(row.checkStatus)}
+              onEdit={() => openEditCheckDialog(row)}
+              onDelete={() => {
+                setDeleteTargetId(row.id)
+                setShowDeleteDialog(true)
+              }}
+            />
+          ))
+        )}
+      </div>
+
       <Dialog open={Boolean(editingCheckId)} onOpenChange={(open) => !open && closeEditCheckDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>編輯支票資料</DialogTitle>
             <DialogDescription>可維護支票號碼、銀行、開票日與到期日</DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="checkNo">支票號碼</Label>
-              <Input id="checkNo" value={editingCheckNo} onChange={(event) => setEditingCheckNo(event.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="checkBank">銀行</Label>
-              <Input id="checkBank" value={editingCheckBank} onChange={(event) => setEditingCheckBank(event.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="checkIssueDate">開票日</Label>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="ar-check-no">支票號碼</Label>
               <Input
-                id="checkIssueDate"
-                type="date"
-                value={editingCheckIssueDate}
-                onChange={(event) => setEditingCheckIssueDate(event.target.value)}
+                id="ar-check-no"
+                value={editingCheckNo}
+                onChange={(event) => setEditingCheckNo(event.target.value)}
+                placeholder="請輸入支票號碼"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="dueDate">到期日</Label>
+            <div className="grid gap-2">
+              <Label htmlFor="ar-check-bank">銀行</Label>
               <Input
-                id="dueDate"
-                type="date"
-                value={editingDueDate}
-                onChange={(event) => setEditingDueDate(event.target.value)}
+                id="ar-check-bank"
+                value={editingCheckBank}
+                onChange={(event) => setEditingCheckBank(event.target.value)}
+                placeholder="請輸入銀行名稱"
               />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="ar-check-issue-date">開票日</Label>
+                <Input
+                  id="ar-check-issue-date"
+                  type="date"
+                  value={editingCheckIssueDate}
+                  onChange={(event) => setEditingCheckIssueDate(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="ar-check-due-date">到期日</Label>
+                <Input
+                  id="ar-check-due-date"
+                  type="date"
+                  value={editingDueDate}
+                  onChange={(event) => setEditingDueDate(event.target.value)}
+                />
+              </div>
             </div>
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={closeEditCheckDialog} disabled={isPending}>
               取消
@@ -667,13 +706,10 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
-        setShowDeleteDialog(open)
-        if (!open) setDeleteTargetId(null)
-      }}>
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => !open && setShowDeleteDialog(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>確定要刪除這筆支票資料嗎？</DialogTitle>
+            <DialogTitle>刪除支票資料</DialogTitle>
             <DialogDescription>此操作無法還原，請確認是否刪除。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
