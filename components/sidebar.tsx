@@ -150,6 +150,11 @@ export function Sidebar() {
     )
   }
 
+  const handleLinkPrefetch = (href?: string) => {
+    if (!href) return
+    void router.prefetch(href)
+  }
+
   const handleCreateGitBundle = async () => {
     if (isCreatingBackup) return
 
@@ -536,6 +541,8 @@ export function Sidebar() {
         <Link
           key={item.name}
           href={item.href}
+          onMouseEnter={() => handleLinkPrefetch(item.href)}
+          onFocus={() => handleLinkPrefetch(item.href)}
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
             isActive

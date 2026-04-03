@@ -1,8 +1,9 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
+import { useDebounce } from "@/hooks/use-debounce"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { cn, formatCurrencyOneDecimal } from "@/lib/utils"
@@ -108,12 +109,21 @@ const statusLabel: Record<CheckStatus, string> = {
   bounced: "退票",
 }
 
-export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
+const normalizeStatusFilter = (value: string | null): CheckStatusFilter => {
+  if (value === "pending" || value === "overdue" || value === "cleared" || value === "bounced") {
+    return value
+  }
+  return "all"
+}
+
+export function ARChecksTable({ records, initialSearch = "" }: { records: ARCheckRecord[]; initialSearch?: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState<CheckStatusFilter>("all")
+  const [search, setSearch] = useState(initialSearch)
+  const debouncedSearch = useDebounce(search, 500)
+  const urlFilter = normalizeStatusFilter(searchParams.get("status"))
+  const [filter, setFilter] = useState<CheckStatusFilter>(urlFilter)
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [editingCheckId, setEditingCheckId] = useState<string | null>(null)
   const [editingCheckNo, setEditingCheckNo] = useState("")
@@ -132,6 +142,42 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
   )
   const isLinkedFromAR = searchParams.get("source") === "ar"
 
+  useEffect(() => {
+    setSearch(initialSearch)
+  }, [initialSearch])
+
+  useEffect(() => {
+    setFilter(urlFilter)
+  }, [urlFilter])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    const currentSearch = params.get("search") || ""
+    const currentFilter = normalizeStatusFilter(params.get("status"))
+    const hasSearchChanged = debouncedSearch !== currentSearch
+    const hasFilterChanged = filter !== currentFilter
+    if (!hasSearchChanged && !hasFilterChanged) return
+
+    if (hasSearchChanged) {
+      if (debouncedSearch) {
+        params.set("search", debouncedSearch)
+      } else {
+        params.delete("search")
+      }
+    }
+
+    if (hasFilterChanged) {
+      if (filter === "all") {
+        params.delete("status")
+      } else {
+        params.set("status", filter)
+      }
+    }
+
+    params.set("page", "1")
+    router.replace(`/accounts-receivable/checks?${params.toString()}`)
+  }, [debouncedSearch, filter, router, searchParams])
+
   const checkRows = useMemo(() => {
     return records
       .map((record) => {
@@ -143,15 +189,6 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
         }
       })
       .filter((record) => {
-        const keyword = search.trim().toLowerCase()
-        const matchesKeyword =
-          !keyword ||
-          record.customerName.toLowerCase().includes(keyword) ||
-          (record.customerCno || "").toLowerCase().includes(keyword) ||
-          record.orderNo.toLowerCase().includes(keyword) ||
-          (record.checkNo || "").toLowerCase().includes(keyword) ||
-          (record.checkBank || "").toLowerCase().includes(keyword)
-
         const matchesFilter = filter === "all" ? true : record.checkStatus === filter
 
         const matchesLinkedContext = (() => {
@@ -168,14 +205,14 @@ export function ARChecksTable({ records }: { records: ARCheckRecord[] }) {
           return true
         })()
 
-        return matchesKeyword && matchesFilter && matchesLinkedContext
+        return matchesFilter && matchesLinkedContext
       })
       .sort((a, b) => {
         const aDue = a.dueDate ? new Date(a.dueDate).getTime() : 0
         const bDue = b.dueDate ? new Date(b.dueDate).getTime() : 0
         return bDue - aDue
       })
-  }, [records, search, filter, isLinkedFromAR, linkedOrderIds, linkedCustomerCno])
+  }, [records, filter, isLinkedFromAR, linkedOrderIds, linkedCustomerCno])
 
   const upsertReceivableWithFallback = async (
     record: (typeof checkRows)[number],

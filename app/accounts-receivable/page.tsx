@@ -1,14 +1,30 @@
 import { createClient } from "@/lib/supabase/server"
 import { ARTableClient } from "@/components/accounts-receivable/ar-table-client"
 import type { AccountsReceivable, Customer } from "@/lib/types"
+import Link from "next/link"
 
 export const metadata = {
   title: "應收帳款管理",
   description: "管理應收帳款記錄",
 }
 
-export default async function ARPage() {
+export const dynamic = "force-dynamic"
+
+export default async function ARPage(props: any) {
   try {
+    const searchParams = await props.searchParams
+    const PAGE_SIZE = 20
+    let page = 1
+
+    if (searchParams && typeof searchParams === "object") {
+      const rawPage = searchParams.page
+      const parsed = Number(Array.isArray(rawPage) ? rawPage[0] : rawPage)
+      if (!Number.isNaN(parsed) && parsed > 0) page = parsed
+    }
+
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+
     const supabase = await createClient()
     const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
     const CHUNK_SIZE = 50
@@ -43,10 +59,11 @@ export default async function ARPage() {
       return chunks
     }
 
-    const { data: salesOrders, error: salesError } = await supabase
+    const { data: salesOrders, error: salesError, count: salesOrderCount } = await supabase
       .from("sales_orders")
-      .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
+      .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at", { count: "exact" })
       .order("created_at", { ascending: false })
+      .range(from, to)
 
     if (salesError) {
       console.error("Error fetching sales orders:", salesError)
@@ -62,6 +79,8 @@ export default async function ARPage() {
     }
 
     const salesOrderIds = (salesOrders || []).map((so) => so.id)
+    const total = salesOrderCount ?? 0
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
     const salesOrderItems: Array<Record<string, unknown>> = []
     let salesOrderItemsFetchFailed = false
@@ -69,12 +88,30 @@ export default async function ARPage() {
 
     if (salesOrderIds.length) {
       const salesOrderIdChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
-      for (const idChunk of salesOrderIdChunks) {
-        const { data: chunkItems, error: chunkError } = await supabase
-          .from("sales_order_items")
-          .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
-          .in("sales_order_id", idChunk)
+      const chunkResults = await Promise.allSettled(
+        salesOrderIdChunks.map((idChunk) =>
+          supabase
+            .from("sales_order_items")
+            .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+            .in("sales_order_id", idChunk),
+        ),
+      )
 
+      chunkResults.forEach((result, index) => {
+        const idChunk = salesOrderIdChunks[index] || []
+
+        if (result.status === "rejected") {
+          salesOrderItemsFetchFailed = true
+          idChunk.forEach((id) => failedSalesOrderIds.add(id))
+          logSupabaseChunkError("Error fetching sales_order_items chunk", result.reason, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+          })
+          salesOrderItemsFetchErrors.push("讀取 sales_order_items 分段資料失敗")
+          return
+        }
+
+        const { data: chunkItems, error: chunkError } = result.value
         if (chunkError) {
           salesOrderItemsFetchFailed = true
           idChunk.forEach((id) => failedSalesOrderIds.add(id))
@@ -85,33 +122,45 @@ export default async function ARPage() {
           salesOrderItemsFetchErrors.push(
             (chunkError as { message?: string })?.message || "讀取 sales_order_items 分段資料失敗",
           )
-          continue
+          return
         }
 
         if (chunkItems?.length) {
           salesOrderItems.push(...(chunkItems as Array<Record<string, unknown>>))
         }
-      }
+      })
 
       if (salesOrderItemsFetchFailed && failedSalesOrderIds.size > 0) {
         const recoveredSalesOrderIds = new Set<string>()
-        for (const salesOrderId of failedSalesOrderIds) {
-          const { data: fallbackItems, error: fallbackError } = await supabase
-            .from("sales_order_items")
-            .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
-            .eq("sales_order_id", salesOrderId)
+        const fallbackResults = await Promise.allSettled(
+          Array.from(failedSalesOrderIds).map((salesOrderId) =>
+            supabase
+              .from("sales_order_items")
+              .select("id,sales_order_id,code,quantity,unit_price,subtotal,created_at")
+              .eq("sales_order_id", salesOrderId),
+          ),
+        )
 
+        fallbackResults.forEach((result, index) => {
+          const salesOrderId = Array.from(failedSalesOrderIds)[index]
+          if (!salesOrderId) return
+
+          if (result.status === "rejected") {
+            logSupabaseChunkError("Fallback fetch failed for sales_order_items", result.reason, { salesOrderId })
+            return
+          }
+
+          const { data: fallbackItems, error: fallbackError } = result.value
           if (fallbackError) {
             logSupabaseChunkError("Fallback fetch failed for sales_order_items", fallbackError, { salesOrderId })
-            continue
+            return
           }
 
           if (fallbackItems?.length) {
             salesOrderItems.push(...(fallbackItems as Array<Record<string, unknown>>))
           }
-
           recoveredSalesOrderIds.add(salesOrderId)
-        }
+        })
 
         recoveredSalesOrderIds.forEach((id) => failedSalesOrderIds.delete(id))
         salesOrderItemsFetchFailed = failedSalesOrderIds.size > 0
@@ -143,35 +192,40 @@ export default async function ARPage() {
     const products: Array<Record<string, unknown>> = []
     if (productCodes.length) {
       const productCodeChunks = chunkArray(productCodes, CHUNK_SIZE)
-      for (const codeChunk of productCodeChunks) {
-        const { data: chunkProducts, error: chunkError } = await supabase
-          .from("products")
-          .select("code,name,unit")
-          .in("code", codeChunk)
+      const productChunkResults = await Promise.allSettled(
+        productCodeChunks.map((codeChunk) =>
+          supabase
+            .from("products")
+            .select("code,name,unit")
+            .in("code", codeChunk),
+        ),
+      )
 
+      productChunkResults.forEach((result, index) => {
+        const codeChunk = productCodeChunks[index] || []
+        if (result.status === "rejected") {
+          logSupabaseChunkError("Error fetching products chunk", result.reason, {
+            chunkSize: codeChunk.length,
+            sampleCode: codeChunk[0] || null,
+          })
+          return
+        }
+
+        const { data: chunkProducts, error: chunkError } = result.value
         if (chunkError) {
           logSupabaseChunkError("Error fetching products chunk", chunkError, {
             chunkSize: codeChunk.length,
             sampleCode: codeChunk[0] || null,
           })
-          continue
+          return
         }
 
         if (chunkProducts?.length) {
           products.push(...(chunkProducts as Array<Record<string, unknown>>))
         }
-      }
+      })
     }
 
-    console.log("當前產品表總筆數:", products.length)
-
-    const { data: customers } = await supabase
-      .from("customers")
-      .select("*")
-      .order("code", { ascending: true })
-
-    const customersList = (customers || []) as Customer[]
-    const customerMap = new Map(customersList.map((customer) => [customer.code, customer] as const))
     const productMap = new Map(
       products.map((product) => [normalizeCode((product as { code?: string | null }).code), product]),
     )
@@ -193,10 +247,12 @@ export default async function ARPage() {
       return map
     }, new Map<string, Array<Record<string, unknown>>>())
 
-    const { data: arRows, error: arError } = await supabase
-      .from("accounts_receivable")
-      .select("*")
-      .order("created_at", { ascending: false })
+    const { data: arRows, error: arError } = salesOrderIds.length
+      ? await supabase
+        .from("accounts_receivable")
+        .select("*")
+        .in("sales_order_id", salesOrderIds)
+      : { data: [], error: null }
 
     if (arError) {
       console.error("Error fetching accounts_receivable:", arError)
@@ -220,6 +276,26 @@ export default async function ARPage() {
 
       return map
     }, new Map<string, any>())
+
+    const customerCodes = new Set<string>()
+    for (const so of salesOrders || []) {
+      if (so.customer_cno) customerCodes.add(String(so.customer_cno))
+    }
+    for (const row of arRows || []) {
+      if (row.customer_cno) customerCodes.add(String(row.customer_cno))
+    }
+
+    const customerCodeList = Array.from(customerCodes)
+    const { data: customers } = customerCodeList.length
+      ? await supabase
+        .from("customers")
+        .select("code,name")
+        .in("code", customerCodeList)
+        .order("code", { ascending: true })
+      : { data: [], error: null }
+
+    const customersList = (customers || []) as Customer[]
+    const customerMap = new Map(customersList.map((customer) => [customer.code, customer] as const))
 
     const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
       const existing = arMap.get(so.id)
@@ -269,11 +345,30 @@ export default async function ARPage() {
       }
     })
 
+    function getPageUrl(targetPage: number) {
+      const params = new URLSearchParams()
+      if (
+        searchParams &&
+        typeof searchParams === "object" &&
+        !Array.isArray(searchParams) &&
+        searchParams !== null &&
+        searchParams.constructor === Object
+      ) {
+        for (const [key, value] of Object.entries(searchParams)) {
+          if (key === "page") continue
+          if (typeof value === "string") params.set(key, value)
+          else if (Array.isArray(value) && value.length > 0) params.set(key, value[0])
+        }
+      }
+      params.set("page", String(targetPage))
+      return `/accounts-receivable?${params.toString()}`
+    }
+
     return (
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-3xl font-bold">應收帳款管理</h1>
-          <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄</p>
+          <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄（每頁 {PAGE_SIZE} 筆）</p>
         </div>
 
         {arError && (
@@ -290,13 +385,59 @@ export default async function ARPage() {
           </div>
         )}
 
-        <ARTableClient
-          records={enrichedRecords}
-          allCustomers={customersList.map((customer) => ({
-            code: customer.code,
-            name: customer.name || customer.code,
-          }))}
-        />
+        {enrichedRecords.length === 0 ? (
+          <div className="rounded-lg border border-border bg-card p-8 text-center space-y-2">
+            <p className="text-lg font-semibold">目前沒有可顯示的應收資料</p>
+            <p className="text-sm text-muted-foreground">可切換頁碼或稍後重新整理。</p>
+            {page > 1 && (
+              <div className="pt-2">
+                <Link href={getPageUrl(1)} className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-accent">
+                  回到第一頁
+                </Link>
+              </div>
+            )}
+          </div>
+        ) : (
+          <ARTableClient
+            records={enrichedRecords}
+            allCustomers={customersList.map((customer) => ({
+              code: customer.code,
+              name: customer.name || customer.code,
+            }))}
+          />
+        )}
+
+        <div className="flex items-center justify-center gap-4 mt-2">
+          <Link
+            href={getPageUrl(page - 1)}
+            aria-disabled={page <= 1}
+            tabIndex={page <= 1 ? -1 : 0}
+            className={`btn ${page <= 1 ? "pointer-events-none opacity-50" : ""}`}
+          >
+            上一頁
+          </Link>
+          <span>第 {page} 頁 / 共 {totalPages} 頁（共 {total} 筆）</span>
+          <Link
+            href={getPageUrl(page + 1)}
+            aria-disabled={page >= totalPages}
+            tabIndex={page >= totalPages ? -1 : 0}
+            className={`btn ${page >= totalPages ? "pointer-events-none opacity-50" : ""}`}
+          >
+            下一頁
+          </Link>
+          <form method="get" action="/accounts-receivable" className="flex items-center gap-2">
+            <input
+              type="number"
+              name="page"
+              min={1}
+              max={totalPages}
+              defaultValue={page}
+              className="border rounded px-2 py-1 w-16 text-center"
+              aria-label="跳至指定頁數"
+            />
+            <button type="submit" className="btn">跳頁</button>
+          </form>
+        </div>
       </div>
     )
   } catch (error) {

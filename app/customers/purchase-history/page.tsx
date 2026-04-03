@@ -102,10 +102,16 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   noStore()
   const supabase = await createClient()
   const resolvedSearchParams = await Promise.resolve(searchParams)
+  const PAGE_SIZE = 20
   const selectedCustomerCode = normalizeText(resolvedSearchParams?.customerCode)
   const customerKeyword = normalizeText(resolvedSearchParams?.customerKeyword || resolvedSearchParams?.customer)
   const startDate = normalizeText(resolvedSearchParams?.startDate)
   const endDate = normalizeText(resolvedSearchParams?.endDate)
+  const showSummary = normalizeText((resolvedSearchParams as { showSummary?: string } | undefined)?.showSummary) === "1"
+  const rawPage = Number(normalizeText((resolvedSearchParams as { page?: string } | undefined)?.page))
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
 
   const { data: customersData, error: customersError } = await supabase.from("customers").select("code,name").order("code", { ascending: true })
 
@@ -125,7 +131,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
 
   let salesOrdersQuery = supabase
     .from("sales_orders")
-    .select("id,order_no,customer_cno,order_date,total_amount,is_paid")
+    .select("id,order_no,customer_cno,order_date,total_amount,is_paid", { count: "exact" })
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
 
@@ -145,7 +151,8 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     salesOrdersQuery = salesOrdersQuery.lte("order_date", endDate)
   }
 
-  const { data: salesOrdersData, error: salesOrdersError } = await salesOrdersQuery
+  const { data: salesOrdersData, error: salesOrdersError, count: salesOrdersCount } = await salesOrdersQuery
+    .range(from, to)
 
   if (customersError || salesOrdersError) {
     const errorMessage = customersError?.message || salesOrdersError?.message || "讀取資料失敗"
@@ -163,18 +170,47 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   }
 
   const salesOrders = (salesOrdersData || []) as SalesOrderRow[]
+  const totalOrders = salesOrdersCount ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalOrders / PAGE_SIZE))
   const salesOrderIds = salesOrders.map((row) => normalizeText(row.id)).filter(Boolean)
 
   const salesItems: SalesItemRow[] = []
   const receivables: AccountsReceivableRow[] = []
 
   if (salesOrderIds.length) {
-    for (const idChunk of chunkArray(salesOrderIds, CHUNK_SIZE)) {
-      const { data: chunkItems, error: chunkItemsError } = await supabase
-        .from("sales_order_items")
-        .select("sales_order_id,code,quantity,unit_price,subtotal")
-        .in("sales_order_id", idChunk)
+    const idChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
 
+    const [itemsResults, receivableResults] = await Promise.all([
+      Promise.allSettled(
+        idChunks.map((idChunk) =>
+          supabase
+            .from("sales_order_items")
+            .select("sales_order_id,code,quantity,unit_price,subtotal")
+            .in("sales_order_id", idChunk),
+        ),
+      ),
+      Promise.allSettled(
+        idChunks.map((idChunk) =>
+          supabase
+            .from("accounts_receivable")
+            .select("sales_order_id,status,amount_due,paid_amount")
+            .in("sales_order_id", idChunk),
+        ),
+      ),
+    ])
+
+    itemsResults.forEach((result, index) => {
+      const idChunk = idChunks[index] || []
+      if (result.status === "rejected") {
+        console.error("Error fetching sales_order_items chunk", {
+          chunkSize: idChunk.length,
+          sampleSalesOrderId: idChunk[0] || null,
+          reason: String(result.reason),
+        })
+        return
+      }
+
+      const { data: chunkItems, error: chunkItemsError } = result.value
       if (chunkItemsError) {
         console.error("Error fetching sales_order_items chunk", {
           chunkSize: idChunk.length,
@@ -184,15 +220,26 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
           hint: chunkItemsError.hint,
           code: chunkItemsError.code,
         })
-      } else if (chunkItems?.length) {
-        salesItems.push(...(chunkItems as SalesItemRow[]))
+        return
       }
 
-      const { data: chunkReceivables, error: chunkArError } = await supabase
-        .from("accounts_receivable")
-        .select("sales_order_id,status,amount_due,paid_amount")
-        .in("sales_order_id", idChunk)
+      if (chunkItems?.length) {
+        salesItems.push(...(chunkItems as SalesItemRow[]))
+      }
+    })
 
+    receivableResults.forEach((result, index) => {
+      const idChunk = idChunks[index] || []
+      if (result.status === "rejected") {
+        console.error("Error fetching accounts_receivable chunk", {
+          chunkSize: idChunk.length,
+          sampleSalesOrderId: idChunk[0] || null,
+          reason: String(result.reason),
+        })
+        return
+      }
+
+      const { data: chunkReceivables, error: chunkArError } = result.value
       if (chunkArError) {
         console.error("Error fetching accounts_receivable chunk", {
           chunkSize: idChunk.length,
@@ -202,21 +249,40 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
           hint: chunkArError.hint,
           code: chunkArError.code,
         })
-      } else if (chunkReceivables?.length) {
+        return
+      }
+
+      if (chunkReceivables?.length) {
         receivables.push(...(chunkReceivables as AccountsReceivableRow[]))
       }
-    }
+    })
   }
 
   const productCodes = Array.from(new Set(salesItems.map((item) => normalizeCode(item.code)).filter(Boolean)))
   const products: ProductRow[] = []
   if (productCodes.length) {
-    for (const codeChunk of chunkArray(productCodes, CHUNK_SIZE)) {
-      const { data: chunkProducts, error: chunkProductsError } = await supabase
-        .from("products")
-        .select("code,name,cost")
-        .in("code", codeChunk)
+    const codeChunks = chunkArray(productCodes, CHUNK_SIZE)
+    const productResults = await Promise.allSettled(
+      codeChunks.map((codeChunk) =>
+        supabase
+          .from("products")
+          .select("code,name,cost")
+          .in("code", codeChunk),
+      ),
+    )
 
+    productResults.forEach((result, index) => {
+      const codeChunk = codeChunks[index] || []
+      if (result.status === "rejected") {
+        console.error("Error fetching products chunk", {
+          chunkSize: codeChunk.length,
+          sampleCode: codeChunk[0] || null,
+          reason: String(result.reason),
+        })
+        return
+      }
+
+      const { data: chunkProducts, error: chunkProductsError } = result.value
       if (chunkProductsError) {
         console.error("Error fetching products chunk", {
           chunkSize: codeChunk.length,
@@ -226,10 +292,13 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
           hint: chunkProductsError.hint,
           code: chunkProductsError.code,
         })
-      } else if (chunkProducts?.length) {
+        return
+      }
+
+      if (chunkProducts?.length) {
         products.push(...(chunkProducts as ProductRow[]))
       }
-    }
+    })
   }
   const customerNameMap = new Map(customers.map((customer) => [normalizeText(customer.code), normalizeText(customer.name) || normalizeText(customer.code)]))
   const productMap = new Map(
@@ -265,36 +334,20 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     grossProfitByOrderId.set(salesOrderId, totalGrossProfit)
   }
 
-  const summaryByCustomerCode = new Map<string, CustomerLifetimeValueRow>()
-  const matchedCustomerCodeSet = new Set(matchedCustomerCodes)
-  const customersForSummary = customerKeyword
-    ? customers.filter((customer) => matchedCustomerCodeSet.has(normalizeText(customer.code)))
-    : customers
+  let customerSummaryRows: CustomerLifetimeValueRow[] = []
+  if (showSummary) {
+    const summaryByCustomerCode = new Map<string, CustomerLifetimeValueRow>()
+    const matchedCustomerCodeSet = new Set(matchedCustomerCodes)
+    const customersForSummary = customerKeyword
+      ? customers.filter((customer) => matchedCustomerCodeSet.has(normalizeText(customer.code)))
+      : customers
 
-  for (const customer of customersForSummary) {
-    const customerCode = normalizeText(customer.code)
-    if (!customerCode) continue
-    summaryByCustomerCode.set(customerCode, {
-      customerCode,
-      customerName: normalizeText(customer.name) || customerCode,
-      firstOrderDate: null,
-      lastOrderDate: null,
-      orderCount: 0,
-      totalSalesAmount: 0,
-      averageOrderAmount: 0,
-      totalGrossProfit: 0,
-      totalUncollectedAmount: 0,
-    })
-  }
-
-  for (const order of salesOrders) {
-    const customerCode = normalizeText(order.customer_cno)
-    if (!customerCode) continue
-
-    const summary =
-      summaryByCustomerCode.get(customerCode) || {
+    for (const customer of customersForSummary) {
+      const customerCode = normalizeText(customer.code)
+      if (!customerCode) continue
+      summaryByCustomerCode.set(customerCode, {
         customerCode,
-        customerName: customerNameMap.get(customerCode) || customerCode,
+        customerName: normalizeText(customer.name) || customerCode,
         firstOrderDate: null,
         lastOrderDate: null,
         orderCount: 0,
@@ -302,36 +355,55 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
         averageOrderAmount: 0,
         totalGrossProfit: 0,
         totalUncollectedAmount: 0,
+      })
+    }
+
+    for (const order of salesOrders) {
+      const customerCode = normalizeText(order.customer_cno)
+      if (!customerCode) continue
+
+      const summary =
+        summaryByCustomerCode.get(customerCode) || {
+          customerCode,
+          customerName: customerNameMap.get(customerCode) || customerCode,
+          firstOrderDate: null,
+          lastOrderDate: null,
+          orderCount: 0,
+          totalSalesAmount: 0,
+          averageOrderAmount: 0,
+          totalGrossProfit: 0,
+          totalUncollectedAmount: 0,
+        }
+
+      const orderDate = normalizeText(order.order_date)
+      if (orderDate) {
+        if (!summary.firstOrderDate || orderDate < summary.firstOrderDate) summary.firstOrderDate = orderDate
+        if (!summary.lastOrderDate || orderDate > summary.lastOrderDate) summary.lastOrderDate = orderDate
       }
 
-    const orderDate = normalizeText(order.order_date)
-    if (orderDate) {
-      if (!summary.firstOrderDate || orderDate < summary.firstOrderDate) summary.firstOrderDate = orderDate
-      if (!summary.lastOrderDate || orderDate > summary.lastOrderDate) summary.lastOrderDate = orderDate
+      const orderId = normalizeText(order.id)
+      summary.orderCount += 1
+      summary.totalSalesAmount += toSafeNumber(order.total_amount)
+      summary.totalGrossProfit += toSafeNumber(grossProfitByOrderId.get(orderId))
+
+      const receivable = receivableByOrderId.get(orderId)
+      if (receivable) {
+        const uncollected = Math.max(0, toSafeNumber(receivable.amount_due) - toSafeNumber(receivable.paid_amount))
+        summary.totalUncollectedAmount += uncollected
+      } else if (order.is_paid !== true) {
+        summary.totalUncollectedAmount += toSafeNumber(order.total_amount)
+      }
+
+      summaryByCustomerCode.set(customerCode, summary)
     }
 
-    const orderId = normalizeText(order.id)
-    summary.orderCount += 1
-    summary.totalSalesAmount += toSafeNumber(order.total_amount)
-    summary.totalGrossProfit += toSafeNumber(grossProfitByOrderId.get(orderId))
-
-    const receivable = receivableByOrderId.get(orderId)
-    if (receivable) {
-      const uncollected = Math.max(0, toSafeNumber(receivable.amount_due) - toSafeNumber(receivable.paid_amount))
-      summary.totalUncollectedAmount += uncollected
-    } else if (order.is_paid !== true) {
-      summary.totalUncollectedAmount += toSafeNumber(order.total_amount)
-    }
-
-    summaryByCustomerCode.set(customerCode, summary)
+    customerSummaryRows = Array.from(summaryByCustomerCode.values())
+      .map((row) => ({
+        ...row,
+        averageOrderAmount: row.orderCount > 0 ? row.totalSalesAmount / row.orderCount : 0,
+      }))
+      .sort((left, right) => right.totalGrossProfit - left.totalGrossProfit)
   }
-
-  const customerSummaryRows = Array.from(summaryByCustomerCode.values())
-    .map((row) => ({
-      ...row,
-      averageOrderAmount: row.orderCount > 0 ? row.totalSalesAmount / row.orderCount : 0,
-    }))
-    .sort((left, right) => right.totalGrossProfit - left.totalGrossProfit)
 
   const timelineRows = salesOrders
     .map((order) => {
@@ -374,6 +446,28 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   if (endDate) exportQuery.set("endDate", endDate)
   const exportHref = `/api/customers/purchase-history/timeline-export?${exportQuery.toString()}`
 
+  const getPageUrl = (targetPage: number) => {
+    const params = new URLSearchParams()
+    if (customerKeyword) params.set("customerKeyword", customerKeyword)
+    if (selectedCustomerCode) params.set("customerCode", selectedCustomerCode)
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    if (showSummary) params.set("showSummary", "1")
+    params.set("page", String(targetPage))
+    return `/customers/purchase-history?${params.toString()}`
+  }
+
+  const getShowSummaryUrl = () => {
+    const params = new URLSearchParams()
+    if (customerKeyword) params.set("customerKeyword", customerKeyword)
+    if (selectedCustomerCode) params.set("customerCode", selectedCustomerCode)
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    params.set("showSummary", "1")
+    params.set("page", String(page))
+    return `/customers/purchase-history?${params.toString()}`
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -392,6 +486,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
         </CardHeader>
         <CardContent>
           <form className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_180px_180px_auto_auto_auto]" method="get" action="/customers/purchase-history">
+            {showSummary && <input type="hidden" name="showSummary" value="1" />}
             <CustomerKeywordAutocomplete
               name="customerKeyword"
               selectedCodeName="customerCode"
@@ -487,6 +582,25 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
                   ))
                 )}
               </div>
+              <div className="mt-4 flex items-center justify-center gap-4">
+                <Link
+                  href={getPageUrl(page - 1)}
+                  aria-disabled={page <= 1}
+                  tabIndex={page <= 1 ? -1 : 0}
+                  className={`btn ${page <= 1 ? "pointer-events-none opacity-50" : ""}`}
+                >
+                  上一頁
+                </Link>
+                <span>第 {page} 頁 / 共 {totalPages} 頁（共 {totalOrders} 筆）</span>
+                <Link
+                  href={getPageUrl(page + 1)}
+                  aria-disabled={page >= totalPages}
+                  tabIndex={page >= totalPages ? -1 : 0}
+                  className={`btn ${page >= totalPages ? "pointer-events-none opacity-50" : ""}`}
+                >
+                  下一頁
+                </Link>
+              </div>
             </div>
           </details>
         </CardContent>
@@ -499,42 +613,51 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
               客戶終身價值總表
             </summary>
             <div className="mt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>客戶</TableHead>
-                    <TableHead>首購日</TableHead>
-                    <TableHead>末購日</TableHead>
-                    <TableHead className="text-right">總訂單數</TableHead>
-                    <TableHead className="text-right">總營業額</TableHead>
-                    <TableHead className="text-right">平均客單</TableHead>
-                    <TableHead className="text-right">毛利</TableHead>
-                    <TableHead className="text-right">未收款金額</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {customerSummaryRows.length === 0 ? (
+              {!showSummary ? (
+                <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-3">
+                  <p>為了加快頁面切換速度，終身價值總表預設不載入。</p>
+                  <Button type="button" variant="secondary" asChild>
+                    <Link href={getShowSummaryUrl()}>載入客戶終身價值總表</Link>
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground">
-                        尚無客戶資料
-                      </TableCell>
+                      <TableHead>客戶</TableHead>
+                      <TableHead>首購日</TableHead>
+                      <TableHead>末購日</TableHead>
+                      <TableHead className="text-right">總訂單數</TableHead>
+                      <TableHead className="text-right">總營業額</TableHead>
+                      <TableHead className="text-right">平均客單</TableHead>
+                      <TableHead className="text-right">毛利</TableHead>
+                      <TableHead className="text-right">未收款金額</TableHead>
                     </TableRow>
-                  ) : (
-                    customerSummaryRows.map((row) => (
-                      <TableRow key={row.customerCode}>
-                        <TableCell>{row.customerName}</TableCell>
-                        <TableCell>{formatDate(row.firstOrderDate)}</TableCell>
-                        <TableCell>{formatDate(row.lastOrderDate)}</TableCell>
-                        <TableCell className="text-right">{row.orderCount.toLocaleString("zh-TW")}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalSalesAmount)}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyOneDecimal(row.averageOrderAmount)}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalGrossProfit)}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalUncollectedAmount)}</TableCell>
+                  </TableHeader>
+                  <TableBody>
+                    {customerSummaryRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center text-muted-foreground">
+                          尚無客戶資料
+                        </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      customerSummaryRows.map((row) => (
+                        <TableRow key={row.customerCode}>
+                          <TableCell>{row.customerName}</TableCell>
+                          <TableCell>{formatDate(row.firstOrderDate)}</TableCell>
+                          <TableCell>{formatDate(row.lastOrderDate)}</TableCell>
+                          <TableCell className="text-right">{row.orderCount.toLocaleString("zh-TW")}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalSalesAmount)}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyOneDecimal(row.averageOrderAmount)}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalGrossProfit)}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyOneDecimal(row.totalUncollectedAmount)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </div>
           </details>
         </CardContent>
