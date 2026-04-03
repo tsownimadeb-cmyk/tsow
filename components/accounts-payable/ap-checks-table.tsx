@@ -616,86 +616,71 @@ export function APChecksTable({ records }: { records: APCheckRecord[] }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>編輯支票資料</DialogTitle>
-            <DialogDescription>可維護支票號碼、銀行與開票日</DialogDescription>
+            <DialogDescription>可維護支票號碼、銀行、開票日與到期日</DialogDescription>
           </DialogHeader>
 
-          {/* 桌面版表格 */}
-          <div className="rounded-lg border hidden md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>供應商</TableHead>
-                  <TableHead>進貨單號</TableHead>
-                  <TableHead>支票號碼</TableHead>
-                  <TableHead>銀行</TableHead>
-                  <TableHead>開票日</TableHead>
-                  <TableHead>到期日</TableHead>
-                  <TableHead className="text-right">應付</TableHead>
-                  <TableHead className="text-right">已付</TableHead>
-                  <TableHead className="text-right">未付</TableHead>
-                  <TableHead>支票狀態</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {checkRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
-                      查無符合條件的支票資料
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  checkRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{row.supplierName}</TableCell>
-                      <TableCell>{row.orderNo}</TableCell>
-                      <TableCell>{row.checkNo || "-"}</TableCell>
-                      <TableCell>{row.checkBank || "-"}</TableCell>
-                      <TableCell>{row.checkIssueDate ? new Date(row.checkIssueDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
-                      <TableCell>{row.dueDate ? new Date(row.dueDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
-                      <TableCell className="text-right">{formatCurrencyOneDecimal(row.amountDue)}</TableCell>
-                      <TableCell className="text-right">{formatCurrencyOneDecimal(row.paidAmount)}</TableCell>
-                      <TableCell className="text-right">{formatCurrencyOneDecimal(row.outstanding)}</TableCell>
-                      <TableCell>{statusBadge(row.checkStatus)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" onClick={() => openEditCheckDialog(row)} disabled={processingId === row.id}>編輯</Button>
-                        <Button size="sm" variant="destructive" onClick={() => { setDeleteTarget(row); setShowDeleteDialog(true); }} disabled={processingId === row.id}>刪除</Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          {/* 手機版卡片列表 */}
-          <div className="block md:hidden space-y-4">
-            {checkRows.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">查無符合條件的支票資料</div>
-            ) : (
-              checkRows.map((row) => (
-                <APCheckMobileCard
-                  key={row.id}
-                  supplierName={row.supplierName}
-                  orderNo={row.orderNo}
-                  checkNo={row.checkNo}
-                  checkBank={row.checkBank}
-                  checkIssueDate={row.checkIssueDate}
-                  dueDate={row.dueDate}
-                  amountDue={row.amountDue}
-                  paidAmount={row.paidAmount}
-                  outstanding={row.outstanding}
-                  checkStatus={row.checkStatus}
-                  statusBadge={statusBadge(row.checkStatus)}
-                  onEdit={() => openEditCheckDialog(row)}
-                  onDelete={() => { setDeleteTarget(row); setShowDeleteDialog(true); }}
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="ap-check-no">支票號碼</Label>
+              <Input
+                id="ap-check-no"
+                value={editingCheckNo}
+                onChange={(event) => setEditingCheckNo(event.target.value)}
+                placeholder="請輸入支票號碼"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ap-check-bank">銀行</Label>
+              <Input
+                id="ap-check-bank"
+                value={editingCheckBank}
+                onChange={(event) => setEditingCheckBank(event.target.value)}
+                placeholder="請輸入銀行名稱"
+              />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="ap-check-issue-date">開票日</Label>
+                <Input
+                  id="ap-check-issue-date"
+                  type="date"
+                  value={editingCheckIssueDate}
+                  onChange={(event) => setEditingCheckIssueDate(event.target.value)}
                 />
-              ))
-            )}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="ap-check-due-date">到期日</Label>
+                <Input
+                  id="ap-check-due-date"
+                  type="date"
+                  value={editingDueDate}
+                  onChange={(event) => setEditingDueDate(event.target.value)}
+                />
+              </div>
+            </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEditCheckDialog} disabled={isPending}>
+              取消
+            </Button>
+            <Button onClick={saveCheckMeta} disabled={isPending || !editingCheckId}>
+              儲存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => !open && setShowDeleteDialog(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>刪除支票資料</DialogTitle>
+            <DialogDescription>此操作無法還原，請確認是否刪除。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={isPending}>
               取消
             </Button>
-            <Button variant="destructive" onClick={handleDeleteCheck} disabled={isPending}>
+            <Button variant="destructive" onClick={handleDeleteCheck} disabled={isPending || !deleteTarget}>
               確認刪除
             </Button>
           </DialogFooter>
