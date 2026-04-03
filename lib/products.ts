@@ -91,7 +91,7 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
   }))
 }
 
-export async function fetchProductsRows(supabase: any, from: number = 0, to: number = 19) {
+export async function fetchProductsRows(supabase: any, from: number = 0, to: number = 19, searchText: string = "") {
   const queryByPriority = [
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
     "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total",
@@ -102,11 +102,15 @@ export async function fetchProductsRows(supabase: any, from: number = 0, to: num
   ]
 
   for (const selectText of queryByPriority) {
-    const result = await supabase
+    let query = supabase
       .from("products")
       .select(selectText, { count: "exact" })
       .order("code", { ascending: true })
       .range(from, to)
+    if (searchText && searchText.trim() !== "") {
+      query = query.or(`code.ilike.%${searchText}%,name.ilike.%${searchText}%,spec.ilike.%${searchText}%,category.ilike.%${searchText}%`)
+    }
+    const result = await query
     if (!result.error) {
       return {
         rows: result.data || [],
@@ -116,11 +120,15 @@ export async function fetchProductsRows(supabase: any, from: number = 0, to: num
     }
   }
 
-  const finalAttempt = await supabase
+  let finalQuery = supabase
     .from("products")
     .select("code,name,spec,unit,category,base_price,cost,price,sale_price", { count: "exact" })
     .order("code", { ascending: true })
     .range(from, to)
+  if (searchText && searchText.trim() !== "") {
+    finalQuery = finalQuery.or(`code.ilike.%${searchText}%,name.ilike.%${searchText}%,spec.ilike.%${searchText}%,category.ilike.%${searchText}%`)
+  }
+  const finalAttempt = await finalQuery
 
   return {
     rows: finalAttempt.data || [],

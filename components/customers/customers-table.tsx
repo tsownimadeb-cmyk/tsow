@@ -1,7 +1,8 @@
 "use client"
 
-
-import { useState, useMemo, useEffect } from "react"
+import { useState, useEffect, useMemo, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
 import { Card } from "@/components/ui/card"
@@ -11,13 +12,30 @@ import { createClient } from "@/lib/supabase/client"
 import { CustomerDialog } from "@/components/customers/customer-dialog"
 
 export function CustomersTable({ customers: customersProp }: { customers: any[] }) {
+  const router = useRouter();
   const [customers, setCustomers] = useState(customersProp);
-  const [searchText, setSearchText] = useState("");
+  const initialSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('search') || "" : "";
+  const [searchText, setSearchText] = useState(initialSearch);
+  const debouncedSearch = useDebounce(searchText, 500);
+  const [, startTransition] = useTransition();
   const isMobile = useIsMobile();
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
   // 每個客戶的訂單明細資料
   const [orderItemsMap, setOrderItemsMap] = useState<{ [code: string]: any[] }>({});
   const [loadingMap, setLoadingMap] = useState<{ [code: string]: boolean }>({});
+  // 導航至新頁時同步新 props
+  useEffect(() => { setCustomers(customersProp); }, [customersProp]);
+  // 同步搜尋文字至 URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const current = params.get('search') || "";
+    if (debouncedSearch === current) return;
+    if (debouncedSearch) { params.set('search', debouncedSearch); } else { params.delete('search'); }
+    params.set('page', '1');
+    startTransition(() => { router.replace(`/customers?${params.toString()}`); });
+  }, [debouncedSearch, router]);
+
   // 全域商品對照
   const [products, setProducts] = useState<{ code: string, name: string, unit: string | null }[]>([]);
 
@@ -37,16 +55,8 @@ export function CustomersTable({ customers: customersProp }: { customers: any[] 
     return map;
   }, [products]);
 
-  const filteredCustomers = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    if (!keyword) return customers;
-    return (customers || []).filter((c: any) => {
-      return (
-        String(c.code || "").toLowerCase().includes(keyword) ||
-        String(c.name || "").toLowerCase().includes(keyword)
-      );
-    });
-  }, [customers, searchText]);
+  // 服務端已進行過濾到 customers props，直接使用
+  const filteredCustomers = customers;
 
 
   // 查詢客戶所有訂單明細

@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState, useEffect, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { useDebounce } from "@/hooks/use-debounce"
 import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -21,23 +22,23 @@ export function ProductsTable({ products }: ProductsTableProps) {
   const { toast } = useToast()
   const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
-  const [searchText, setSearchText] = useState("")
+  const initialSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('search') || "" : ""
+  const [searchText, setSearchText] = useState(initialSearch)
+  const debouncedSearch = useDebounce(searchText, 500)
+  const [, startTransition] = useTransition()
 
-  const filteredProducts = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return products
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const current = params.get('search') || ""
+    if (debouncedSearch === current) return
+    if (debouncedSearch) { params.set('search', debouncedSearch) } else { params.delete('search') }
+    params.set('page', '1')
+    startTransition(() => { router.replace(`/products?${params.toString()}`) })
+  }, [debouncedSearch, router])
 
-    return products.filter((product) => {
-      const haystacks = [
-        String(product.code || ""),
-        String(product.name || ""),
-        String(product.spec || ""),
-        String(product.category || ""),
-        String(product.unit || ""),
-      ]
-      return haystacks.some((value) => value.toLowerCase().includes(keyword))
-    })
-  }, [products, searchText])
+  // 服務端已進行過濾，直接使用 props
+  const filteredProducts = products
 
   const handleDelete = async (record: ProductListRow) => {
     const isConfirmed = window.confirm("確定要刪除此商品嗎？")

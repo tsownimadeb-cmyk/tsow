@@ -4,6 +4,7 @@ import PurchaseDialogWrapper from "@/components/purchases/purchase-dialog-wrappe
 import { PurchasesBatchActions } from "@/components/purchases/purchases-batch-actions"
 import { ErrorToast } from "@/components/ui/error-toast"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import { fetchPurchasesRows, normalizePurchases } from "@/lib/purchases"
 
 export default async function PurchasesPage(props: any) {
@@ -92,9 +93,9 @@ export default async function PurchasesPage(props: any) {
 
       {/* 分頁控制 */}
       <div className="flex items-center justify-center gap-4 mt-4">
-        <a href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</a>
+        <Link href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</Link>
         <span>第 {page} 頁 / 共 {totalPages} 頁</span>
-        <a href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</a>
+        <Link href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</Link>
         {/* 指定跳頁 */}
         <form method="get" action="/purchases" className="flex items-center gap-2" style={{ display: 'inline' }}>
           <input
