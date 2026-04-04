@@ -15,11 +15,15 @@ export default async function ARPage(props: any) {
     const searchParams = await props.searchParams
     const PAGE_SIZE = 20
     let page = 1
+    let searchText = ""
 
     if (searchParams && typeof searchParams === "object") {
       const rawPage = searchParams.page
       const parsed = Number(Array.isArray(rawPage) ? rawPage[0] : rawPage)
       if (!Number.isNaN(parsed) && parsed > 0) page = parsed
+
+      const rawSearch = searchParams.search
+      searchText = String(Array.isArray(rawSearch) ? rawSearch[0] : rawSearch || "").trim()
     }
 
     const from = (page - 1) * PAGE_SIZE
@@ -27,6 +31,8 @@ export default async function ARPage(props: any) {
 
     const supabase = await createClient()
     const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
+    const escapeLikeValue = (value: string) => value.replaceAll("%", "\\%").replaceAll(",", "\\,")
+    const quoteInValue = (value: string) => `"${value.replaceAll('"', '\\"')}"`
     const CHUNK_SIZE = 50
     const salesOrderItemsFetchErrors: string[] = []
 
@@ -59,11 +65,39 @@ export default async function ARPage(props: any) {
       return chunks
     }
 
-    const { data: salesOrders, error: salesError, count: salesOrderCount } = await supabase
+    let salesQuery = supabase
       .from("sales_orders")
       .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at", { count: "exact" })
+      .eq("is_paid", false)
       .order("created_at", { ascending: false })
       .range(from, to)
+
+    if (searchText !== "") {
+      const likeKeyword = escapeLikeValue(searchText)
+      const { data: matchedCustomers } = await supabase
+        .from("customers")
+        .select("code")
+        .or(`code.ilike.%${likeKeyword}%,name.ilike.%${likeKeyword}%`)
+        .limit(200)
+
+      const matchedCodes = (matchedCustomers || [])
+        .map((customer: { code?: string | null }) => String(customer.code || "").trim())
+        .filter(Boolean)
+
+      const filters = [
+        `order_no.ilike.%${likeKeyword}%`,
+        `customer_cno.ilike.%${likeKeyword}%`,
+        `notes.ilike.%${likeKeyword}%`,
+      ]
+
+      if (matchedCodes.length > 0) {
+        filters.push(`customer_cno.in.(${matchedCodes.map(quoteInValue).join(",")})`)
+      }
+
+      salesQuery = salesQuery.or(filters.join(","))
+    }
+
+    const { data: salesOrders, error: salesError, count: salesOrderCount } = await salesQuery
 
     if (salesError) {
       console.error("Error fetching sales orders:", salesError)
@@ -78,9 +112,66 @@ export default async function ARPage(props: any) {
       )
     }
 
-    const salesOrderIds = (salesOrders || []).map((so) => so.id)
+    const primarySalesOrders = salesOrders || []
     const total = salesOrderCount ?? 0
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+    const currentPageCustomerCodes = Array.from(
+      new Set(
+        primarySalesOrders
+          .map((so) => String(so.customer_cno || "").trim())
+          .filter(Boolean),
+      ),
+    )
+
+    const relatedUnpaidSalesOrders: typeof primarySalesOrders = []
+    if (currentPageCustomerCodes.length) {
+      const customerChunks = chunkArray(currentPageCustomerCodes, CHUNK_SIZE)
+      const relatedSalesResults = await Promise.allSettled(
+        customerChunks.map((customerChunk) =>
+          supabase
+            .from("sales_orders")
+            .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
+            .in("customer_cno", customerChunk)
+            .eq("is_paid", false)
+            .order("created_at", { ascending: false }),
+        ),
+      )
+
+      relatedSalesResults.forEach((result, index) => {
+        const customerChunk = customerChunks[index] || []
+        if (result.status === "rejected") {
+          logSupabaseChunkError("Error fetching related unpaid sales orders", result.reason, {
+            chunkSize: customerChunk.length,
+            sampleCustomerCode: customerChunk[0] || null,
+          })
+          return
+        }
+
+        const { data: chunkOrders, error: chunkError } = result.value
+        if (chunkError) {
+          logSupabaseChunkError("Error fetching related unpaid sales orders", chunkError, {
+            chunkSize: customerChunk.length,
+            sampleCustomerCode: customerChunk[0] || null,
+          })
+          return
+        }
+
+        if (chunkOrders?.length) {
+          relatedUnpaidSalesOrders.push(...chunkOrders)
+        }
+      })
+    }
+
+    const mergedSalesOrders = Array.from(
+      new Map(
+        [...primarySalesOrders, ...relatedUnpaidSalesOrders].map((so) => [String(so.id), so]),
+      ).values(),
+    ).sort(
+      (a, b) => new Date(String(b.created_at || 0)).getTime() - new Date(String(a.created_at || 0)).getTime(),
+    )
+
+    const salesOrderIds = mergedSalesOrders.map((so) => so.id)
 
     const salesOrderItems: Array<Record<string, unknown>> = []
     let salesOrderItemsFetchFailed = false
@@ -277,73 +368,63 @@ export default async function ARPage(props: any) {
       return map
     }, new Map<string, any>())
 
-    const customerCodes = new Set<string>()
-    for (const so of salesOrders || []) {
-      if (so.customer_cno) customerCodes.add(String(so.customer_cno))
-    }
-    for (const row of arRows || []) {
-      if (row.customer_cno) customerCodes.add(String(row.customer_cno))
-    }
-
-    const customerCodeList = Array.from(customerCodes)
-    const { data: customers } = customerCodeList.length
-      ? await supabase
-        .from("customers")
-        .select("code,name")
-        .in("code", customerCodeList)
-        .order("code", { ascending: true })
-      : { data: [], error: null }
+    const { data: customers } = await supabase
+      .from("customers")
+      .select("code,name")
+      .order("code", { ascending: true })
 
     const customersList = (customers || []) as Customer[]
     const customerMap = new Map(customersList.map((customer) => [customer.code, customer] as const))
 
-    const enrichedRecords: AccountsReceivable[] = (salesOrders || []).map((so) => {
-      const existing = arMap.get(so.id)
-      const salesTotalAmount = Number(so.total_amount)
-      const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
-      const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
-      const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
+    const enrichedRecords: AccountsReceivable[] = mergedSalesOrders
+      .map((so) => {
+        const existing = arMap.get(so.id)
+        const salesTotalAmount = Number(so.total_amount)
+        const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
+        const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
+        const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
 
-      const existingPaidAmount = existing
-        ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
-        : so.is_paid
-          ? amountDue
-          : 0
+        const existingPaidAmount = existing
+          ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
+          : so.is_paid
+            ? amountDue
+            : 0
 
-      let paidAmount = Number.isFinite(existingPaidAmount)
-        ? existingPaidAmount
-        : so.is_paid
-          ? amountDue
-          : 0
+        let paidAmount = Number.isFinite(existingPaidAmount)
+          ? existingPaidAmount
+          : so.is_paid
+            ? amountDue
+            : 0
 
-      if (so.is_paid && paidAmount <= 0) {
-        paidAmount = amountDue
-      }
+        if (so.is_paid && paidAmount <= 0) {
+          paidAmount = amountDue
+        }
 
-      if (paidAmount > amountDue) {
-        paidAmount = amountDue
-      }
+        if (paidAmount > amountDue) {
+          paidAmount = amountDue
+        }
 
-      return {
-        id: existing?.id || `virtual-${so.id}`,
-        sales_order_id: so.id,
-        customer_cno: effectiveCustomerCno,
-        amount_due: amountDue,
-        paid_amount: paidAmount,
-        overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
-        paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
-        due_date: existing?.due_date || so.order_date,
-        status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
-        notes: existing?.notes || so.notes || null,
-        created_at: existing?.created_at || so.created_at,
-        updated_at: existing?.updated_at || so.updated_at,
-        sales_order: {
-          ...so,
-          items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
-        },
-        customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
-      }
-    })
+        return {
+          id: existing?.id || `virtual-${so.id}`,
+          sales_order_id: so.id,
+          customer_cno: effectiveCustomerCno,
+          amount_due: amountDue,
+          paid_amount: paidAmount,
+          overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
+          paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
+          due_date: existing?.due_date || so.order_date,
+          status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
+          notes: existing?.notes || so.notes || null,
+          created_at: existing?.created_at || so.created_at,
+          updated_at: existing?.updated_at || so.updated_at,
+          sales_order: {
+            ...so,
+            items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
+          },
+          customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
+        }
+      })
+      .filter((record) => Number(record.amount_due) - Number(record.paid_amount) > 0)
 
     function getPageUrl(targetPage: number) {
       const params = new URLSearchParams()
@@ -387,8 +468,8 @@ export default async function ARPage(props: any) {
 
         {enrichedRecords.length === 0 ? (
           <div className="rounded-lg border border-border bg-card p-8 text-center space-y-2">
-            <p className="text-lg font-semibold">目前沒有可顯示的應收資料</p>
-            <p className="text-sm text-muted-foreground">可切換頁碼或稍後重新整理。</p>
+            <p className="text-lg font-semibold">目前沒有未收訂單</p>
+            <p className="text-sm text-muted-foreground">目前所有訂單都已收款，或可稍後重新整理。</p>
             {page > 1 && (
               <div className="pt-2">
                 <Link href={getPageUrl(1)} className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-accent">
@@ -400,6 +481,7 @@ export default async function ARPage(props: any) {
         ) : (
           <ARTableClient
             records={enrichedRecords}
+            initialSearch={searchText}
             allCustomers={customersList.map((customer) => ({
               code: customer.code,
               name: customer.name || customer.code,

@@ -378,11 +378,11 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                             sale.items.map((item) => {
                               const code = String(item.code ?? '').trim();
                               const product = productMap.get(code);
-                              const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
+                              const displayName = product ? product.name : `${code}(待查)`;
                               return (
                                 <TableRow key={item.id}>
                                   <TableCell>{displayName}</TableCell>
-                                  <TableCell className="text-right">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</TableCell>
+                                  <TableCell className="text-right">{item.quantity}</TableCell>
                                   <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
                                   <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
                                 </TableRow>
@@ -463,11 +463,11 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
                             {sale.items.map((item) => {
                               const code = String(item.code ?? '').trim();
                               const product = productMap.get(code);
-                              const displayName = product ? `${product.name}${product.unit ? ` (${product.unit})` : ''}` : `${code}(待查)`;
+                              const displayName = product ? product.name : `${code}(待查)`;
                               return (
                                 <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
                                   <span className="flex-1 truncate">{displayName}</span>
-                                  <span className="w-10 text-right">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</span>
+                                  <span className="w-10 text-right">{item.quantity}</span>
                                   <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</span>
                                 </div>
                               )

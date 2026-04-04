@@ -35,7 +35,7 @@ export function APSupplierMobileCard({
       <div className="flex justify-between items-center">
         <div>
           <div className="font-semibold text-base">{supplierName}</div>
-          <div className="text-xs text-muted-foreground">{supplierId}・{orderCount} 筆單據</div>
+          <div className="text-xs text-muted-foreground">{orderCount} 筆單據</div>
         </div>
         <div className="text-right">
           <div className="text-xs text-muted-foreground">應付合計</div>

@@ -10,12 +10,13 @@ const ARTable = dynamic(
 
 interface ARTableClientProps {
   records: AccountsReceivable[]
+  initialSearch?: string
   allCustomers?: Array<{
     code: string
     name: string
   }>
 }
 
-export function ARTableClient({ records, allCustomers = [] }: ARTableClientProps) {
-  return <ARTable records={records} allCustomers={allCustomers} />
+export function ARTableClient({ records, initialSearch = "", allCustomers = [] }: ARTableClientProps) {
+  return <ARTable records={records} initialSearch={initialSearch} allCustomers={allCustomers} />
 }

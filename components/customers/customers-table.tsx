@@ -241,7 +241,7 @@ export function CustomersTable({ customers: customersProp }: { customers: any[] 
                                   <tr key={item.sales_order_id + '-' + code + '-' + idx} className="border-b last:border-b-0">
                                     <td className="px-3 py-2 text-center align-middle">{item.order_date ? new Date(item.order_date).toLocaleDateString() : '-'}</td>
                                     <td className="px-3 py-2 text-left align-middle">{displayName}</td>
-                                    <td className="px-3 py-2 text-center align-middle">{item.quantity}{product && product.unit ? ` (${product.unit})` : ''}</td>
+                                    <td className="px-3 py-2 text-center align-middle">{item.quantity}</td>
                                     <td className="px-3 py-2 text-right align-middle">{typeof item.unit_price === 'number' ? item.unit_price.toLocaleString() : '-'}</td>
                                     <td className="px-3 py-2 text-right align-middle">{typeof item.total_amount === 'number' ? item.total_amount.toLocaleString() : '-'}</td>
                                   </tr>

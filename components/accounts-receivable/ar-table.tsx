@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState, useTransition } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -34,11 +34,13 @@ import {
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { useDebounce } from "@/hooks/use-debounce"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { AccountsReceivable } from "@/lib/types"
 
 interface ARTableProps {
   records: AccountsReceivable[]
+  initialSearch?: string
   allCustomers?: Array<{
     code: string
     name: string
@@ -51,10 +53,12 @@ const AR_PAYMENT_TAG = "[AR_PAYMENT]"
 
 type PaymentMethod = "cash" | "check"
 
-export function ARTable({ records, allCustomers = [] }: ARTableProps) {
+export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTableProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
-  const [search, setSearch] = useState("")
+  const [search, setSearch] = useState(initialSearch)
+  const debouncedSearch = useDebounce(search, 300)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllCustomers, setShowAllCustomers] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -103,6 +107,27 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
     orderDate: string | null
     amountDue: number
   } | null>(null)
+
+  useEffect(() => {
+    setSearch(initialSearch)
+  }, [initialSearch])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    const currentSearch = params.get("search") || ""
+
+    if (debouncedSearch === currentSearch) return
+
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch)
+    } else {
+      params.delete("search")
+    }
+    params.delete("page")
+
+    const query = params.toString()
+    router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
+  }, [debouncedSearch, router, searchParams])
 
   const filteredRecords = records.filter(
     (record) =>
@@ -182,6 +207,38 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
   }
 
+  const formatQuantity = (value: unknown) => {
+    const numericValue = Number(value ?? 0)
+    if (!Number.isFinite(numericValue)) return "-"
+    return Number.isInteger(numericValue)
+      ? numericValue.toLocaleString("zh-TW")
+      : numericValue.toLocaleString("zh-TW", { maximumFractionDigits: 2 })
+  }
+
+  const buildOrderDetails = (
+    orderItems: Array<{
+      product_pno?: string | null
+      code?: string | null
+      quantity?: number | string | null
+      product?: { name?: string | null } | null
+    }>,
+  ) => {
+    const details = orderItems.map((item) => {
+      const rawPno = String(item.product_pno || item.code || "").trim()
+      const productName = String(item.product?.name || "").trim()
+
+      return {
+        productName: productName || `[商品代碼:${rawPno || "空白"}]`,
+        quantity: formatQuantity(item.quantity),
+      }
+    })
+
+    return {
+      products: details.map((detail) => detail.productName).filter(Boolean).join("、") || "-",
+      quantities: details.map((detail) => detail.quantity).filter(Boolean).join("、") || "-",
+    }
+  }
+
   const customerSummaryMap = allCustomers.reduce((map, customer) => {
     const customerCno = customer.code || "未指定"
     const customerName = customer.name || "散客"
@@ -216,7 +273,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       orderNumber: string
       orderDate: string | null
       products: string
-      rawProductPnos: string
+      quantities: string
       amountDue: number
       paidAmount: number
       overpaidAmount: number
@@ -241,18 +298,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       current.totalOutstanding += outstanding
       current.orderCount += 1
       const orderItems = record.sales_order?.items || []
-      const productNames = orderItems
-        .map((item) => {
-          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
-          const productName = String(item.product?.name || "").trim()
-          return productName || `[明細原始代碼:${rawPno || "空白"}]`
-        })
-        .filter(Boolean)
-      const rawPnoList = orderItems
-        .map((item) => {
-          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
-          return rawPno || "(空白)"
-        })
+      const { products, quantities } = buildOrderDetails(orderItems)
 
       current.orders.push({
         id: record.id,
@@ -260,8 +306,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
         customerCno: record.customer_cno || null,
         orderNumber: record.sales_order?.order_no || "-",
         orderDate: record.sales_order?.order_date || record.due_date || null,
-        products: productNames.join("、") || "-",
-        rawProductPnos: rawPnoList.join("、") || "-",
+        products,
+        quantities,
         amountDue: record.amount_due,
         paidAmount: record.paid_amount,
         overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
@@ -272,18 +318,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
       })
     } else {
       const orderItems = record.sales_order?.items || []
-      const productNames = orderItems
-        .map((item) => {
-          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
-          const productName = String(item.product?.name || "").trim()
-          return productName || `[明細原始代碼:${rawPno || "空白"}]`
-        })
-        .filter(Boolean)
-      const rawPnoList = orderItems
-        .map((item) => {
-          const rawPno = String((item as { product_pno?: string | null; code?: string | null }).product_pno || item.code || "").trim()
-          return rawPno || "(空白)"
-        })
+      const { products, quantities } = buildOrderDetails(orderItems)
 
       map.set(key, {
         customerName,
@@ -300,8 +335,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
             customerCno: record.customer_cno || null,
             orderNumber: record.sales_order?.order_no || "-",
             orderDate: record.sales_order?.order_date || record.due_date || null,
-            products: productNames.join("、") || "-",
-            rawProductPnos: rawPnoList.join("、") || "-",
+            products,
+            quantities,
             amountDue: record.amount_due,
             paidAmount: record.paid_amount,
             overpaidAmount: Math.max(0, Number(record.overpaid_amount ?? 0) || 0),
@@ -431,9 +466,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
 
   const customerSummaries = Array.from(customerSummaryMap.values())
     .filter((summary) => {
-      if (!search || summary.orders.length > 0) {
-        return true
-      }
+      if (!search) return true
 
       const keyword = search.toLowerCase()
       return summary.customerCno.toLowerCase().includes(keyword) || summary.customerName.toLowerCase().includes(keyword)
@@ -1399,7 +1432,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                 <TableHead>銷貨單號</TableHead>
                                 <TableHead className="hidden sm:table-cell">日期</TableHead>
                                 <TableHead>商品</TableHead>
-                                <TableHead className="hidden md:table-cell">明細原始代碼</TableHead>
+                                <TableHead className="hidden md:table-cell">數量</TableHead>
                                 <TableHead className="text-right">單筆金額</TableHead>
                                 <TableHead className="hidden sm:table-cell text-right">已收金額</TableHead>
                                 <TableHead className="text-right">未收金額</TableHead>
@@ -1423,7 +1456,7 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                       {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
                                     </TableCell>
                                     <TableCell>{order.products}</TableCell>
-                                    <TableCell className="hidden md:table-cell text-muted-foreground">{order.rawProductPnos}</TableCell>
+                                    <TableCell className="hidden md:table-cell text-muted-foreground">{order.quantities}</TableCell>
                                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
                                     <TableCell className="hidden sm:table-cell text-right">{formatCurrencyOneDecimal(order.paidAmount)}</TableCell>
                                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
@@ -1525,8 +1558,8 @@ export function ARTable({ records, allCustomers = [] }: ARTableProps) {
                                     <span className="flex-1 truncate">{order.products}</span>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
-                                    <span className="font-semibold">原始代碼</span>
-                                    <span className="flex-1 truncate text-muted-foreground">{order.rawProductPnos}</span>
+                                    <span className="font-semibold">數量</span>
+                                    <span className="flex-1 truncate text-muted-foreground">{order.quantities}</span>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
                                     <span className="font-semibold">金額</span>

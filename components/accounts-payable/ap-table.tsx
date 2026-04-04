@@ -421,7 +421,7 @@ export function APTable({ records }: APTableProps) {
                     <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                       <div className="col-span-4">
                         <p className="font-medium">{summary.supplierName}</p>
-                        <p className="text-xs text-muted-foreground">{summary.supplierId}・{summary.orderCount} 筆單據</p>
+                        <p className="text-xs text-muted-foreground">{summary.orderCount} 筆單據</p>
                       </div>
                       <div className="col-span-4 text-right text-sm text-muted-foreground">應付合計 {renderAmount(summary.totalDue)}</div>
                       <div className="col-span-4 text-right text-base font-semibold text-destructive">總欠款 {renderAmount(summary.totalOutstanding)}</div>
