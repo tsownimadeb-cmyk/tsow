@@ -124,10 +124,14 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
             .insert({ sales_order_id: saleId, ...arPayload })
 
           if (arInsertError) {
+
             const text = `${arInsertError.message || ""} ${arInsertError.details || ""}`.toLowerCase()
             const isDuplicate = arInsertError.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
 
-            if (!isDuplicate) {
+            if (isDuplicate) {
+              toast({ title: "錯誤", description: "已有相同單號", variant: "destructive" })
+              return
+            } else {
               toast({ title: "錯誤", description: arInsertError.message || "無法建立應收帳款", variant: "destructive" })
               return
             }

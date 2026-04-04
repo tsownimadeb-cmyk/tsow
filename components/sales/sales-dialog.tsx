@@ -134,8 +134,29 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     })
   }
 
+  const getDbErrorText = (error: unknown) => {
+    if (!error || typeof error !== "object") return ""
+    const maybe = error as { message?: string; details?: string; hint?: string }
+    return `${maybe.message || ""} ${maybe.details || ""} ${maybe.hint || ""}`.toLowerCase()
+  }
+
   const formatDbError = (error: unknown, fallback: string) => {
     if (!error) return fallback
+
+    const errorText = getDbErrorText(error)
+    const isDuplicateOrderNumber =
+      isUniqueViolationError(error) &&
+      (
+        errorText.includes("sales_orders_order_number_key") ||
+        errorText.includes("sales_orders_order_no_key") ||
+        errorText.includes("order_number") ||
+        errorText.includes("order_no")
+      )
+
+    if (isDuplicateOrderNumber) {
+      return "已有相同單號"
+    }
+
     if (error instanceof Error) return error.message || fallback
 
     if (typeof error === "object") {
@@ -162,7 +183,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const isUniqueViolationError = (error: unknown) => {
     if (!error || typeof error !== "object") return false
     const maybe = error as { code?: string; message?: string; details?: string }
-    const text = `${maybe.message || ""} ${maybe.details || ""}`.toLowerCase()
+    const text = getDbErrorText(error)
     return maybe.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
   }
 
