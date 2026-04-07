@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type SalesOrder = {
+export type SalesOrder = {
   id: string;
   orderNumber: string;
   orderDate: string;
@@ -11,7 +11,7 @@ type SalesOrder = {
   customerName: string | null;
 };
 
-type SalesOrderItem = {
+export type SalesOrderItem = {
   id: string;
   productId: string;
   productName: string;

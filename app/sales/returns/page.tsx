@@ -8,32 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-// 假設有 OrderSelector 元件
-import OrderSelector from "@/components/sales/order-selector";
-
-// 型別定義
-// 可根據實際 sales_orders 結構調整
-
-type SalesOrder = {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  // ...其他欄位
-};
-
-type SalesOrderItem = {
-  id: string;
-  productId: string;
-  productName: string;
-  originalQty: number;
-  salePrice: number;
-  // ...其他欄位
-};
+import OrderSelector, {
+  type SalesOrder as ReturnSalesOrder,
+  type SalesOrderItem as ReturnSalesOrderItem,
+} from "@/components/sales/order-selector";
 
 export default function SalesReturnsPage() {
   // 狀態設計
-  const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
-  const [orderItems, setOrderItems] = useState<SalesOrderItem[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<ReturnSalesOrder | null>(null);
+  const [orderItems, setOrderItems] = useState<ReturnSalesOrderItem[]>([]);
   const [returnItems, setReturnItems] = useState<{
     productId: string;
     productName: string;
@@ -43,11 +26,9 @@ export default function SalesReturnsPage() {
     reason: string;
   }[]>([]);
   const [saving, setSaving] = useState(false);
-  // 銷貨單選項（AutoComplete）
-  const [orderOptions, setOrderOptions] = useState<SalesOrder[]>([]);
 
   // 處理銷貨單選取
-  const handleOrderSelect = (order: SalesOrder, items: SalesOrderItem[]) => {
+  const handleOrderSelect = (order: ReturnSalesOrder, items: ReturnSalesOrderItem[]) => {
     setSelectedOrder(order);
     setOrderItems(items);
     setReturnItems(items.map(i => ({
@@ -75,7 +56,7 @@ export default function SalesReturnsPage() {
   };
 
   // 儲存
-  const router = typeof window !== "undefined" ? require("next/navigation").useRouter() : null;
+  const router = useRouter();
 
   const handleSave = async () => {
     if (!selectedOrder) return;
@@ -145,9 +126,9 @@ export default function SalesReturnsPage() {
         if (updateError) throw new Error(updateError.message || `商品 ${item.productName} 庫存更新失敗`);
       }
 
-      toast({ title: "退回成功", description: "銷貨退回已完成。", variant: "success" });
+      toast({ title: "退回成功", description: "銷貨退回已完成。" });
       setTimeout(() => {
-        if (router) router.push("/sales");
+        router.push("/sales");
       }, 800);
     } catch (err: any) {
       toast({ title: "儲存失敗", description: err.message || String(err), variant: "destructive" });

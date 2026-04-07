@@ -124,25 +124,21 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
             .insert({ sales_order_id: saleId, ...arPayload })
 
           if (arInsertError) {
-
             const text = `${arInsertError.message || ""} ${arInsertError.details || ""}`.toLowerCase()
             const isDuplicate = arInsertError.code === "23505" || text.includes("duplicate key") || text.includes("unique constraint")
 
             if (isDuplicate) {
-              toast({ title: "錯誤", description: "已有相同單號", variant: "destructive" })
-              return
+              const { error: retryUpdateError } = await supabase
+                .from("accounts_receivable")
+                .update(arPayload)
+                .eq("sales_order_id", saleId)
+
+              if (retryUpdateError) {
+                toast({ title: "錯誤", description: retryUpdateError.message || "無法同步應收帳款", variant: "destructive" })
+                return
+              }
             } else {
               toast({ title: "錯誤", description: arInsertError.message || "無法建立應收帳款", variant: "destructive" })
-              return
-            }
-
-            const { error: retryUpdateError } = await supabase
-              .from("accounts_receivable")
-              .update(arPayload)
-              .eq("sales_order_id", saleId)
-
-            if (retryUpdateError) {
-              toast({ title: "錯誤", description: retryUpdateError.message || "無法同步應收帳款", variant: "destructive" })
               return
             }
           }
@@ -179,8 +175,14 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
       const supabase = createClient()
 
       // 取得銷貨明細，若 sales_order_items 為 undefined 則查詢 DB
-      let saleItems = sale.sales_order_items
-      if (!Array.isArray(saleItems)) {
+      let saleItems: Array<{ code: string | null; quantity: number | null }> = Array.isArray(sale.sales_order_items)
+        ? sale.sales_order_items.map((item) => ({
+            code: item.code ?? null,
+            quantity: item.quantity ?? 0,
+          }))
+        : []
+
+      if (saleItems.length === 0) {
         const { data: items, error: itemsError } = await supabase
           .from("sales_order_items")
           .select("code,quantity")
@@ -189,7 +191,10 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
           console.error('[DEBUG] 查詢銷貨明細失敗:', itemsError)
           throw new Error(itemsError.message || '查詢銷貨明細失敗')
         }
-        saleItems = items || []
+        saleItems = (items || []).map((item) => ({
+          code: item.code ?? null,
+          quantity: item.quantity ?? 0,
+        }))
       }
       console.log('[DEBUG] sales_order_items:', saleItems)
 

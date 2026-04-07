@@ -16,6 +16,7 @@ export default async function ARPage(props: any) {
     const PAGE_SIZE = 20
     let page = 1
     let searchText = ""
+    let viewMode: "all" | "unpaid" = "unpaid"
 
     if (searchParams && typeof searchParams === "object") {
       const rawPage = searchParams.page
@@ -24,6 +25,12 @@ export default async function ARPage(props: any) {
 
       const rawSearch = searchParams.search
       searchText = String(Array.isArray(rawSearch) ? rawSearch[0] : rawSearch || "").trim()
+
+      const rawView = searchParams.view
+      const normalizedView = String(Array.isArray(rawView) ? rawView[0] : rawView || "").trim().toLowerCase()
+      if (normalizedView === "all") {
+        viewMode = "all"
+      }
     }
 
     const from = (page - 1) * PAGE_SIZE
@@ -68,7 +75,14 @@ export default async function ARPage(props: any) {
     let salesQuery = supabase
       .from("sales_orders")
       .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at", { count: "exact" })
-      .eq("is_paid", false)
+
+    if (viewMode === "unpaid") {
+      salesQuery = salesQuery.eq("is_paid", false)
+    }
+
+    salesQuery = salesQuery
+      .order("customer_cno", { ascending: true, nullsFirst: false })
+      .order("order_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(from, to)
 
@@ -133,7 +147,8 @@ export default async function ARPage(props: any) {
             .from("sales_orders")
             .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
             .in("customer_cno", customerChunk)
-            .eq("is_paid", false)
+            .order("customer_cno", { ascending: true, nullsFirst: false })
+            .order("order_date", { ascending: false, nullsFirst: false })
             .order("created_at", { ascending: false }),
         ),
       )
@@ -404,6 +419,12 @@ export default async function ARPage(props: any) {
           paidAmount = amountDue
         }
 
+        const status: AccountsReceivable["status"] = so.is_paid
+          ? "paid"
+          : paidAmount > 0
+            ? "partially_paid"
+            : "unpaid"
+
         return {
           id: existing?.id || `virtual-${so.id}`,
           sales_order_id: so.id,
@@ -413,7 +434,7 @@ export default async function ARPage(props: any) {
           overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
           paid_at: existing?.paid_at || (so.is_paid ? so.updated_at : null),
           due_date: existing?.due_date || so.order_date,
-          status: so.is_paid ? "paid" : paidAmount > 0 ? "partially_paid" : "unpaid",
+          status,
           notes: existing?.notes || so.notes || null,
           created_at: existing?.created_at || so.created_at,
           updated_at: existing?.updated_at || so.updated_at,
@@ -424,7 +445,10 @@ export default async function ARPage(props: any) {
           customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
         }
       })
-      .filter((record) => Number(record.amount_due) - Number(record.paid_amount) > 0)
+
+    const hasActiveSearch = searchText !== ""
+    const initialShowAllCustomers = viewMode === "all"
+    const shouldRenderTable = enrichedRecords.length > 0 || hasActiveSearch
 
     function getPageUrl(targetPage: number) {
       const params = new URLSearchParams()
@@ -466,7 +490,7 @@ export default async function ARPage(props: any) {
           </div>
         )}
 
-        {enrichedRecords.length === 0 ? (
+        {!shouldRenderTable ? (
           <div className="rounded-lg border border-border bg-card p-8 text-center space-y-2">
             <p className="text-lg font-semibold">目前沒有未收訂單</p>
             <p className="text-sm text-muted-foreground">目前所有訂單都已收款，或可稍後重新整理。</p>
@@ -479,14 +503,29 @@ export default async function ARPage(props: any) {
             )}
           </div>
         ) : (
-          <ARTableClient
-            records={enrichedRecords}
-            initialSearch={searchText}
-            allCustomers={customersList.map((customer) => ({
-              code: customer.code,
-              name: customer.name || customer.code,
-            }))}
-          />
+          <div className="space-y-4">
+            {hasActiveSearch && enrichedRecords.length === 0 && (
+              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 space-y-2">
+                <p className="text-sm font-semibold text-amber-700">找不到符合「{searchText}」的未收訂單</p>
+                <p className="text-xs text-amber-700/80">請調整關鍵字，或清除搜尋後重新查看全部應收資料。</p>
+                <div>
+                  <Link href="/accounts-receivable" className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-accent">
+                    清除搜尋
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            <ARTableClient
+              records={enrichedRecords}
+              initialSearch={searchText}
+              initialShowAllCustomers={initialShowAllCustomers}
+              allCustomers={customersList.map((customer) => ({
+                code: customer.code,
+                name: customer.name || customer.code,
+              }))}
+            />
+          </div>
         )}
 
         <div className="flex items-center justify-center gap-4 mt-2">

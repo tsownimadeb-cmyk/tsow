@@ -417,6 +417,7 @@ export function Sidebar() {
       icon: CreditCard,
       children: [
         { name: "應收帳款", href: "/accounts-receivable", icon: CreditCard },
+          { name: "收款履歷", href: "/accounts-receivable/history", icon: CreditCard },
         { name: "應付帳款", href: "/accounts-payable", icon: CreditCard },
         {
           name: "支票管理",

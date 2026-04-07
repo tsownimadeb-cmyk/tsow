@@ -241,7 +241,7 @@ export function ProductsBatchActions() {
       }
 
       const headers = parseCsvLine(csvLines[0]).map((header) => normalizeImportHeader(header))
-      const requiredColumns = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
+      const requiredColumns: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
 
       for (const requiredColumn of requiredColumns) {
         if (!headers.includes(requiredColumn)) {

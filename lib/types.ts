@@ -23,6 +23,7 @@ export interface Supplier {
 export interface Customer {
   code: string
   name: string
+  price_level?: string | null
   contact_person: string | null
   tel1: string | null
   tel11: string | null

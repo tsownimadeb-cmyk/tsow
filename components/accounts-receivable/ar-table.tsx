@@ -41,6 +41,7 @@ import type { AccountsReceivable } from "@/lib/types"
 interface ARTableProps {
   records: AccountsReceivable[]
   initialSearch?: string
+  initialShowAllCustomers?: boolean
   allCustomers?: Array<{
     code: string
     name: string
@@ -53,14 +54,19 @@ const AR_PAYMENT_TAG = "[AR_PAYMENT]"
 
 type PaymentMethod = "cash" | "check"
 
-export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTableProps) {
+export function ARTable({
+  records,
+  initialSearch = "",
+  initialShowAllCustomers = false,
+  allCustomers = [],
+}: ARTableProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const debouncedSearch = useDebounce(search, 300)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
-  const [showAllCustomers, setShowAllCustomers] = useState(false)
+  const [showAllCustomers, setShowAllCustomers] = useState(initialShowAllCustomers)
   const [isPending, startTransition] = useTransition()
   const [isRowActionPending, startRowActionTransition] = useTransition()
   const [processingCustomerKey, setProcessingCustomerKey] = useState<string | null>(null)
@@ -113,6 +119,10 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
   }, [initialSearch])
 
   useEffect(() => {
+    setShowAllCustomers(initialShowAllCustomers)
+  }, [initialShowAllCustomers])
+
+  useEffect(() => {
     const params = new URLSearchParams(searchParams.toString())
     const currentSearch = params.get("search") || ""
 
@@ -129,6 +139,17 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
     router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
   }, [debouncedSearch, router, searchParams])
 
+  const updateCustomerView = (nextShowAllCustomers: boolean) => {
+    setShowAllCustomers(nextShowAllCustomers)
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("view", nextShowAllCustomers ? "all" : "unpaid")
+    params.delete("page")
+
+    const query = params.toString()
+    router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
+  }
+
   const filteredRecords = records.filter(
     (record) =>
       record.customer_cno?.toLowerCase().includes(search.toLowerCase()) ||
@@ -140,6 +161,109 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
   const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
   const overpaidAmount = filteredRecords.reduce((sum, record) => sum + Math.max(0, Number(record.overpaid_amount ?? 0) || 0), 0)
   const outstandingAmount = totalAmount - paidAmount
+
+  const customerNameMap = new Map(
+    allCustomers.map((customer) => [String(customer.code || "").trim(), String(customer.name || customer.code || "").trim()] as const),
+  )
+
+  const resolveCustomerName = (customerCno: string | null | undefined) => {
+    const normalized = String(customerCno || "").trim()
+    if (!normalized || normalized === "未指定") return "散客"
+    return customerNameMap.get(normalized) || normalized
+  }
+
+  const getReceiptErrorMessage = (error: unknown) => {
+    const normalized = error as {
+      message?: string
+      details?: string
+      hint?: string
+      code?: string
+    }
+
+    const messageParts = [normalized?.message, normalized?.details, normalized?.hint, normalized?.code]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+
+    const combinedMessage = messageParts.join(" | ") || "收款履歷寫入失敗"
+    const lowerMessage = combinedMessage.toLowerCase()
+
+    if (lowerMessage.includes("relation") && lowerMessage.includes("ar_receipts")) {
+      return "找不到資料表 `ar_receipts`，請先在 Supabase 執行 `scripts/031-create-ar-receipts.sql`。"
+    }
+
+    if (lowerMessage.includes("permission denied") || lowerMessage.includes("row-level security")) {
+      return "`ar_receipts` 權限不足，請在 Supabase 執行 `scripts/032-fix-ar-receipts-permissions.sql`。"
+    }
+
+    return combinedMessage
+  }
+
+  const getMissingReceiptField = (message: string) => {
+    const lowerMessage = message.toLowerCase()
+    const fieldTokens = [
+      "sales_order_id",
+      "customer_name",
+      "check_no",
+      "check_due_date",
+      "notes",
+      "ar_id",
+    ]
+
+    return fieldTokens.find((field) => lowerMessage.includes(field)) || null
+  }
+
+  const recordReceiptHistory = async (payload: {
+    arId?: string | null
+    salesOrderId?: string | null
+    orderNo: string
+    customerCno?: string | null
+    customerName?: string | null
+    paymentDate: string
+    paymentMethod: "現金" | "匯款" | "支票"
+    paymentAmount: number
+    checkNo?: string | null
+    checkDueDate?: string | null
+    notes?: string | null
+  }) => {
+    const supabase = createClient()
+    let insertPayload: Record<string, unknown> = {
+      ar_id: payload.arId || null,
+      sales_order_id: payload.salesOrderId || null,
+      order_no: payload.orderNo,
+      customer_cno: payload.customerCno || null,
+      customer_name: payload.customerName || resolveCustomerName(payload.customerCno),
+      payment_date: payload.paymentDate,
+      payment_method: payload.paymentMethod,
+      payment_amount: payload.paymentAmount,
+      check_no: payload.checkNo || null,
+      check_due_date: payload.checkDueDate || null,
+      notes: payload.notes || null,
+    }
+
+    let { error } = await supabase.from("ar_receipts").insert(insertPayload)
+
+    while (error) {
+      const normalizedMessage = getReceiptErrorMessage(error)
+      const missingField = getMissingReceiptField(normalizedMessage)
+
+      if (!missingField || !Object.prototype.hasOwnProperty.call(insertPayload, missingField)) {
+        break
+      }
+
+      const fallbackPayload = { ...insertPayload }
+      delete fallbackPayload[missingField]
+      insertPayload = fallbackPayload
+      ;({ error } = await supabase.from("ar_receipts").insert(insertPayload))
+    }
+
+    if (error) {
+      const normalizedMessage = getReceiptErrorMessage(error)
+      console.warn("Unable to insert ar_receipts:", normalizedMessage)
+      return normalizedMessage
+    }
+
+    return null
+  }
 
   const renderAmount = (value: number) => {
     if (isPrivacyMode) {
@@ -239,26 +363,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
     }
   }
 
-  const customerSummaryMap = allCustomers.reduce((map, customer) => {
-    const customerCno = customer.code || "未指定"
-    const customerName = customer.name || "散客"
-    const key = `${customerCno}-${customerName}`
-
-    if (!map.has(key)) {
-      map.set(key, {
-        customerName,
-        customerCno,
-        totalDue: 0,
-        totalPaid: 0,
-        totalOverpaid: 0,
-        totalOutstanding: 0,
-        orderCount: 0,
-        orders: [],
-      })
-    }
-
-    return map
-  }, new Map<string, {
+  const customerSummaryMap = new Map<string, {
     customerName: string
     customerCno: string
     totalDue: number
@@ -282,7 +387,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
       notes: string | null
       partialSettlements: Array<{ at: string; amount: number }>
     }>
-  }>())
+  }>()
 
   filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
@@ -438,7 +543,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
     }
 
     if (updatedRows && updatedRows.length > 0) {
-      return
+      return String(updatedRows[0]?.id || "") || null
     }
 
     const insertPayload: Record<string, unknown> = {
@@ -446,22 +551,28 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
       ...writePayload,
     }
 
-    let { error: insertError } = await supabase
+    let { data: insertedRows, error: insertError } = await supabase
       .from("accounts_receivable")
       .insert(insertPayload)
+      .select("id")
+      .limit(1)
 
     const missingInsertField = getMissingColumnField(insertError?.message)
     if (insertError && missingInsertField && Object.prototype.hasOwnProperty.call(insertPayload, missingInsertField)) {
       const fallbackInsertPayload = { ...insertPayload }
       delete fallbackInsertPayload[missingInsertField]
-      ;({ error: insertError } = await supabase
+      ;({ data: insertedRows, error: insertError } = await supabase
         .from("accounts_receivable")
-        .insert(fallbackInsertPayload))
+        .insert(fallbackInsertPayload)
+        .select("id")
+        .limit(1))
     }
 
     if (insertError) {
       throw new Error(insertError.message || "無法建立應收帳款資料")
     }
+
+    return String(insertedRows?.[0]?.id || "") || null
   }
 
   const customerSummaries = Array.from(customerSummaryMap.values())
@@ -478,13 +589,12 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
 
       const aKey = String(a.customerCno || "").trim().toUpperCase()
       const bKey = String(b.customerCno || "").trim().toUpperCase()
-      if (aKey === bKey) {
-        const aName = String(a.customerName || "").trim().toUpperCase()
-        const bName = String(b.customerName || "").trim().toUpperCase()
-        return aName === bName ? 0 : aName > bName ? 1 : -1
-      }
+      const codeCompare = aKey.localeCompare(bKey, undefined, { numeric: true, sensitivity: "base" })
+      if (codeCompare !== 0) return codeCompare
 
-      return aKey > bKey ? 1 : -1
+      const aName = String(a.customerName || "").trim()
+      const bName = String(b.customerName || "").trim()
+      return aName.localeCompare(bName, "zh-Hant", { numeric: true, sensitivity: "base" })
     })
 
   const handleBatchSettle = (summary: (typeof customerSummaries)[number]) => {
@@ -525,9 +635,11 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
           }
         }
 
+        let receiptWriteError: string | null = null
+
         for (const order of unpaidOrders) {
           if (!order.salesOrderId) continue
-          await upsertReceivableBySalesOrder({
+          const receivableId = await upsertReceivableBySalesOrder({
             salesOrderId: order.salesOrderId,
             customerCno: summary.customerCno === "未指定" ? null : summary.customerCno,
             amountDue: order.amountDue,
@@ -536,6 +648,30 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
             paidAt: settledAt,
             dueDate: order.orderDate,
             status: "paid",
+          })
+
+          const insertError = await recordReceiptHistory({
+            arId: receivableId,
+            salesOrderId: order.salesOrderId,
+            orderNo: order.orderNumber,
+            customerCno: summary.customerCno === "未指定" ? null : summary.customerCno,
+            customerName: summary.customerName,
+            paymentDate: settledAt.slice(0, 10),
+            paymentMethod: "現金",
+            paymentAmount: order.outstanding,
+            notes: `一鍵沖帳｜${order.notes || ""}`.trim(),
+          })
+
+          if (insertError && !receiptWriteError) {
+            receiptWriteError = insertError
+          }
+        }
+
+        if (receiptWriteError) {
+          toast({
+            title: "收款履歷未寫入",
+            description: receiptWriteError,
+            variant: "destructive",
           })
         }
 
@@ -625,6 +761,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
     amountDue: number
     paidAmount: number
     overpaidAmount: number
+    paidAt?: string | null
     notes?: string | null
   }, paymentAmount: number, options?: {
     nextNotes?: string | null
@@ -632,6 +769,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
     checkNo?: string | null
     checkBank?: string | null
     checkIssueDate?: string | null
+    checkDueDate?: string | null
     isCheckPending?: boolean
   }) => {
     if (!order.salesOrderId) {
@@ -665,7 +803,8 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
             ? "paid"
             : "partially_paid"
 
-      await upsertReceivableBySalesOrder({
+      const pendingRecordedAt = new Date().toISOString()
+      const receivableId = await upsertReceivableBySalesOrder({
         salesOrderId: order.salesOrderId,
         customerCno: order.customerCno,
         amountDue: order.amountDue,
@@ -679,6 +818,27 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
         checkBank: options.checkBank,
         checkIssueDate: options.checkIssueDate,
       })
+
+      const pendingReceiptError = await recordReceiptHistory({
+        arId: receivableId,
+        salesOrderId: order.salesOrderId,
+        orderNo: order.orderNumber,
+        customerCno: order.customerCno,
+        paymentDate: pendingRecordedAt.slice(0, 10),
+        paymentMethod: "支票",
+        paymentAmount: normalizedPayment,
+        checkNo: options.checkNo || null,
+        checkDueDate: options.checkDueDate || options.nextDueDate || null,
+        notes: options.nextNotes !== undefined ? options.nextNotes : order.notes,
+      })
+
+      if (pendingReceiptError) {
+        toast({
+          title: "收款履歷未寫入",
+          description: pendingReceiptError,
+          variant: "destructive",
+        })
+      }
 
       toast({
         title: "成功",
@@ -763,7 +923,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
       return
     }
 
-    await upsertReceivableBySalesOrder({
+    const receivableId = await upsertReceivableBySalesOrder({
       salesOrderId: order.salesOrderId,
       customerCno: order.customerCno,
       amountDue: order.amountDue,
@@ -776,6 +936,19 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
       checkNo: options?.checkNo,
       checkBank: options?.checkBank,
       checkIssueDate: options?.checkIssueDate,
+    })
+
+    const receiptError = await recordReceiptHistory({
+      arId: receivableId,
+      salesOrderId: order.salesOrderId,
+      orderNo: order.orderNumber,
+      customerCno: order.customerCno,
+      paymentDate: settledAt.slice(0, 10),
+      paymentMethod: options?.checkNo ? "支票" : "現金",
+      paymentAmount: normalizedPayment,
+      checkNo: options?.checkNo || null,
+      checkDueDate: options?.checkDueDate || options?.nextDueDate || null,
+      notes: options?.nextNotes !== undefined ? options.nextNotes : order.notes,
     })
 
     let autoAllocatedAmount = 0
@@ -1054,6 +1227,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
           checkNo: fullSettlePaymentMethod === "check" ? normalizedCheckNo : undefined,
           checkBank: fullSettlePaymentMethod === "check" ? normalizedCheckBank : undefined,
           checkIssueDate: fullSettlePaymentMethod === "check" ? new Date().toISOString().slice(0, 10) : undefined,
+          checkDueDate: fullSettlePaymentMethod === "check" ? normalizedCheckDueDate : undefined,
           isCheckPending: fullSettlePaymentMethod === "check",
         })
         setFullSettleTarget(null)
@@ -1121,6 +1295,8 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
           notes: string | null
         }> = []
 
+        let receiptWriteError: string | null = null
+
         for (const order of targetOrders) {
           if (!order.salesOrderId) continue
 
@@ -1147,7 +1323,7 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
             throw new Error(salesUpdateError.message || "無法更新銷貨付款狀態")
           }
 
-          await upsertReceivableBySalesOrder({
+          const receivableId = await upsertReceivableBySalesOrder({
             salesOrderId: order.salesOrderId,
             customerCno: order.customerCno,
             amountDue: order.amountDue,
@@ -1158,6 +1334,24 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
             status,
             notes: nextNotes,
           })
+
+          if (appliedAmount > 0) {
+            const insertError = await recordReceiptHistory({
+              arId: receivableId,
+              salesOrderId: order.salesOrderId,
+              orderNo: order.orderNumber,
+              customerCno: order.customerCno,
+              customerName: partialSettleTarget.customerName,
+              paymentDate: settledAt.slice(0, 10),
+              paymentMethod: "現金",
+              paymentAmount: appliedAmount,
+              notes: buildPartialSettlementNote(nextNotes, settledAt, appliedAmount),
+            })
+
+            if (insertError && !receiptWriteError) {
+              receiptWriteError = insertError
+            }
+          }
 
           distributableAmount -= appliedAmount
           updatedOrders.push({
@@ -1223,6 +1417,15 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
 
         setPartialSettleTarget(null)
         setPartialPaymentAmount("")
+
+        if (receiptWriteError) {
+          toast({
+            title: "收款履歷未寫入",
+            description: receiptWriteError,
+            variant: "destructive",
+          })
+        }
+
         toast({
           title: "成功",
           description: distributableAmount > 0
@@ -1333,14 +1536,14 @@ export function ARTable({ records, initialSearch = "", allCustomers = [] }: ARTa
           <Button
             variant={showAllCustomers ? "outline" : "default"}
             size="sm"
-            onClick={() => setShowAllCustomers(false)}
+            onClick={() => updateCustomerView(false)}
           >
             只看欠款客戶
           </Button>
           <Button
             variant={showAllCustomers ? "default" : "outline"}
             size="sm"
-            onClick={() => setShowAllCustomers(true)}
+            onClick={() => updateCustomerView(true)}
           >
             顯示全部客戶
           </Button>
