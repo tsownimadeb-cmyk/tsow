@@ -32,10 +32,14 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
   // 取得當前 URL search 參數
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const initialSearch = searchParams?.get('search') || "";
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
+  const initialSearch = searchParams?.get("search") || ""
+  const initialProductSearch = searchParams?.get("productSearch") || ""
   const [search, setSearch] = useState(initialSearch)
+  const [showProductSearch, setShowProductSearch] = useState(Boolean(initialProductSearch))
+  const [productSearch, setProductSearch] = useState(initialProductSearch)
   const debouncedSearch = useDebounce(search, 500)
+  const debouncedProductSearch = useDebounce(productSearch, 500)
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
@@ -44,16 +48,25 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
     if (typeof window === "undefined") return
     const params = new URLSearchParams(window.location.search)
     const currentSearch = params.get("search") || ""
-    if (debouncedSearch === currentSearch) return
+    const currentProductSearch = params.get("productSearch") || ""
+    if (debouncedSearch === currentSearch && debouncedProductSearch === currentProductSearch) return
 
     if (debouncedSearch) {
       params.set("search", debouncedSearch)
     } else {
       params.delete("search")
     }
+
+    if (debouncedProductSearch) {
+      params.set("productSearch", debouncedProductSearch)
+    } else {
+      params.delete("productSearch")
+    }
+
     params.set("page", "1")
-    router.replace(`/sales?${params.toString()}`)
-  }, [debouncedSearch, router])
+    const queryString = params.toString()
+    router.replace(queryString ? `/sales?${queryString}` : "/sales")
+  }, [debouncedProductSearch, debouncedSearch, router])
 
   const customerMap = new Map(
     customers.map((customer) => [customer.code, customer] as const),
@@ -274,34 +287,76 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
 
   return (
     <div className="space-y-4 pb-28">
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="搜尋單號、客戶名稱..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 pr-8"
-          />
-          {search && (
-            <button
-              type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-              onClick={() => setSearch("")}
-              aria-label="清除搜尋"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜尋單號、客戶名稱..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10 pr-8"
+            />
+            {search && (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                onClick={() => setSearch("")}
+                aria-label="清除搜尋"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            variant={showProductSearch ? "default" : "outline"}
+            className="sm:w-auto"
+            onClick={() => {
+              if (showProductSearch) {
+                setShowProductSearch(false)
+                setProductSearch("")
+                return
+              }
+              setShowProductSearch(true)
+            }}
+          >
+            {showProductSearch ? "關閉商品搜尋" : "商品搜尋"}
+          </Button>
         </div>
+
+        {showProductSearch ? (
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜尋商品名稱或編號..."
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              className="pl-10 pr-8"
+            />
+            {productSearch && (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                onClick={() => setProductSearch("")}
+                aria-label="清除商品搜尋"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* 桌面版 table（md 以上） */}
       <div className="rounded-lg border hidden md:block">
         {filteredSales.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的銷貨單" : "尚無銷貨單資料"}</div>
+          <div className="text-center text-muted-foreground py-8">{search || productSearch ? "找不到符合條件的銷貨單" : "尚無銷貨單資料"}</div>
         ) : (
           <Accordion type="single" collapsible className="w-full">
             {filteredSales.map((sale) => {
@@ -418,7 +473,7 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
       {/* 手機版卡片（md 以下） */}
       <div className="block md:hidden">
         {filteredSales.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的銷貨單" : "尚無銷貨單資料"}</div>
+          <div className="text-center text-muted-foreground py-8">{search || productSearch ? "找不到符合條件的銷貨單" : "尚無銷貨單資料"}</div>
         ) : (
           <div className="flex flex-col gap-2">
             {filteredSales.map((sale) => {

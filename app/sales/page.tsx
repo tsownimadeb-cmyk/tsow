@@ -13,6 +13,7 @@ export default async function SalesPage(props: any) {
   let page = 1;
   let raw: string | undefined;
   let searchText = "";
+  let productSearchText = "";
   if (searchParams && typeof searchParams === 'object') {
     if (Object.prototype.hasOwnProperty.call(searchParams, 'page')) {
       const val = searchParams.page;
@@ -22,6 +23,10 @@ export default async function SalesPage(props: any) {
       const val = searchParams.search;
       searchText = Array.isArray(val) ? val[0] : val;
     }
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'productSearch')) {
+      const val = searchParams.productSearch;
+      productSearchText = Array.isArray(val) ? val[0] : val;
+    }
   }
   const parsed = Number(raw);
   if (!isNaN(parsed) && parsed > 0) page = parsed;
@@ -30,8 +35,14 @@ export default async function SalesPage(props: any) {
 
   const supabase = await createClient();
 
-  // 分頁查詢銷貨單（支援搜尋）
-  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(supabase, from, to, searchText);
+  // 分頁查詢銷貨單（支援單號 / 客戶 / 商品搜尋）
+  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(
+    supabase,
+    from,
+    to,
+    searchText,
+    productSearchText,
+  );
 
   // 客戶與商品查詢（不分頁）
   const [{ data: customers }, { data: products }] = await Promise.all([
@@ -96,6 +107,8 @@ export default async function SalesPage(props: any) {
         <Link href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</Link>
         {/* 指定跳頁 */}
         <form method="get" action="/sales" className="flex items-center gap-2" style={{ display: 'inline' }}>
+          {searchText ? <input type="hidden" name="search" value={searchText} /> : null}
+          {productSearchText ? <input type="hidden" name="productSearch" value={productSearchText} /> : null}
           <input
             type="number"
             name="page"
