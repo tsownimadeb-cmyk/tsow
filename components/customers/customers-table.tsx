@@ -11,11 +11,16 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 import { CustomerDialog } from "@/components/customers/customer-dialog"
 
-export function CustomersTable({ customers: customersProp }: { customers: any[] }) {
+export function CustomersTable({
+  customers: customersProp,
+  initialSearchText = "",
+}: {
+  customers: any[]
+  initialSearchText?: string
+}) {
   const router = useRouter();
   const [customers, setCustomers] = useState(customersProp);
-  const initialSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('search') || "" : "";
-  const [searchText, setSearchText] = useState(initialSearch);
+  const [searchText, setSearchText] = useState(initialSearchText);
   const debouncedSearch = useDebounce(searchText, 500);
   const [, startTransition] = useTransition();
   const isMobile = useIsMobile();
@@ -25,6 +30,7 @@ export function CustomersTable({ customers: customersProp }: { customers: any[] 
   const [loadingMap, setLoadingMap] = useState<{ [code: string]: boolean }>({});
   // 導航至新頁時同步新 props
   useEffect(() => { setCustomers(customersProp); }, [customersProp]);
+  useEffect(() => { setSearchText(initialSearchText); }, [initialSearchText]);
   // 同步搜尋文字至 URL
   useEffect(() => {
     if (typeof window === 'undefined') return;
