@@ -22,6 +22,17 @@ interface ReceiptRecord {
   created_at: string | null
 }
 
+const INTERNAL_NOTE_PREFIXES = ["[AR_PAYMENT]", "[AR_CHECK_LINKED]", "[AR_CHECK_STATUS]", "[PARTIAL_SETTLEMENT]"]
+
+const formatReceiptNotes = (notes: string | null) => {
+  const visibleLines = String(notes || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !INTERNAL_NOTE_PREFIXES.some((prefix) => line.startsWith(prefix)))
+
+  return visibleLines.length > 0 ? visibleLines.join("\n") : "-"
+}
+
 export default async function ARHistoryPage() {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -68,19 +79,23 @@ export default async function ARHistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {records.map((rec) => (
-                <tr key={rec.id}>
-                  <td className="border px-2 py-1">{rec.payment_date || "-"}</td>
-                  <td className="border px-2 py-1">{rec.customer_name || "-"}</td>
-                  <td className="border px-2 py-1">{rec.customer_cno || "-"}</td>
-                  <td className="border px-2 py-1">{rec.order_no || "-"}</td>
-                  <td className="border px-2 py-1">{rec.payment_method || "-"}</td>
-                  <td className="border px-2 py-1">{rec.check_no || "-"}</td>
-                  <td className="border px-2 py-1">{rec.check_due_date || "-"}</td>
-                  <td className="border px-2 py-1 text-right">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</td>
-                  <td className="border px-2 py-1">{rec.notes || "-"}</td>
-                </tr>
-              ))}
+              {records.map((rec) => {
+                const isCheckPayment = rec.payment_method === "支票"
+
+                return (
+                  <tr key={rec.id}>
+                    <td className="border px-2 py-1">{rec.payment_date || "-"}</td>
+                    <td className="border px-2 py-1">{rec.customer_name || "-"}</td>
+                    <td className="border px-2 py-1">{rec.customer_cno || "-"}</td>
+                    <td className="border px-2 py-1">{rec.order_no || "-"}</td>
+                    <td className="border px-2 py-1">{rec.payment_method || "-"}</td>
+                    <td className="border px-2 py-1">{isCheckPayment ? rec.check_no || "-" : "-"}</td>
+                    <td className="border px-2 py-1">{isCheckPayment ? rec.check_due_date || "-" : "-"}</td>
+                    <td className="border px-2 py-1 text-right">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</td>
+                    <td className="border px-2 py-1 whitespace-pre-line">{formatReceiptNotes(rec.notes)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

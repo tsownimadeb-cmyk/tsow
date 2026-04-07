@@ -51,6 +51,7 @@ interface ARTableProps {
 const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
 const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
 const AR_PAYMENT_TAG = "[AR_PAYMENT]"
+const INTERNAL_RECEIPT_NOTE_PREFIXES = [AR_PAYMENT_TAG, AR_CHECK_LINKED_TAG, AR_CHECK_STATUS_TAG, "[PARTIAL_SETTLEMENT]"]
 
 type PaymentMethod = "cash" | "check"
 
@@ -212,6 +213,15 @@ export function ARTable({
     return fieldTokens.find((field) => lowerMessage.includes(field)) || null
   }
 
+  const sanitizeReceiptHistoryNotes = (notes: string | null | undefined) => {
+    const visibleLines = String(notes || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !INTERNAL_RECEIPT_NOTE_PREFIXES.some((prefix) => line.startsWith(prefix)))
+
+    return visibleLines.length > 0 ? visibleLines.join("\n") : null
+  }
+
   const recordReceiptHistory = async (payload: {
     arId?: string | null
     salesOrderId?: string | null
@@ -226,6 +236,7 @@ export function ARTable({
     notes?: string | null
   }) => {
     const supabase = createClient()
+    const isCheckPayment = payload.paymentMethod === "支票"
     let insertPayload: Record<string, unknown> = {
       ar_id: payload.arId || null,
       sales_order_id: payload.salesOrderId || null,
@@ -235,9 +246,9 @@ export function ARTable({
       payment_date: payload.paymentDate,
       payment_method: payload.paymentMethod,
       payment_amount: payload.paymentAmount,
-      check_no: payload.checkNo || null,
-      check_due_date: payload.checkDueDate || null,
-      notes: payload.notes || null,
+      check_no: isCheckPayment ? payload.checkNo || null : null,
+      check_due_date: isCheckPayment ? payload.checkDueDate || null : null,
+      notes: sanitizeReceiptHistoryNotes(payload.notes),
     }
 
     let { error } = await supabase.from("ar_receipts").insert(insertPayload)
