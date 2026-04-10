@@ -38,7 +38,12 @@ export default async function ARPage(props: any) {
 
     const supabase = await createClient()
     const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
-    const escapeLikeValue = (value: string) => value.replaceAll("%", "\\%").replaceAll(",", "\\,")
+    const escapeLikeValue = (value: string) =>
+      value
+        .replaceAll("\\", "\\\\")
+        .replaceAll("%", "\\%")
+        .replaceAll("_", "\\_")
+        .replaceAll(",", "\\,")
     const quoteInValue = (value: string) => `"${value.replaceAll('"', '\\"')}"`
     const CHUNK_SIZE = 50
     const salesOrderItemsFetchErrors: string[] = []
@@ -80,23 +85,23 @@ export default async function ARPage(props: any) {
       salesQuery = salesQuery.eq("is_paid", false)
     }
 
-    salesQuery = salesQuery
-      .order("customer_cno", { ascending: true, nullsFirst: false })
-      .order("order_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .range(from, to)
-
     if (searchText !== "") {
       const likeKeyword = escapeLikeValue(searchText)
       const { data: matchedCustomers } = await supabase
         .from("customers")
-        .select("code")
+        .select("*")
         .or(`code.ilike.%${likeKeyword}%,name.ilike.%${likeKeyword}%`)
         .limit(200)
 
-      const matchedCodes = (matchedCustomers || [])
-        .map((customer: { code?: string | null }) => String(customer.code || "").trim())
-        .filter(Boolean)
+      const matchedCodes = Array.from(
+        new Set(
+          (matchedCustomers || []).flatMap((customer: { code?: string | null; cno?: string | null }) =>
+            [customer.code, customer.cno]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean),
+          ),
+        ),
+      )
 
       const filters = [
         `order_no.ilike.%${likeKeyword}%`,
@@ -110,6 +115,12 @@ export default async function ARPage(props: any) {
 
       salesQuery = salesQuery.or(filters.join(","))
     }
+
+    salesQuery = salesQuery
+      .order("customer_cno", { ascending: true, nullsFirst: false })
+      .order("order_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(from, to)
 
     const { data: salesOrders, error: salesError, count: salesOrderCount } = await salesQuery
 
@@ -142,15 +153,21 @@ export default async function ARPage(props: any) {
     if (currentPageCustomerCodes.length) {
       const customerChunks = chunkArray(currentPageCustomerCodes, CHUNK_SIZE)
       const relatedSalesResults = await Promise.allSettled(
-        customerChunks.map((customerChunk) =>
-          supabase
+        customerChunks.map((customerChunk) => {
+          let relatedSalesQuery = supabase
             .from("sales_orders")
             .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
             .in("customer_cno", customerChunk)
+
+          if (viewMode === "unpaid") {
+            relatedSalesQuery = relatedSalesQuery.eq("is_paid", false)
+          }
+
+          return relatedSalesQuery
             .order("customer_cno", { ascending: true, nullsFirst: false })
             .order("order_date", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false }),
-        ),
+            .order("created_at", { ascending: false })
+        }),
       )
 
       relatedSalesResults.forEach((result, index) => {
@@ -353,18 +370,57 @@ export default async function ARPage(props: any) {
       return map
     }, new Map<string, Array<Record<string, unknown>>>())
 
-    const { data: arRows, error: arError } = salesOrderIds.length
-      ? await supabase
-        .from("accounts_receivable")
-        .select("*")
-        .in("sales_order_id", salesOrderIds)
-      : { data: [], error: null }
+    const arRows: Array<Record<string, any>> = []
+    let arErrorMessage: string | null = null
 
-    if (arError) {
-      console.error("Error fetching accounts_receivable:", arError)
+    if (salesOrderIds.length) {
+      const arIdChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
+      const arResults = await Promise.allSettled(
+        arIdChunks.map((idChunk) =>
+          supabase
+            .from("accounts_receivable")
+            .select("*")
+            .in("sales_order_id", idChunk),
+        ),
+      )
+
+      arResults.forEach((result, index) => {
+        const idChunk = arIdChunks[index] || []
+
+        if (result.status === "rejected") {
+          if (!arErrorMessage) {
+            arErrorMessage = "讀取 accounts_receivable 分段資料失敗"
+          }
+          logSupabaseChunkError("Error fetching accounts_receivable chunk", result.reason, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+          })
+          return
+        }
+
+        const { data: chunkRows, error: chunkError } = result.value
+        if (chunkError) {
+          if (!arErrorMessage) {
+            arErrorMessage = chunkError.message || "讀取 accounts_receivable 分段資料失敗"
+          }
+          logSupabaseChunkError("Error fetching accounts_receivable chunk", chunkError, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+          })
+          return
+        }
+
+        if (chunkRows?.length) {
+          arRows.push(...chunkRows)
+        }
+      })
     }
 
-    const arMap = (arRows || []).reduce((map, row) => {
+    if (arErrorMessage) {
+      console.error("Error fetching accounts_receivable:", arErrorMessage)
+    }
+
+    const arMap = arRows.reduce((map, row) => {
       if (!row.sales_order_id) return map
 
       const current = map.get(row.sales_order_id)
@@ -385,11 +441,23 @@ export default async function ARPage(props: any) {
 
     const { data: customers } = await supabase
       .from("customers")
-      .select("code,name")
+      .select("*")
       .order("code", { ascending: true })
 
-    const customersList = (customers || []) as Customer[]
-    const customerMap = new Map(customersList.map((customer) => [customer.code, customer] as const))
+    const customersList = (customers || []) as Array<Customer & { cno?: string | null }>
+    const customerMap = new Map(
+      customersList.flatMap((customer) => {
+        const keys = Array.from(
+          new Set(
+            [customer.code, customer.cno]
+              .map((value) => normalizeCode(value))
+              .filter(Boolean),
+          ),
+        )
+
+        return keys.map((key) => [key, customer] as const)
+      }),
+    )
 
     const enrichedRecords: AccountsReceivable[] = mergedSalesOrders
       .map((so) => {
@@ -425,10 +493,13 @@ export default async function ARPage(props: any) {
             ? "partially_paid"
             : "unpaid"
 
+        const normalizedCustomerCno = String(effectiveCustomerCno || "").trim()
+        const normalizedCustomerKey = normalizeCode(normalizedCustomerCno)
+
         return {
           id: existing?.id || `virtual-${so.id}`,
           sales_order_id: so.id,
-          customer_cno: effectiveCustomerCno,
+          customer_cno: normalizedCustomerCno || null,
           amount_due: amountDue,
           paid_amount: paidAmount,
           overpaid_amount: Math.max(0, Number(existing?.overpaid_amount ?? 0) || 0),
@@ -442,7 +513,7 @@ export default async function ARPage(props: any) {
             ...so,
             items: (salesOrderItemsMap.get(so.id) || []) as AccountsReceivable["sales_order"] extends { items?: infer T } ? T : never,
           },
-          customer: effectiveCustomerCno ? customerMap.get(effectiveCustomerCno) : undefined,
+          customer: normalizedCustomerKey ? customerMap.get(normalizedCustomerKey) : undefined,
         }
       })
 
@@ -476,10 +547,10 @@ export default async function ARPage(props: any) {
           <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄（每頁 {PAGE_SIZE} 筆）</p>
         </div>
 
-        {arError && (
+        {arErrorMessage && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-1">
             <p className="text-sm text-destructive font-semibold">`accounts_receivable` 讀取失敗，已改用銷貨資料即時計算</p>
-            <p className="text-xs text-destructive/80">{arError.message}</p>
+            <p className="text-xs text-destructive/80">{arErrorMessage}</p>
           </div>
         )}
 
@@ -504,26 +575,24 @@ export default async function ARPage(props: any) {
           </div>
         ) : (
           <div className="space-y-4">
-            {hasActiveSearch && enrichedRecords.length === 0 && (
-              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 space-y-2">
-                <p className="text-sm font-semibold text-amber-700">找不到符合「{searchText}」的未收訂單</p>
-                <p className="text-xs text-amber-700/80">請調整關鍵字，或清除搜尋後重新查看全部應收資料。</p>
-                <div>
-                  <Link href="/accounts-receivable" className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-accent">
-                    清除搜尋
-                  </Link>
-                </div>
-              </div>
-            )}
-
             <ARTableClient
               records={enrichedRecords}
               initialSearch={searchText}
               initialShowAllCustomers={initialShowAllCustomers}
-              allCustomers={customersList.map((customer) => ({
-                code: customer.code,
-                name: customer.name || customer.code,
-              }))}
+              allCustomers={customersList.flatMap((customer) => {
+                const keys = Array.from(
+                  new Set(
+                    [customer.code, customer.cno]
+                      .map((value) => String(value || "").trim())
+                      .filter(Boolean),
+                  ),
+                )
+
+                return keys.map((key) => ({
+                  code: key,
+                  name: String(customer.name || "").trim(),
+                }))
+              })}
             />
           </div>
         )}

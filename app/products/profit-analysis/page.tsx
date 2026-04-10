@@ -113,7 +113,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">商品利潤分析</h1>
-          <p className="text-muted-foreground">查看帳面毛利與實收現金毛利，支援指定日期區間</p>
+          <p className="text-muted-foreground">查看商品的實收／應收金額與現金毛利，支援指定日期區間</p>
         </div>
         <Button variant="outline" asChild>
           <Link href="/products">

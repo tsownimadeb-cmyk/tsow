@@ -69,17 +69,26 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
   const stats = useMemo(() => {
     const soldProducts = filteredProducts.filter((product) => Number(product.sales_qty_total || 0) > 0)
     const totalCashGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.cash_gross_profit || 0), 0)
+    const totalGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.gross_profit || 0), 0)
     const totalCashReceived = soldProducts.reduce((sum, product) => sum + Number(product.cash_received_total || 0), 0)
-    const averageCashGrossMargin = totalCashReceived > 0 ? totalCashGrossProfit / totalCashReceived : 0
+    const totalSalesAmount = soldProducts.reduce((sum, product) => sum + Number(product.sales_amount_total || 0), 0)
 
+    const diffAmount = totalCashReceived - totalSalesAmount
+    const diffGrossProfit = totalCashGrossProfit - totalGrossProfit
+
+    // 最高應收毛利商品
     const topProduct =
       soldProducts.length > 0
-        ? [...soldProducts].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))[0]
+        ? [...soldProducts].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))[0]
         : null
 
     return {
       totalCashGrossProfit,
-      averageCashGrossMargin,
+      totalGrossProfit,
+      totalCashReceived,
+      totalSalesAmount,
+      diffAmount,
+      diffGrossProfit,
       topProduct,
     }
   }, [filteredProducts])
@@ -98,7 +107,24 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
 
   return (
     <div className="space-y-4 max-w-full">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">總實收金額</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-blue-600">{formatCurrency(stats.totalCashReceived)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">總應收金額</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-slate-700">{formatCurrency(stats.totalSalesAmount)}</p>
+            <p className="text-xs mt-1 text-gray-500">差額：{formatCurrency(stats.totalSalesAmount - stats.totalCashReceived)}</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">總實收毛利</CardTitle>
@@ -109,23 +135,24 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">平均毛利率</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">總應收毛利</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className={`text-3xl font-bold ${getMarginTheme(stats.averageCashGrossMargin).text}`}>
-              {formatPercent(stats.averageCashGrossMargin)}
+            <p className={`text-3xl font-bold ${stats.totalGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {formatCurrency(stats.totalGrossProfit)}
             </p>
+            <p className="text-xs mt-1 text-gray-500">差額：{formatCurrency(stats.totalGrossProfit - stats.totalCashGrossProfit)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">最高毛利商品</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">最賺錢商品</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
             <p className="truncate text-lg font-semibold text-foreground">{stats.topProduct?.name || "-"}</p>
             <p className="text-sm text-muted-foreground">{stats.topProduct?.code || ""}</p>
             <p className="text-xl font-bold text-emerald-600">
-              {stats.topProduct ? formatCurrency(stats.topProduct.cash_gross_profit) : "-"}
+              {stats.topProduct ? formatCurrency(stats.topProduct.gross_profit) : "-"}
             </p>
           </CardContent>
         </Card>
@@ -147,14 +174,16 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
               <TableHead>商品名稱</TableHead>
               <TableHead className="text-right">已售數量</TableHead>
               <TableHead className="text-right">實收金額</TableHead>
+              <TableHead className="text-right">應收金額</TableHead>
               <TableHead className="text-right">實收現金毛利</TableHead>
+              <TableHead className="text-right">應收現金毛利</TableHead>
               <TableHead className="text-right">實收毛利率</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-gray-400">
+                <TableCell colSpan={7} className="py-8 text-center text-sm text-gray-400">
                   查無符合的商品，請調整搜尋條件。
                 </TableCell>
               </TableRow>
@@ -219,9 +248,15 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                       </TableCell>
                       <TableCell className="text-right">{formatAmount(product.sales_qty_total)}</TableCell>
                       <TableCell className="text-right text-blue-600">{formatCurrency(cashReceived)}</TableCell>
+                      <TableCell className="text-right text-slate-700">{formatCurrency(salesAmount)}</TableCell>
                       <TableCell className="text-right">
                         <span className={cashGrossProfit >= 0 ? "text-emerald-600 font-semibold" : "text-red-600 font-semibold"}>
                           {formatCurrency(cashGrossProfit)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={grossProfit >= 0 ? "text-emerald-700 font-semibold" : "text-red-600 font-semibold"}>
+                          {formatCurrency(grossProfit)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
@@ -238,14 +273,14 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                     </TableRow>
                     {isExpanded ? (
                       <TableRow key={`${productCode}-details`} className="bg-slate-50/70">
-                        <TableCell colSpan={5}>
+                        <TableCell colSpan={7}>
                           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">單位成本</p>
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(unitCost)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">銷貨收入</p>
+                              <p className="text-xs text-slate-500">應收金額</p>
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
@@ -253,13 +288,19 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">帳面毛利</p>
+                              <p className="text-xs text-slate-500">實收現金毛利</p>
+                              <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {formatCurrency(cashGrossProfit)}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white p-3">
+                              <p className="text-xs text-slate-500">應收現金毛利</p>
                               <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                                 {formatCurrency(grossProfit)}
                               </p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">帳面毛利率</p>
+                              <p className="text-xs text-slate-500">應收毛利率</p>
                               <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>
                                 {formatPercent(grossMargin)}
                               </p>
@@ -325,19 +366,27 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                 </CardHeader>
                 <CardContent className="space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">銷量</span>
+                    <span className="text-gray-500">已售數量</span>
                     <span className="text-right">{formatAmount(product.sales_qty_total)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">實收金額</span>
                     <span className="text-right text-blue-600">{formatCurrency(cashReceived)}</span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">應收金額</span>
+                    <span className="text-right text-slate-700">{formatCurrency(salesAmount)}</span>
+                  </div>
                   <div className="flex justify-between text-sm mt-2">
-                    <span className="text-gray-500">實收毛利</span>
+                    <span className="text-gray-500">實收現金毛利</span>
                     <span className="text-right font-semibold text-emerald-600">{formatCurrency(cashGrossProfit)}</span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">應收現金毛利</span>
+                    <span className={`text-right font-semibold ${grossProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>{formatCurrency(grossProfit)}</span>
+                  </div>
                   <div className="flex justify-between text-sm items-center">
-                    <span className="text-gray-500">毛利率</span>
+                    <span className="text-gray-500">實收毛利率</span>
                     <span className={`font-semibold ${marginTheme.text}`}>{formatPercent(cashGrossMargin)}</span>
                   </div>
                   <div className="w-full h-2 mt-1 overflow-hidden rounded-full bg-slate-200">
@@ -360,7 +409,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(unitCost)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">銷貨收入</p>
+                        <p className="text-xs text-slate-500">應收金額</p>
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
@@ -368,11 +417,15 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">帳面毛利</p>
+                        <p className="text-xs text-slate-500">實收現金毛利</p>
+                        <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatCurrency(cashGrossProfit)}</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-white p-3">
+                        <p className="text-xs text-slate-500">應收現金毛利</p>
                         <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatCurrency(grossProfit)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">帳面毛利率</p>
+                        <p className="text-xs text-slate-500">應收毛利率</p>
                         <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>{formatPercent(grossMargin)}</p>
                       </div>
                     </div>

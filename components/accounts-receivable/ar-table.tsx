@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
@@ -151,26 +151,56 @@ export function ARTable({
     router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
   }
 
-  const filteredRecords = records.filter(
-    (record) =>
-      record.customer_cno?.toLowerCase().includes(search.toLowerCase()) ||
-      record.customer?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      record.sales_order?.order_no?.toLowerCase().includes(search.toLowerCase()),
-  )
+  const normalizeSearchValue = (value: unknown) => String(value ?? "").trim().toLowerCase()
+  const normalizeCustomerKey = (value: unknown) => String(value ?? "").trim().toUpperCase()
+
+  const filteredRecords = useMemo(() => {
+    const keyword = normalizeSearchValue(debouncedSearch)
+    if (!keyword) return records
+
+    return records.filter((record) => {
+      const orderItems = Array.isArray(record.sales_order?.items) ? record.sales_order.items : []
+      const searchTargets = [
+        record.customer_cno,
+        record.customer?.name,
+        record.sales_order?.order_no,
+        record.notes,
+        ...orderItems.flatMap((item) => {
+          const typedItem = item as {
+            product_pno?: string | null
+            code?: string | null
+            product?: { name?: string | null } | null
+          }
+
+          return [typedItem.product_pno, typedItem.code, typedItem.product?.name]
+        }),
+      ]
+
+      return searchTargets.some((value) => normalizeSearchValue(value).includes(keyword))
+    })
+  }, [debouncedSearch, records])
 
   const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
   const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
   const overpaidAmount = filteredRecords.reduce((sum, record) => sum + Math.max(0, Number(record.overpaid_amount ?? 0) || 0), 0)
   const outstandingAmount = totalAmount - paidAmount
 
-  const customerNameMap = new Map(
-    allCustomers.map((customer) => [String(customer.code || "").trim(), String(customer.name || customer.code || "").trim()] as const),
+  const customerNameMap = useMemo(
+    () => new Map(
+      allCustomers
+        .map((customer) => [
+          normalizeCustomerKey(customer.code),
+          String(customer.name || "").trim(),
+        ] as const)
+        .filter((entry) => Boolean(entry[0]) && Boolean(entry[1])),
+    ),
+    [allCustomers],
   )
 
   const resolveCustomerName = (customerCno: string | null | undefined) => {
-    const normalized = String(customerCno || "").trim()
+    const normalized = normalizeCustomerKey(customerCno)
     if (!normalized || normalized === "未指定") return "散客"
-    return customerNameMap.get(normalized) || normalized
+    return customerNameMap.get(normalized) || "散客"
   }
 
   const getReceiptErrorMessage = (error: unknown) => {
@@ -402,7 +432,7 @@ export function ARTable({
 
   filteredRecords.reduce((map, record) => {
     const customerCno = record.customer_cno || "未指定"
-    const customerName = record.customer?.name || "散客"
+    const customerName = String(record.customer?.name || resolveCustomerName(record.customer_cno) || "散客").trim() || "散客"
     const key = `${customerCno}-${customerName}`
     const outstanding = record.amount_due - record.paid_amount
     const current = map.get(key)
@@ -587,12 +617,6 @@ export function ARTable({
   }
 
   const customerSummaries = Array.from(customerSummaryMap.values())
-    .filter((summary) => {
-      if (!search) return true
-
-      const keyword = search.toLowerCase()
-      return summary.customerCno.toLowerCase().includes(keyword) || summary.customerName.toLowerCase().includes(keyword)
-    })
     .filter((summary) => showAllCustomers || summary.totalOutstanding > 0)
     .sort((a, b) => {
       if (a.customerCno === "未指定" && b.customerCno !== "未指定") return 1
@@ -1633,7 +1657,7 @@ export function ARTable({
                             onClick={() => handleOpenPartialSettle(summary)}
                             disabled={summary.totalOutstanding <= 0}
                           >
-                            部分沖帳
+                            沖帳
                           </Button>
                         </div>
                       </>
@@ -1653,7 +1677,7 @@ export function ARTable({
                                 <TableHead className="hidden sm:table-cell text-right">溢收款</TableHead>
                                 <TableHead className="hidden sm:table-cell text-center">狀態</TableHead>
                                 <TableHead className="hidden md:table-cell text-center">沖帳日期</TableHead>
-                                <TableHead className="hidden md:table-cell text-center">部分沖帳紀錄</TableHead>
+                                <TableHead className="hidden md:table-cell text-center">沖帳紀錄</TableHead>
                                 <TableHead className="text-right">操作</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1688,7 +1712,7 @@ export function ARTable({
                                         <div className="space-y-1 text-left inline-block">
                                           {partialSettlements.map((entry, index) => (
                                             <div key={`${entry.at}-${entry.amount}-${index}`}>
-                                              {new Date(entry.at).toLocaleString("zh-TW")} 部分沖帳 {formatCurrencyOneDecimal(entry.amount)}
+                                              {new Date(entry.at).toLocaleString("zh-TW")} 沖帳 {formatCurrencyOneDecimal(entry.amount)}
                                             </div>
                                           ))}
                                         </div>
@@ -1801,7 +1825,7 @@ export function ARTable({
       <Dialog open={Boolean(partialSettleTarget)} onOpenChange={(open) => !open && setPartialSettleTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>部分沖帳</DialogTitle>
+            <DialogTitle>沖帳</DialogTitle>
             <DialogDescription>
               {partialSettleTarget
                 ? `客戶 ${partialSettleTarget.customerName} 總欠款：${formatCurrencyOneDecimal(partialSettleTarget.totalOutstanding)}（將依序扣抵所有未收單據）`
