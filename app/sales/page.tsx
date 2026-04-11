@@ -98,7 +98,13 @@ export default async function SalesPage(props: any) {
         </div>
       </div>
 
-      <SalesTable sales={sales || []} customers={customers || []} products={products || []} />
+      <SalesTable
+        sales={sales || []}
+        customers={customers || []}
+        products={products || []}
+        initialSearch={searchText}
+        initialProductSearch={productSearchText}
+      />
 
       {/* 分頁控制 */}
       <div className="flex items-center justify-center gap-4 mt-4">

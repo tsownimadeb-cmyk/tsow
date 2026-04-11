@@ -19,6 +19,8 @@ interface SalesTableProps {
   sales: SalesOrder[]
   customers: Customer[]
   products: Product[]
+  initialSearch?: string
+  initialProductSearch?: string
 }
 
 const deliveryMethodMap: Record<"self_delivery" | "company_delivery" | "customer_pickup", string> = {
@@ -28,19 +30,30 @@ const deliveryMethodMap: Record<"self_delivery" | "company_delivery" | "customer
 }
 const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
 
-export function SalesTable({ sales, customers, products }: SalesTableProps) {
+export function SalesTable({
+  sales,
+  customers,
+  products,
+  initialSearch = "",
+  initialProductSearch = "",
+}: SalesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
-  // 取得當前 URL search 參數
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
-  const initialSearch = searchParams?.get("search") || ""
-  const initialProductSearch = searchParams?.get("productSearch") || ""
   const [search, setSearch] = useState(initialSearch)
   const [showProductSearch, setShowProductSearch] = useState(Boolean(initialProductSearch))
   const [productSearch, setProductSearch] = useState(initialProductSearch)
   const debouncedSearch = useDebounce(search, 500)
   const debouncedProductSearch = useDebounce(productSearch, 500)
   const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    setSearch(initialSearch)
+  }, [initialSearch])
+
+  useEffect(() => {
+    setProductSearch(initialProductSearch)
+    setShowProductSearch(Boolean(initialProductSearch))
+  }, [initialProductSearch])
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
 
@@ -65,8 +78,10 @@ export function SalesTable({ sales, customers, products }: SalesTableProps) {
 
     params.set("page", "1")
     const queryString = params.toString()
-    router.replace(queryString ? `/sales?${queryString}` : "/sales")
-  }, [debouncedProductSearch, debouncedSearch, router])
+    startTransition(() => {
+      router.replace(queryString ? `/sales?${queryString}` : "/sales")
+    })
+  }, [debouncedProductSearch, debouncedSearch, router, startTransition])
 
   const customerMap = new Map(
     customers.map((customer) => [customer.code, customer] as const),
