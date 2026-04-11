@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
@@ -122,6 +122,7 @@ export function ARChecksTable({ records, initialSearch = "" }: { records: ARChec
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const debouncedSearch = useDebounce(search, 500)
+  const lastInitialSearchRef = useRef(initialSearch)
   const urlFilter = normalizeStatusFilter(searchParams.get("status"))
   const [filter, setFilter] = useState<CheckStatusFilter>(urlFilter)
   const [processingId, setProcessingId] = useState<string | null>(null)
@@ -143,8 +144,15 @@ export function ARChecksTable({ records, initialSearch = "" }: { records: ARChec
   const isLinkedFromAR = searchParams.get("source") === "ar"
 
   useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (previousInitialSearch === initialSearch) return
+    if (search !== debouncedSearch) return
+    if (initialSearch === search) return
+
     setSearch(initialSearch)
-  }, [initialSearch])
+  }, [debouncedSearch, initialSearch, search])
 
   useEffect(() => {
     setFilter(urlFilter)
@@ -175,8 +183,10 @@ export function ARChecksTable({ records, initialSearch = "" }: { records: ARChec
     }
 
     params.set("page", "1")
-    router.replace(`/accounts-receivable/checks?${params.toString()}`)
-  }, [debouncedSearch, filter, router, searchParams])
+    startTransition(() => {
+      router.replace(`/accounts-receivable/checks?${params.toString()}`)
+    })
+  }, [debouncedSearch, filter, router, searchParams, startTransition])
 
   const checkRows = useMemo(() => {
     return records

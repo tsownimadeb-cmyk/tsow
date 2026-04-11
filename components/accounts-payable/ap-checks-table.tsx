@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
@@ -115,6 +115,7 @@ export function APChecksTable({ records, initialSearch = "" }: { records: APChec
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const debouncedSearch = useDebounce(search, 500)
+  const lastInitialSearchRef = useRef(initialSearch)
   const urlFilter = normalizeStatusFilter(searchParams.get("status"))
   const [filter, setFilter] = useState<CheckStatusFilter>(urlFilter)
   const [processingId, setProcessingId] = useState<string | null>(null)
@@ -136,8 +137,15 @@ export function APChecksTable({ records, initialSearch = "" }: { records: APChec
   const isLinkedFromAP = searchParams.get("source") === "ap"
 
   useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (previousInitialSearch === initialSearch) return
+    if (search !== debouncedSearch) return
+    if (initialSearch === search) return
+
     setSearch(initialSearch)
-  }, [initialSearch])
+  }, [debouncedSearch, initialSearch, search])
 
   useEffect(() => {
     setFilter(urlFilter)
@@ -168,8 +176,10 @@ export function APChecksTable({ records, initialSearch = "" }: { records: APChec
     }
 
     params.set("page", "1")
-    router.replace(`/accounts-payable/checks?${params.toString()}`)
-  }, [debouncedSearch, filter, router, searchParams])
+    startTransition(() => {
+      router.replace(`/accounts-payable/checks?${params.toString()}`)
+    })
+  }, [debouncedSearch, filter, router, searchParams, startTransition])
 
   const upsertPayableWithFallback = async (
     record: (typeof checkRows)[number],

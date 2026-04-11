@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
@@ -66,6 +66,7 @@ export function ARTable({
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const debouncedSearch = useDebounce(search, 300)
+  const lastInitialSearchRef = useRef(initialSearch)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllCustomers, setShowAllCustomers] = useState(initialShowAllCustomers)
   const [isPending, startTransition] = useTransition()
@@ -116,8 +117,15 @@ export function ARTable({
   } | null>(null)
 
   useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (previousInitialSearch === initialSearch) return
+    if (search !== debouncedSearch) return
+    if (initialSearch === search) return
+
     setSearch(initialSearch)
-  }, [initialSearch])
+  }, [debouncedSearch, initialSearch, search])
 
   useEffect(() => {
     setShowAllCustomers(initialShowAllCustomers)
@@ -137,8 +145,10 @@ export function ARTable({
     params.delete("page")
 
     const query = params.toString()
-    router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
-  }, [debouncedSearch, router, searchParams])
+    startTransition(() => {
+      router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
+    })
+  }, [debouncedSearch, router, searchParams, startTransition])
 
   const updateCustomerView = (nextShowAllCustomers: boolean) => {
     setShowAllCustomers(nextShowAllCustomers)

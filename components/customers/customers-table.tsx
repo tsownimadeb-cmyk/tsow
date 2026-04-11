@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useTransition } from "react"
+import { useState, useEffect, useMemo, useRef, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,7 @@ export function CustomersTable({
   const [customers, setCustomers] = useState(customersProp);
   const [searchText, setSearchText] = useState(initialSearchText);
   const debouncedSearch = useDebounce(searchText, 500);
+  const lastInitialSearchRef = useRef(initialSearchText);
   const [, startTransition] = useTransition();
   const isMobile = useIsMobile();
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
@@ -30,7 +31,16 @@ export function CustomersTable({
   const [loadingMap, setLoadingMap] = useState<{ [code: string]: boolean }>({});
   // 導航至新頁時同步新 props
   useEffect(() => { setCustomers(customersProp); }, [customersProp]);
-  useEffect(() => { setSearchText(initialSearchText); }, [initialSearchText]);
+  useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current;
+    lastInitialSearchRef.current = initialSearchText;
+
+    if (previousInitialSearch === initialSearchText) return;
+    if (searchText !== debouncedSearch) return;
+    if (initialSearchText === searchText) return;
+
+    setSearchText(initialSearchText);
+  }, [debouncedSearch, initialSearchText, searchText]);
   // 同步搜尋文字至 URL
   useEffect(() => {
     if (typeof window === 'undefined') return;
