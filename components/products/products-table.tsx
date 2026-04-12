@@ -15,17 +15,21 @@ import type { ProductListRow } from "@/lib/products"
 // 定義組件接收的資料型態
 interface ProductsTableProps {
   products: ProductListRow[]
+  initialSearch?: string
 }
 
 // 採用具名導出，確保在 page.tsx 引用時不會出錯
-export function ProductsTable({ products }: ProductsTableProps) {
+export function ProductsTable({ products, initialSearch = "" }: ProductsTableProps) {
   const { toast } = useToast()
   const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
-  const initialSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('search') || "" : ""
   const [searchText, setSearchText] = useState(initialSearch)
   const debouncedSearch = useDebounce(searchText, 500)
   const [, startTransition] = useTransition()
+
+  useEffect(() => {
+    setSearchText(initialSearch)
+  }, [initialSearch])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -157,6 +161,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
                         price: p.price,
                         cost: p.cost,
                         sale_price: p.sale_price,
+                        supplier_id: p.supplier_id || "",
                         stock_qty: p.stock_qty,
                         purchase_qty_total: p.purchase_qty_total,
                         safety_stock: p.safety_stock,

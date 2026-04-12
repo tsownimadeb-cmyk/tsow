@@ -62,7 +62,7 @@ export default async function ProductsPage(props: any) {
         </div>
       </div>
 
-      <ProductsTable products={products} />
+      <ProductsTable products={products} initialSearch={searchText} />
 
       {/* 分頁控制 */}
       <div className="flex items-center justify-center gap-4 mt-4">

@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client" // 請確認此路徑與客戶表一致
 import { useToast } from "@/hooks/use-toast"
-import type { Product as ProductType } from "@/lib/types"
+import type { Product as ProductType, Supplier } from "@/lib/types"
 
-type EditableProduct = Pick<ProductType, "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "price" | "cost" | "sale_price"> & {
+type EditableProduct = Pick<ProductType, "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "price" | "cost" | "sale_price" | "supplier_id" | "supplier"> & {
   stock_qty?: number | null
   purchase_qty_total?: number | null
   safety_stock?: number | null
@@ -36,6 +37,7 @@ interface ProductFormData {
   stock_qty: number
   purchase_qty_total: number
   safety_stock: number
+  supplier_id: string
 }
 
 function toFormData(product?: EditableProduct): ProductFormData {
@@ -51,6 +53,7 @@ function toFormData(product?: EditableProduct): ProductFormData {
     stock_qty: Number(product?.stock_qty || 0),
     purchase_qty_total: Number(product?.purchase_qty_total || 0),
     safety_stock: Number(product?.safety_stock || 0),
+    supplier_id: typeof product?.supplier_id === 'string' ? product.supplier_id : (product?.supplier?.id || ""),
   }
 }
 
@@ -68,14 +71,31 @@ function isBasePriceColumnMissing(error: any) {
 }
 
 export function ProductDialog({ mode, product, children, open, onOpenChange }: ProductDialogProps) {
+  const router = useRouter()
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const { toast } = useToast()
   const [isPending, setIsPending] = useState(false)
   const [internalOpen, setInternalOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   const isOpen = open !== undefined ? open : internalOpen
   const setIsOpen = onOpenChange || setInternalOpen
 
   const [formData, setFormData] = useState<ProductFormData>(toFormData(product))
+
+  useEffect(() => {
+    setMounted(true)
+
+    const fetchSuppliers = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("suppliers").select("id, name").order("name")
+      if (!error && data) {
+        setSuppliers(data as Supplier[])
+      }
+    }
+
+    fetchSuppliers()
+  }, [])
 
   useEffect(() => {
     setFormData(toFormData(product))
@@ -98,6 +118,7 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
     const payloadWithBasePrice = {
       ...basePayload,
       base_price: Number(formData.base_price),
+      supplier_id: formData.supplier_id || null,
     }
 
     const payloadNewSchema: Record<string, any> = {
@@ -159,13 +180,17 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
       }
 
       toast({ title: "成功", description: mode === "create" ? "新增成功" : "更新成功" })
-      window.location.reload()
       setIsOpen(false)
+      router.refresh()
     } catch (error: any) {
       toast({ title: "錯誤", description: error.message, variant: "destructive" })
     } finally {
       setIsPending(false)
     }
+  }
+
+  if (!mounted) {
+    return children ? <>{children}</> : null
   }
 
   return (  
@@ -228,6 +253,19 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
               <Label>安全庫存</Label>
               <Input type="number" value={formData.safety_stock} onChange={(e) => setFormData({...formData, safety_stock: Number(e.target.value)})} />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label>廠商</Label>
+            <select
+              className="w-full border rounded px-2 py-1"
+              value={formData.supplier_id}
+              onChange={e => setFormData({ ...formData, supplier_id: e.target.value })}
+            >
+              <option value="">— 請選擇廠商 —</option>
+              {suppliers.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isPending}>{isPending ? "儲存中..." : "儲存"}</Button>

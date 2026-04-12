@@ -2,7 +2,7 @@ import type { Product as ProductType } from "@/lib/types"
 
 export type ProductListRow = Pick<
   ProductType,
-  "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "cost" | "price" | "sale_price"
+  "code" | "name" | "spec" | "unit" | "category" | "base_price" | "purchase_price" | "cost" | "price" | "sale_price" | "supplier_id"
 > & {
   stock_qty: number
   purchase_qty_total: number
@@ -85,6 +85,7 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
     cost: Number(Number(row.purchase_qty_total ?? 0) > 0 ? row.cost ?? 0 : 0),
     price: Number(row.price ?? 0),
     sale_price: row.sale_price === null || row.sale_price === undefined ? null : Number(row.sale_price),
+    supplier_id: row.supplier_id == null ? null : String(row.supplier_id),
     stock_qty: Number(row.stock_qty ?? 0),
     purchase_qty_total: Number(row.purchase_qty_total ?? 0),
     safety_stock: Number(row.safety_stock ?? 0),
@@ -93,12 +94,12 @@ export function normalizeProducts(rows: any[]): ProductListRow[] {
 
 export async function fetchProductsRows(supabase: any, from: number = 0, to: number = 19, searchText: string = "") {
   const queryByPriority = [
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
-    "code,name,spec,unit,category,base_price,cost,price,sale_price,stock_qty,purchase_qty_total",
-    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
-    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total",
-    "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock",
-    "code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
   ]
 
   for (const selectText of queryByPriority) {
@@ -122,7 +123,7 @@ export async function fetchProductsRows(supabase: any, from: number = 0, to: num
 
   let finalQuery = supabase
     .from("products")
-    .select("code,name,spec,unit,category,base_price,cost,price,sale_price", { count: "exact" })
+    .select("code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id", { count: "exact" })
     .order("code", { ascending: true })
     .range(from, to)
   if (searchText && searchText.trim() !== "") {

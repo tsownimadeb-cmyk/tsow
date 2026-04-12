@@ -48,6 +48,8 @@ export interface Product {
   stock_qty: number | null
   purchase_qty_total: number | null
   safety_stock: number | null
+  supplier_id?: string | null
+  supplier?: Supplier
   created_at: string
   updated_at: string
 }

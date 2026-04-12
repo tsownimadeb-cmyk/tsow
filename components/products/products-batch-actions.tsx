@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState, type ChangeEvent } from "react"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
@@ -21,12 +22,22 @@ type ProductCsvRow = {
   unit: string | null
   category: string | null
   base_price: number
+  purchase_price?: number | null
   cost: number
   price: number
   sale_price: number | null
+  stock_qty: number | null
+  purchase_qty_total: number | null
+  safety_stock: number | null
+  supplier_id?: string | null
+  created_at: string
+  updated_at: string
+  supplier: string | null
 }
 
-const CSV_COLUMNS: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
+const CSV_COLUMNS: Array<keyof ProductCsvRow> = [
+  "code", "name", "spec", "unit", "category", "base_price", "purchase_price", "cost", "price", "sale_price", "stock_qty", "purchase_qty_total", "safety_stock", "supplier_id", "created_at", "updated_at", "supplier"
+]
 
 const IMPORT_HEADER_ALIAS_MAP: Record<string, keyof ProductCsvRow> = {
   code: "code",
@@ -41,7 +52,14 @@ const IMPORT_HEADER_ALIAS_MAP: Record<string, keyof ProductCsvRow> = {
   category: "category",
   cate: "category",
   base_price: "base_price",
-  purchase_price: "base_price",
+  purchase_price: "purchase_price",
+  stock_qty: "stock_qty",
+  purchase_qty_total: "purchase_qty_total",
+  safety_stock: "safety_stock",
+  supplier_id: "supplier_id",
+  supplier: "supplier",
+  created_at: "created_at",
+  updated_at: "updated_at",
   cost: "cost",
   price: "price",
   sale_price: "sale_price",
@@ -118,6 +136,7 @@ function isBasePriceColumnMissing(error: any) {
 }
 
 export function ProductsBatchActions() {
+  const router = useRouter()
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
@@ -142,12 +161,25 @@ export function ProductsBatchActions() {
     try {
       setIsExporting(true)
       const supabase = createClient()
+      // 先查所有商品與 supplier_id
       const { data, error } = await supabase
         .from("products")
-        .select("code,name,spec,unit,category,base_price,cost,price,sale_price")
+        .select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,supplier_id,created_at,updated_at")
         .order("code", { ascending: true })
 
-      let products = (data || []) as ProductCsvRow[]
+      // 查所有廠商
+      const { data: suppliersData } = await supabase
+        .from("suppliers")
+        .select("id,name")
+      const supplierMap = new Map<string, string>()
+      for (const s of suppliersData || []) {
+        if (s.id && s.name) supplierMap.set(String(s.id), String(s.name))
+      }
+
+      let products = (data || []).map((row: any) => ({
+        ...row,
+        supplier: row.supplier_id ? supplierMap.get(String(row.supplier_id)) || null : null,
+      })) as ProductCsvRow[]
       if (error) {
         if (!isBasePriceColumnMissing(error)) throw error
 
@@ -164,9 +196,17 @@ export function ProductsBatchActions() {
             unit: row.unit,
             category: row.category,
             base_price: Number(row.purchase_price ?? row.cost ?? 0),
+            purchase_price: row.purchase_price ?? null,
             cost: Number(row.cost ?? 0),
             price: Number(row.price ?? 0),
             sale_price: row.sale_price ?? null,
+            stock_qty: null,
+            purchase_qty_total: null,
+            safety_stock: null,
+            supplier_id: null,
+            created_at: "",
+            updated_at: "",
+            supplier: null,
           }))
         } else {
           const fallbackCostOnly = await supabase
@@ -183,9 +223,17 @@ export function ProductsBatchActions() {
             unit: row.unit,
             category: row.category,
             base_price: Number(row.cost ?? 0),
+            purchase_price: null,
             cost: Number(row.cost ?? 0),
             price: Number(row.price ?? 0),
             sale_price: row.sale_price ?? null,
+            stock_qty: null,
+            purchase_qty_total: null,
+            safety_stock: null,
+            supplier_id: null,
+            created_at: "",
+            updated_at: "",
+            supplier: null,
           }))
         }
       }
@@ -241,11 +289,22 @@ export function ProductsBatchActions() {
       }
 
       const headers = parseCsvLine(csvLines[0]).map((header) => normalizeImportHeader(header))
-      const requiredColumns: Array<keyof ProductCsvRow> = ["code", "name", "spec", "unit", "category", "base_price", "cost", "price", "sale_price"]
+      const requiredColumns: Array<keyof ProductCsvRow> = ["code", "name"]
 
       for (const requiredColumn of requiredColumns) {
         if (!headers.includes(requiredColumn)) {
           throw new Error(`CSV 缺少必要欄位: ${requiredColumn}`)
+        }
+      }
+
+      const supabase = createClient()
+      const { data: suppliersData } = await supabase.from("suppliers").select("id,name")
+      const supplierIdByName = new Map<string, string>()
+      for (const supplier of suppliersData || []) {
+        const name = String(supplier.name || "").trim().toLowerCase()
+        const id = String(supplier.id || "").trim()
+        if (name && id) {
+          supplierIdByName.set(name, id)
         }
       }
 
@@ -256,6 +315,9 @@ export function ProductsBatchActions() {
           return accumulator
         }, {})
 
+        const supplierIdText = String(valueByColumn.supplier_id || "").trim()
+        const supplierNameText = String(valueByColumn.supplier || "").trim().toLowerCase()
+
         return {
           code: (valueByColumn.code || "").trim(),
           name: (valueByColumn.name || "").trim(),
@@ -263,19 +325,29 @@ export function ProductsBatchActions() {
           unit: valueByColumn.unit?.trim() ? valueByColumn.unit.trim() : null,
           category: valueByColumn.category?.trim() ? valueByColumn.category.trim() : null,
           base_price: toNumberOrZero(valueByColumn.base_price || ""),
+          purchase_price: toNullableNumber(valueByColumn.purchase_price || ""),
           cost: toNumberOrZero(valueByColumn.cost || ""),
           price: toNumberOrZero(valueByColumn.price || ""),
           sale_price: toNullableNumber(valueByColumn.sale_price || ""),
+          stock_qty: toNullableNumber(valueByColumn.stock_qty || ""),
+          purchase_qty_total: toNullableNumber(valueByColumn.purchase_qty_total || ""),
+          safety_stock: toNullableNumber(valueByColumn.safety_stock || ""),
+          supplier_id: supplierIdText || supplierIdByName.get(supplierNameText) || null,
+          created_at: (valueByColumn.created_at || "").trim(),
+          updated_at: (valueByColumn.updated_at || "").trim(),
+          supplier: valueByColumn.supplier?.trim() ? valueByColumn.supplier.trim() : null,
         }
       })
 
-      const upsertPayload = rows.filter((row) => row.code)
+      const upsertPayload = rows.filter((row) => row.code).map(({ supplier, ...row }) => ({
+        ...row,
+        supplier_id: row.supplier_id && String(row.supplier_id).trim() ? String(row.supplier_id).trim() : null,
+      }))
       const csvCodes = Array.from(new Set(upsertPayload.map((row) => row.code)))
       if (upsertPayload.length === 0) {
         throw new Error("沒有可匯入的資料，請確認 code 欄位")
       }
 
-      const supabase = createClient()
       let { error } = await supabase
         .from("products")
         .upsert(upsertPayload, { onConflict: "code", on_conflict: "code" } as any)
@@ -311,7 +383,7 @@ export function ProductsBatchActions() {
       }
 
       toastApi.success("批次更新完成")
-      window.location.reload()
+      router.refresh()
     } catch (error: any) {
       toastApi.error(error?.message || "匯入失敗")
     } finally {
