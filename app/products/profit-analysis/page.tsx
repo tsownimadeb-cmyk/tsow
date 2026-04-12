@@ -8,6 +8,7 @@ import {
   normalizeProducts,
   type ProductListRowWithProfit,
 } from "@/lib/products"
+import type { Supplier } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { ProfitAnalysisTable } from "@/components/products/profit-analysis-table"
 import { Input } from "@/components/ui/input"
@@ -56,6 +57,10 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
 
   const startDate = isDateText(rawStartDate) ? String(rawStartDate) : ""
   const endDate = isDateText(rawEndDate) ? String(rawEndDate) : ""
+
+  // 查詢所有供應商
+  const { data: suppliersRaw, error: suppliersError } = await supabase.from("suppliers").select("id, name")
+  const suppliers: Supplier[] = Array.isArray(suppliersRaw) ? suppliersRaw : []
 
   const { rows: productsRaw, warning: productsWarning } = await fetchProductsRows(supabase, 0, 99999)
   if (productsWarning) {
@@ -144,7 +149,8 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
         </div>
       </div>
 
-      <ProfitAnalysisTable products={productsWithProfit} />
+      {/* 傳遞 suppliers 給 ProfitAnalysisTable，後續會加上篩選功能 */}
+      <ProfitAnalysisTable products={productsWithProfit} suppliers={suppliers} />
     </div>
   )
 }

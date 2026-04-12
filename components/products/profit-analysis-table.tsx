@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { ProductListRowWithProfit } from "@/lib/products"
+import type { Supplier } from "@/lib/types"
 
 interface ProfitAnalysisTableProps {
   products: ProductListRowWithProfit[]
+  suppliers: Supplier[]
 }
 
 const formatAmount = (value: number | string | null | undefined) => {
@@ -19,10 +21,7 @@ const formatAmount = (value: number | string | null | undefined) => {
   })
 }
 
-const formatCurrency = (value: number | string | null | undefined) => {
-  return `$${formatAmount(value)}`
-}
-
+const formatCurrency = (value: number | string | null | undefined) => `$${formatAmount(value)}`
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`
 
 const getMarginTheme = (margin: number) => {
@@ -46,25 +45,37 @@ const getMarginTheme = (margin: number) => {
   }
 }
 
-export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
+export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTableProps) {
   const [searchText, setSearchText] = useState("")
+  const [selectedSupplierId, setSelectedSupplierId] = useState("")
   const [expandedProductCodes, setExpandedProductCodes] = useState<Set<string>>(new Set())
+
+  const supplierMap = useMemo(() => {
+    return new Map(suppliers.map((supplier) => [String(supplier.id), supplier.name]))
+  }, [suppliers])
 
   const filteredProducts = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    const base = [...products].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))
+    let base = [...products].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))
+
+    if (selectedSupplierId) {
+      base = base.filter((product) => String(product.supplier_id || "") === selectedSupplierId)
+    }
+
     if (!keyword) return base
 
-    return base.filter(product => {
+    return base.filter((product) => {
+      const supplierName = product.supplier_id ? supplierMap.get(String(product.supplier_id)) || "" : ""
       const haystacks = [
         String(product.code || ""),
         String(product.name || ""),
         String(product.spec || ""),
         String(product.category || ""),
+        supplierName,
       ]
       return haystacks.some((value) => value.toLowerCase().includes(keyword))
     })
-  }, [products, searchText])
+  }, [products, searchText, selectedSupplierId, supplierMap])
 
   const stats = useMemo(() => {
     const soldProducts = filteredProducts.filter((product) => Number(product.sales_qty_total || 0) > 0)
@@ -72,11 +83,6 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
     const totalGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.gross_profit || 0), 0)
     const totalCashReceived = soldProducts.reduce((sum, product) => sum + Number(product.cash_received_total || 0), 0)
     const totalSalesAmount = soldProducts.reduce((sum, product) => sum + Number(product.sales_amount_total || 0), 0)
-
-    const diffAmount = totalCashReceived - totalSalesAmount
-    const diffGrossProfit = totalCashGrossProfit - totalGrossProfit
-
-    // 最高應收毛利商品
     const topProduct =
       soldProducts.length > 0
         ? [...soldProducts].sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))[0]
@@ -87,8 +93,6 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
       totalGrossProfit,
       totalCashReceived,
       totalSalesAmount,
-      diffAmount,
-      diffGrossProfit,
       topProduct,
     }
   }, [filteredProducts])
@@ -122,7 +126,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-slate-700">{formatCurrency(stats.totalSalesAmount)}</p>
-            <p className="text-xs mt-1 text-gray-500">差額：{formatCurrency(stats.totalSalesAmount - stats.totalCashReceived)}</p>
+            <p className="mt-1 text-xs text-gray-500">差額：{formatCurrency(stats.totalSalesAmount - stats.totalCashReceived)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -141,7 +145,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
             <p className={`text-3xl font-bold ${stats.totalGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
               {formatCurrency(stats.totalGrossProfit)}
             </p>
-            <p className="text-xs mt-1 text-gray-500">差額：{formatCurrency(stats.totalGrossProfit - stats.totalCashGrossProfit)}</p>
+            <p className="mt-1 text-xs text-gray-500">差額：{formatCurrency(stats.totalGrossProfit - stats.totalCashGrossProfit)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -159,18 +163,34 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
       </div>
 
       <div className="rounded-md border border-gray-200 bg-white p-4">
-        <Input
-          placeholder="搜尋商品編號 / 名稱 / 規格 / 種類"
-          value={searchText}
-          onChange={(event) => setSearchText(event.target.value)}
-        />
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex items-center gap-2 md:w-64">
+            <label htmlFor="supplier-select" className="text-sm text-gray-600 whitespace-nowrap">廠商</label>
+            <select
+              id="supplier-select"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={selectedSupplierId}
+              onChange={(event) => setSelectedSupplierId(event.target.value)}
+            >
+              <option value="">全部</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+              ))}
+            </select>
+          </div>
+          <Input
+            placeholder="搜尋商品編號 / 名稱 / 規格 / 種類 / 廠商"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+          />
+        </div>
       </div>
 
-      {/* 桌面版表格 (md 以上) */}
-      <div className="hidden md:block rounded-md border border-gray-200 bg-white overflow-x-auto">
+      <div className="hidden overflow-x-auto rounded-md border border-gray-200 bg-white md:block">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>廠商</TableHead>
               <TableHead>商品名稱</TableHead>
               <TableHead className="text-right">已售數量</TableHead>
               <TableHead className="text-right">實收金額</TableHead>
@@ -183,7 +203,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
           <TableBody>
             {filteredProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-gray-400">
+                <TableCell colSpan={8} className="py-8 text-center text-sm text-gray-400">
                   查無符合的商品，請調整搜尋條件。
                 </TableCell>
               </TableRow>
@@ -200,45 +220,32 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                 const productCode = String(product.code || "-")
                 const isExpanded = expandedProductCodes.has(productCode)
                 const marginTheme = getMarginTheme(cashGrossMargin)
-
                 const isGoldenProduct = cashGrossMargin > 0.2
                 const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
                 const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-
-                const statusLabel = isGoldenProduct
-                  ? "金雞母"
-                  : isReceivableRisk
-                    ? "欠款風險"
-                    : isLowOrNegativeMargin
-                      ? "低毛利"
-                      : "一般"
-
-                const statusClassName = isGoldenProduct
+                const rowStatusLabel = isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+                const rowStatusClassName = isGoldenProduct
                   ? "bg-emerald-100 text-emerald-700 border-emerald-200"
                   : isReceivableRisk
                     ? "bg-amber-100 text-amber-700 border-amber-200"
                     : isLowOrNegativeMargin
                       ? "bg-red-100 text-red-700 border-red-200"
                       : "bg-slate-100 text-slate-700 border-slate-200"
+                const supplierName = product.supplier_id ? supplierMap.get(String(product.supplier_id)) || "-" : "-"
 
                 return (
                   <React.Fragment key={productCode}>
                     <TableRow className="align-top">
-                      <TableCell className="sm:w-40 sm:max-w-40 sm:truncate">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(productCode)}
-                          className="w-full text-left"
-                        >
-                          <div className={`font-medium text-gray-900 ${!isExpanded ? 'truncate' : ''}`}>{product.name || "-"}</div>
+                      <TableCell className="max-w-32 truncate text-gray-700">{supplierName}</TableCell>
+                      <TableCell className="max-w-40 truncate">
+                        <button type="button" onClick={() => toggleExpand(productCode)} className="w-full text-left">
+                          <div className={`font-medium text-gray-900 ${!isExpanded ? "truncate" : ""}`}>{product.name || "-"}</div>
                           <div className="text-xs text-gray-500">
                             {productCode} ・ {product.spec || "—"} {product.unit || ""}
                           </div>
                           <div className="mt-1">
-                            <span
-                              className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${statusClassName}`}
-                            >
-                              {statusLabel}
+                            <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${rowStatusClassName}`}>
+                              {rowStatusLabel}
                             </span>
                             <span className="ml-2 text-[10px] text-gray-400">
                               {isExpanded ? "點擊收合細節" : "點擊展開細節"}
@@ -250,12 +257,12 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                       <TableCell className="text-right text-blue-600">{formatCurrency(cashReceived)}</TableCell>
                       <TableCell className="text-right text-slate-700">{formatCurrency(salesAmount)}</TableCell>
                       <TableCell className="text-right">
-                        <span className={cashGrossProfit >= 0 ? "text-emerald-600 font-semibold" : "text-red-600 font-semibold"}>
+                        <span className={cashGrossProfit >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-red-600"}>
                           {formatCurrency(cashGrossProfit)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className={grossProfit >= 0 ? "text-emerald-700 font-semibold" : "text-red-600 font-semibold"}>
+                        <span className={grossProfit >= 0 ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>
                           {formatCurrency(grossProfit)}
                         </span>
                       </TableCell>
@@ -272,8 +279,8 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                       </TableCell>
                     </TableRow>
                     {isExpanded ? (
-                      <TableRow key={`${productCode}-details`} className="bg-slate-50/70">
-                        <TableCell colSpan={7}>
+                      <TableRow className="bg-slate-50/70">
+                        <TableCell colSpan={8}>
                           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">單位成本</p>
@@ -317,10 +324,9 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
         </Table>
       </div>
 
-      {/* 手機版卡片清單 (md 以下) */}
-      <div className="block md:hidden space-y-3">
+      <div className="block space-y-3 md:hidden">
         {filteredProducts.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400 border rounded-md bg-white">查無符合的商品，請調整搜尋條件。</div>
+          <div className="rounded-md border bg-white py-8 text-center text-sm text-gray-400">查無符合的商品，請調整搜尋條件。</div>
         ) : (
           filteredProducts.map((product) => {
             const grossProfit = Number(product.gross_profit || 0)
@@ -334,34 +340,29 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
             const productCode = String(product.code || "-")
             const isExpanded = expandedProductCodes.has(productCode)
             const marginTheme = getMarginTheme(cashGrossMargin)
-
             const isGoldenProduct = cashGrossMargin > 0.2
             const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
             const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-
-            const statusLabel = isGoldenProduct
-              ? "金雞母"
-              : isReceivableRisk
-                ? "欠款風險"
-                : isLowOrNegativeMargin
-                  ? "低毛利"
-                  : "一般"
-
-            const statusClassName = isGoldenProduct
+            const cardStatusLabel = isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+            const cardStatusClassName = isGoldenProduct
               ? "bg-emerald-100 text-emerald-700 border-emerald-200"
               : isReceivableRisk
                 ? "bg-amber-100 text-amber-700 border-amber-200"
                 : isLowOrNegativeMargin
                   ? "bg-red-100 text-red-700 border-red-200"
                   : "bg-slate-100 text-slate-700 border-slate-200"
+            const supplierName = product.supplier_id ? supplierMap.get(String(product.supplier_id)) || "-" : "-"
 
             return (
               <Card key={productCode} className="border border-gray-200 bg-white">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                    <span className="truncate max-w-[60vw]">{product.name || "-"}</span>
+                  <div className="mb-1 text-xs text-gray-500">廠商：{supplierName}</div>
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold text-gray-900">
+                    <span className="max-w-[60vw] truncate">{product.name || "-"}</span>
                     <span className="text-xs text-gray-500">{productCode}</span>
-                    <span className={`ml-2 inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${statusClassName}`}>{statusLabel}</span>
+                    <span className={`ml-2 inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${cardStatusClassName}`}>
+                      {cardStatusLabel}
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-1">
@@ -377,19 +378,21 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                     <span className="text-gray-500">應收金額</span>
                     <span className="text-right text-slate-700">{formatCurrency(salesAmount)}</span>
                   </div>
-                  <div className="flex justify-between text-sm mt-2">
+                  <div className="mt-2 flex justify-between text-sm">
                     <span className="text-gray-500">實收現金毛利</span>
                     <span className="text-right font-semibold text-emerald-600">{formatCurrency(cashGrossProfit)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">應收現金毛利</span>
-                    <span className={`text-right font-semibold ${grossProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>{formatCurrency(grossProfit)}</span>
+                    <span className={`text-right font-semibold ${grossProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {formatCurrency(grossProfit)}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-sm items-center">
+                  <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">實收毛利率</span>
                     <span className={`font-semibold ${marginTheme.text}`}>{formatPercent(cashGrossMargin)}</span>
                   </div>
-                  <div className="w-full h-2 mt-1 overflow-hidden rounded-full bg-slate-200">
+                  <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                     <div
                       className={`h-full ${marginTheme.bar}`}
                       style={{ width: `${Math.max(0, Math.min(100, cashGrossMargin * 100))}%` }}
@@ -402,7 +405,7 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                   >
                     {isExpanded ? "點擊收合細節" : "點擊展開細節"}
                   </button>
-                  {isExpanded && (
+                  {isExpanded ? (
                     <div className="mt-2 grid grid-cols-1 gap-3 text-sm">
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">單位成本</p>
@@ -418,18 +421,24 @@ export function ProfitAnalysisTable({ products }: ProfitAnalysisTableProps) {
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">實收現金毛利</p>
-                        <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatCurrency(cashGrossProfit)}</p>
+                        <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {formatCurrency(cashGrossProfit)}
+                        </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">應收現金毛利</p>
-                        <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatCurrency(grossProfit)}</p>
+                        <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {formatCurrency(grossProfit)}
+                        </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">應收毛利率</p>
-                        <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>{formatPercent(grossMargin)}</p>
+                        <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>
+                          {formatPercent(grossMargin)}
+                        </p>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </CardContent>
               </Card>
             )
