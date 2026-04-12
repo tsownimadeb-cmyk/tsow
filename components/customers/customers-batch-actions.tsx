@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, type ChangeEvent } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Download, Settings, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
@@ -200,7 +200,12 @@ export function CustomersBatchActions() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const syncDeleteMissing = true
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const toastApi = {
     success: (message: string) =>
@@ -363,6 +368,11 @@ export function CustomersBatchActions() {
   return (
     <div className="flex items-center gap-2">
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
+      {!isMounted ? (
+        <Button variant="outline" size="icon-sm" disabled aria-label="客戶操作" title="客戶操作">
+          <Settings className="h-4 w-4" />
+        </Button>
+      ) : (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -388,6 +398,7 @@ export function CustomersBatchActions() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      )}
     </div>
   )
 }

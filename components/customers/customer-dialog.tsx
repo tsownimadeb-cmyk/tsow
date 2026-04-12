@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import {
   Dialog,
   DialogContent,
@@ -35,20 +35,31 @@ interface CustomerDialogProps {
 }
 
 const CUSTOMER_REFERENCE_TABLES = [
-  { table: "sales_orders", column: "customer_cno" },
-  { table: "accounts_receivable", column: "customer_cno" },
-  { table: "sales_returns", column: "customer_cno" },
-  { table: "ar_receipts", column: "customer_cno" },
+  { table: "sales_orders", columns: ["customer_cno"] },
+  { table: "accounts_receivable", columns: ["customer_cno"] },
+  { table: "sales_returns", columns: ["customer_cno", "customer_code"] },
+  { table: "ar_receipts", columns: ["customer_cno"] },
 ] as const
 
 function isMissingRenameRpcError(message: string) {
   return /Could not find the function|does not exist|schema cache/i.test(message)
 }
 
+function isSkippableReferenceSyncError(message: string) {
+  return /column .* does not exist|relation .* does not exist|Could not find the .* column .* in the schema cache|Could not find the table .* in the schema cache/i.test(
+    message
+  )
+}
+
 export function CustomerDialog({ mode, customer, children, open, onOpenChange }: CustomerDialogProps) {
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [internalOpen, setInternalOpen] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const isControlled = open !== undefined
   const isOpen = isControlled ? open : internalOpen
@@ -62,6 +73,10 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
     tel3: customer?.fax || customer?.tel3 || customer?.tel12 || "",
     address: customer?.addr || customer?.address || "",
   })
+
+  if (!isMounted) {
+    return children ? <>{children}</> : null
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -175,15 +190,24 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
               }
 
               for (const ref of CUSTOMER_REFERENCE_TABLES) {
-                const refResult = await supabase
-                  .from(ref.table)
-                  .update({ [ref.column]: nextCode } as never)
-                  .eq(ref.column, originalCode)
+                for (const column of ref.columns) {
+                  const refResult = await supabase
+                    .from(ref.table)
+                    .update({ [column]: nextCode } as never)
+                    .eq(column, originalCode)
 
-                const refMessage = refResult.error?.message || ""
-                if (refResult.error && !/column .* does not exist|relation .* does not exist/i.test(refMessage)) {
+                  const refMessage = refResult.error?.message || ""
+                  if (!refResult.error) {
+                    break
+                  }
+
+                  if (isSkippableReferenceSyncError(refMessage)) {
+                    continue
+                  }
+
                   throw new Error(`同步 ${ref.table} 失敗：${refMessage}`)
                 }
+
               }
             }
           }

@@ -75,8 +75,8 @@ BEGIN
      OR UPPER(TRIM(COALESCE(cno, ''))) = v_old;
 
   IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'sales_orders'
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'sales_orders' AND column_name = 'customer_cno'
   ) THEN
     UPDATE public.sales_orders
     SET customer_cno = v_new
@@ -84,8 +84,8 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'accounts_receivable'
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'accounts_receivable' AND column_name = 'customer_cno'
   ) THEN
     UPDATE public.accounts_receivable
     SET customer_cno = v_new
@@ -93,8 +93,8 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'sales_returns'
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'sales_returns' AND column_name = 'customer_cno'
   ) THEN
     UPDATE public.sales_returns
     SET customer_cno = v_new
@@ -102,8 +102,17 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'ar_receipts'
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'sales_returns' AND column_name = 'customer_code'
+  ) THEN
+    UPDATE public.sales_returns
+    SET customer_code = v_new
+    WHERE UPPER(TRIM(COALESCE(customer_code, ''))) = v_old;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'ar_receipts' AND column_name = 'customer_cno'
   ) THEN
     UPDATE public.ar_receipts
     SET customer_cno = v_new
