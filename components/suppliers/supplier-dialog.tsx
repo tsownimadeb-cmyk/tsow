@@ -47,6 +47,7 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
     email: supplier?.email || "",
     address: supplier?.address || "",
     notes: supplier?.notes || "",
+    statement_day: supplier?.statement_day?.toString() || ""
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -62,6 +63,7 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
       email: formData.email || null,
       address: formData.address || null,
       notes: formData.notes || null,
+      statement_day: formData.statement_day ? Number(formData.statement_day) : null,
     }
 
     startTransition(async () => {
@@ -169,6 +171,23 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
               id="address"
               value={formData.address}
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            />
+          </div>
+
+
+          <div className="space-y-2">
+            <Label htmlFor="statement_day">月結日 (1-31)</Label>
+            <Input
+              id="statement_day"
+              type="number"
+              min={1}
+              max={31}
+              value={formData.statement_day}
+              onChange={(e) => {
+                const val = e.target.value
+                setFormData({ ...formData, statement_day: val.replace(/[^\d]/g, "") })
+              }}
+              placeholder="請輸入月結日"
             />
           </div>
 

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import { APTable } from "../../components/accounts-payable/ap-table"
+import { SupplierStatementDetailPanel } from "../../components/accounts-payable/supplier-statement-detail-panel"
 import type { AccountsPayable } from "@/lib/types"
 
 export const metadata = {
@@ -46,9 +46,7 @@ export default async function APPage() {
   )
 
   const [{ data: suppliers }, { data: products }] = await Promise.all([
-    supplierIds.length > 0
-      ? supabase.from("suppliers").select("*").in("id", supplierIds)
-      : Promise.resolve({ data: [] }),
+    supabase.from("suppliers").select("*").order("name"),
     productCodes.length > 0
       ? supabase.from("products").select("*").in("code", productCodes)
       : Promise.resolve({ data: [] }),
@@ -126,14 +124,7 @@ export default async function APPage() {
         <p className="text-muted-foreground mt-2">管理進貨應付帳款記錄</p>
       </div>
 
-      {apError && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-1">
-          <p className="text-sm text-destructive font-semibold">`accounts_payable` 讀取失敗，已改用進貨資料即時計算</p>
-          <p className="text-xs text-destructive/80">{apError.message}</p>
-        </div>
-      )}
-
-      <APTable records={enrichedRecords} />
+      <SupplierStatementDetailPanel suppliers={suppliers || []} />
     </div>
   )
 }

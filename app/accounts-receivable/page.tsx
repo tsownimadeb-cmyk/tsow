@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { ARTableClient } from "@/components/accounts-receivable/ar-table-client"
+import { CustomerStatementReceivablePanel } from "@/components/accounts-receivable/customer-statement-receivable-panel"
 import type { AccountsReceivable, Customer } from "@/lib/types"
 import Link from "next/link"
 
@@ -546,6 +547,8 @@ export default async function ARPage(props: any) {
           <h1 className="text-3xl font-bold">應收帳款管理</h1>
           <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄（每頁 {PAGE_SIZE} 筆）</p>
         </div>
+
+        {/* <CustomerStatementReceivablePanel /> */}
 
         {arErrorMessage && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-1">

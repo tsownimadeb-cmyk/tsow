@@ -16,6 +16,7 @@ export interface Supplier {
   email: string | null
   address: string | null
   notes: string | null
+  statement_day?: number | null // 月結日 (1-31)
   created_at: string
   updated_at: string
 }
@@ -30,6 +31,7 @@ export interface Customer {
   tel12: string | null
   addr: string | null
   notes: string | null
+  statement_day?: number | null // 月結日 (1-31)
   created_at: string
   updated_at: string
 }
