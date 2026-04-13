@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { createClient } from "@/lib/supabase/server"
+import { ARHistoryTable } from "../../../components/accounts-receivable/ar-history-table"
 
 export const metadata: Metadata = {
   title: "收款履歷",
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic"
 
 interface ReceiptRecord {
   id: string
+  ar_id: string | null
+  sales_order_id: string | null
   payment_date: string | null
   customer_name: string | null
   customer_cno: string | null
@@ -37,7 +40,7 @@ export default async function ARHistoryPage() {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from("ar_receipts")
-    .select("id,payment_date,customer_name,customer_cno,order_no,payment_method,check_no,check_due_date,payment_amount,notes,created_at")
+    .select("id,ar_id,sales_order_id,payment_date,customer_name,customer_cno,order_no,payment_method,check_no,check_due_date,payment_amount,notes,created_at")
     .order("payment_date", { ascending: false })
     .order("created_at", { ascending: false })
 
@@ -63,42 +66,7 @@ export default async function ARHistoryPage() {
           目前尚無收款履歷資料，請先執行一次沖帳。
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="border px-2 py-2">收款日期</th>
-                <th className="border px-2 py-2">客戶名稱</th>
-                <th className="border px-2 py-2">客戶代號</th>
-                <th className="border px-2 py-2">對應單號</th>
-                <th className="border px-2 py-2">收款方式</th>
-                <th className="border px-2 py-2">支票號碼</th>
-                <th className="border px-2 py-2">支票到期日</th>
-                <th className="border px-2 py-2 text-right">實收金額</th>
-                <th className="border px-2 py-2">備註</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((rec) => {
-                const isCheckPayment = rec.payment_method === "支票"
-
-                return (
-                  <tr key={rec.id}>
-                    <td className="border px-2 py-1">{rec.payment_date || "-"}</td>
-                    <td className="border px-2 py-1">{rec.customer_name || "-"}</td>
-                    <td className="border px-2 py-1">{rec.customer_cno || "-"}</td>
-                    <td className="border px-2 py-1">{rec.order_no || "-"}</td>
-                    <td className="border px-2 py-1">{rec.payment_method || "-"}</td>
-                    <td className="border px-2 py-1">{isCheckPayment ? rec.check_no || "-" : "-"}</td>
-                    <td className="border px-2 py-1">{isCheckPayment ? rec.check_due_date || "-" : "-"}</td>
-                    <td className="border px-2 py-1 text-right">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</td>
-                    <td className="border px-2 py-1 whitespace-pre-line">{formatReceiptNotes(rec.notes)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ARHistoryTable initialRecords={records} />
       )}
     </div>
   )

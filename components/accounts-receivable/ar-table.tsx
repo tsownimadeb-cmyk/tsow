@@ -67,6 +67,7 @@ export function ARTable({
   const [search, setSearch] = useState(initialSearch)
   const debouncedSearch = useDebounce(search, 300)
   const lastInitialSearchRef = useRef(initialSearch)
+  const pendingSearchRef = useRef<string | null>(null)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllCustomers, setShowAllCustomers] = useState(initialShowAllCustomers)
   const [isPending, startTransition] = useTransition()
@@ -120,6 +121,13 @@ export function ARTable({
     const previousInitialSearch = lastInitialSearchRef.current
     lastInitialSearchRef.current = initialSearch
 
+    if (pendingSearchRef.current !== null) {
+      if (pendingSearchRef.current === initialSearch) {
+        pendingSearchRef.current = null
+      }
+      return
+    }
+
     if (previousInitialSearch === initialSearch) return
     if (search !== debouncedSearch) return
     if (initialSearch === search) return
@@ -135,7 +143,12 @@ export function ARTable({
     const params = new URLSearchParams(searchParams.toString())
     const currentSearch = params.get("search") || ""
 
-    if (debouncedSearch === currentSearch) return
+    if (debouncedSearch === currentSearch) {
+      if (pendingSearchRef.current === currentSearch) {
+        pendingSearchRef.current = null
+      }
+      return
+    }
 
     if (debouncedSearch) {
       params.set("search", debouncedSearch)
@@ -145,6 +158,7 @@ export function ARTable({
     params.delete("page")
 
     const query = params.toString()
+    pendingSearchRef.current = debouncedSearch
     startTransition(() => {
       router.replace(query ? `/accounts-receivable?${query}` : "/accounts-receivable")
     })
