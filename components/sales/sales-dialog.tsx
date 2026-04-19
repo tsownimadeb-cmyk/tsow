@@ -253,36 +253,12 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
       status: paid ? "paid" : "unpaid",
     }
 
-    const { data: updatedRows, error: arUpdateError } = await supabase
+    const { error: arUpsertError } = await supabase
       .from("accounts_receivable")
-      .update(arPayload)
-      .eq("sales_order_id", salesOrderId)
-      .select("id")
-      .limit(1)
+      .upsert(arPayload, { onConflict: "sales_order_id" })
 
-    if (arUpdateError) {
-      throw new Error(arUpdateError.message || "無法同步應收帳款")
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-      const { error: arInsertError } = await supabase
-        .from("accounts_receivable")
-        .insert(arPayload)
-
-      if (arInsertError) {
-        if (!isUniqueViolationError(arInsertError)) {
-          throw new Error(arInsertError.message || "無法同步應收帳款")
-        }
-
-        const { error: retryUpdateError } = await supabase
-          .from("accounts_receivable")
-          .update(arPayload)
-          .eq("sales_order_id", salesOrderId)
-
-        if (retryUpdateError) {
-          throw new Error(retryUpdateError.message || "無法同步應收帳款")
-        }
-      }
+    if (arUpsertError) {
+      throw new Error(arUpsertError.message || "無法同步應收帳款")
     }
 
     if (paid || !customerCno || amount <= 0) {
@@ -319,25 +295,28 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     }
 
     let consumedOverpaid = 0
+    const overpaidUpdates: Array<{ id: string; overpaid_amount: number }> = []
     for (const row of overpaidRows || []) {
       if (remainingNeed <= 0) break
       const rowOverpaid = Math.max(0, Number(row.overpaid_amount ?? 0) || 0)
       if (rowOverpaid <= 0) continue
 
       const consume = Math.min(rowOverpaid, remainingNeed)
-      const nextOverpaid = rowOverpaid - consume
-
-      const { error: consumeError } = await supabase
-        .from("accounts_receivable")
-        .update({ overpaid_amount: nextOverpaid })
-        .eq("id", row.id)
-
-      if (consumeError) {
-        throw new Error(consumeError.message || "無法套用溢收抵扣")
-      }
-
+      overpaidUpdates.push({ id: row.id, overpaid_amount: rowOverpaid - consume })
       consumedOverpaid += consume
       remainingNeed -= consume
+    }
+
+    if (overpaidUpdates.length > 0) {
+      const updateErrors = await Promise.all(
+        overpaidUpdates.map(({ id, overpaid_amount }) =>
+          supabase.from("accounts_receivable").update({ overpaid_amount }).eq("id", id).then((r) => r.error)
+        )
+      )
+      const firstError = updateErrors.find(Boolean)
+      if (firstError) {
+        throw new Error(firstError.message || "無法套用溢收抵扣")
+      }
     }
 
     if (consumedOverpaid <= 0) {
@@ -584,27 +563,22 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
 
         await Promise.all(
           inventoryItems.map(async (item) => {
-            console.log("正在處理單據:", finalOrderNumber, "商品:", item.code)
-
             const { data: currentProduct, error: currentProductError } = await supabase
               .from("products")
-              .select("code,name,price,stock_qty")
+              .select("stock_qty")
               .eq("code", item.code)
               .single()
 
             if (currentProductError || !currentProduct) {
-              console.error("[SalesDialog] 讀取商品失敗:", currentProductError)
               throw new Error(currentProductError?.message || `找不到商品 ${item.code}`)
             }
 
-            const coalescedStockQty = Number(currentProduct.stock_qty ?? 0)
             const { error: updateInventoryError } = await supabase
               .from("products")
-              .update({ stock_qty: coalescedStockQty - item.quantity })
+              .update({ stock_qty: Number(currentProduct.stock_qty ?? 0) - item.quantity })
               .eq("code", item.code)
 
             if (updateInventoryError) {
-              console.error("[SalesDialog] 更新庫存失敗:", updateInventoryError)
               throw new Error(updateInventoryError.message)
             }
           }),
