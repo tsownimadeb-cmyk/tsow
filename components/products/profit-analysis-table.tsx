@@ -213,7 +213,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                 const grossMargin = Number(product.gross_margin || 0)
                 const cashGrossProfit = Number(product.cash_gross_profit || 0)
                 const cashGrossMargin = Number(product.cash_gross_margin || 0)
-                const unitCost = Number(Number(product.purchase_qty_total || 0) > 0 ? product.cost || 0 : 0)
+                const latestPurchasePrice = Number(product.latest_purchase_price || 0)
+                const fifoAvgCost = Number(product.sales_qty_total || 0) > 0
+                  ? Number(product.cogs_total || 0) / Number(product.sales_qty_total)
+                  : latestPurchasePrice
+                const isCostRising = latestPurchasePrice > 0 && fifoAvgCost > 0 && latestPurchasePrice > fifoAvgCost * 1.1
                 const salesAmount = Number(product.sales_amount_total || 0)
                 const cashReceived = Number(product.cash_received_total || 0)
                 const cashCollectionRatio = salesAmount > 0 ? cashReceived / salesAmount : 0
@@ -283,8 +287,21 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                         <TableCell colSpan={8}>
                           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">單位成本</p>
-                              <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(unitCost)}</p>
+                              <p className="text-xs text-slate-500">最新進貨單價</p>
+                              <div className="mt-1 flex items-center justify-end gap-1.5">
+                                {isCostRising && (
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                      <path fillRule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clipRule="evenodd" style={{transform: 'rotate(180deg)', transformOrigin: 'center'}} />
+                                    </svg>
+                                    成本上漲
+                                  </span>
+                                )}
+                                <span className={`font-semibold ${isCostRising ? "text-red-600" : "text-slate-700"}`}>{formatCurrency(latestPurchasePrice)}</span>
+                              </div>
+                              {isCostRising && (
+                                <p className="mt-1 text-right text-[10px] text-slate-400">FIFO 均成本 {formatCurrency(fifoAvgCost)}</p>
+                              )}
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">應收金額</p>
@@ -333,7 +350,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             const grossMargin = Number(product.gross_margin || 0)
             const cashGrossProfit = Number(product.cash_gross_profit || 0)
             const cashGrossMargin = Number(product.cash_gross_margin || 0)
-            const unitCost = Number(Number(product.purchase_qty_total || 0) > 0 ? product.cost || 0 : 0)
+            const latestPurchasePrice = Number(product.latest_purchase_price || 0)
+            const fifoAvgCost = Number(product.sales_qty_total || 0) > 0
+              ? Number(product.cogs_total || 0) / Number(product.sales_qty_total)
+              : latestPurchasePrice
+            const isCostRising = latestPurchasePrice > 0 && fifoAvgCost > 0 && latestPurchasePrice > fifoAvgCost * 1.1
             const salesAmount = Number(product.sales_amount_total || 0)
             const cashReceived = Number(product.cash_received_total || 0)
             const cashCollectionRatio = salesAmount > 0 ? cashReceived / salesAmount : 0
@@ -408,8 +429,21 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                   {isExpanded ? (
                     <div className="mt-2 grid grid-cols-1 gap-3 text-sm">
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">單位成本</p>
-                        <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(unitCost)}</p>
+                        <p className="text-xs text-slate-500">最新進貨單價</p>
+                        <div className="mt-1 flex items-center justify-end gap-1.5">
+                          {isCostRising && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3" style={{transform: 'rotate(180deg)', transformOrigin: 'center'}}>
+                                <path fillRule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clipRule="evenodd" />
+                              </svg>
+                              成本上漲
+                            </span>
+                          )}
+                          <span className={`font-semibold ${isCostRising ? "text-red-600" : "text-slate-700"}`}>{formatCurrency(latestPurchasePrice)}</span>
+                        </div>
+                        {isCostRising && (
+                          <p className="mt-1 text-right text-[10px] text-slate-400">FIFO 均成本 {formatCurrency(fifoAvgCost)}</p>
+                        )}
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">應收金額</p>
