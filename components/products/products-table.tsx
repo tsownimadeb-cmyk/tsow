@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useTransition } from "react"
+import { useState, useEffect, useTransition, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useDebounce } from "@/hooks/use-debounce"
 import { ProductDialog } from "./product-dialog"
@@ -26,10 +26,18 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
   const [searchText, setSearchText] = useState(initialSearch)
   const debouncedSearch = useDebounce(searchText, 500)
   const [, startTransition] = useTransition()
+  const lastInitialSearchRef = useRef(initialSearch)
 
   useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (previousInitialSearch === initialSearch) return
+    if (searchText !== debouncedSearch) return
+    if (initialSearch === searchText) return
+
     setSearchText(initialSearch)
-  }, [initialSearch])
+  }, [debouncedSearch, initialSearch, searchText])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

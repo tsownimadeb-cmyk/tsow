@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -45,15 +45,31 @@ export function SalesTable({
   const debouncedSearch = useDebounce(search, 500)
   const debouncedProductSearch = useDebounce(productSearch, 500)
   const [isPending, startTransition] = useTransition()
+  const lastInitialSearchRef = useRef(initialSearch)
+  const lastInitialProductSearchRef = useRef(initialProductSearch)
 
   useEffect(() => {
+    const prev = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (prev === initialSearch) return
+    if (search !== debouncedSearch) return
+    if (initialSearch === search) return
+
     setSearch(initialSearch)
-  }, [initialSearch])
+  }, [debouncedSearch, initialSearch, search])
 
   useEffect(() => {
+    const prev = lastInitialProductSearchRef.current
+    lastInitialProductSearchRef.current = initialProductSearch
+
+    if (prev === initialProductSearch) return
+    if (productSearch !== debouncedProductSearch) return
+    if (initialProductSearch === productSearch) return
+
     setProductSearch(initialProductSearch)
     setShowProductSearch(Boolean(initialProductSearch))
-  }, [initialProductSearch])
+  }, [debouncedProductSearch, initialProductSearch, productSearch])
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null)
 
