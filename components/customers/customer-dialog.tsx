@@ -93,7 +93,7 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
         }
 
         if (!nextName) {
-          throw new Error("公司名稱不可空白")
+          throw new Error("客戶姓名不可空白")
         }
 
         if (mode === "edit" && originalCode && nextCode !== originalCode) {
@@ -269,7 +269,7 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">公司名稱 *</Label>
+              <Label htmlFor="name">客戶姓名 *</Label>
               <Input
                 id="name"
                 value={formData.name}
