@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +12,9 @@ import { SupplierDialog } from "./supplier-dialog"
 import { DeleteSupplierDialog } from "./delete-supplier-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Supplier, PurchaseOrder, Product } from "@/lib/types"
-import { Phone, Search, Pencil, Trash2 } from "lucide-react"
+import { GripVertical, Phone, Search, Pencil, Trash2 } from "lucide-react"
+
+const STORAGE_KEY = "suppliers-sort-order"
 
 
 
@@ -26,8 +29,38 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
   const [history, setHistory] = useState<Record<string, PurchaseOrder[]>>({})
   const [products, setProducts] = useState<Product[]>([])
+  const [orderedIds, setOrderedIds] = useState<string[]>([])
   const { toast } = useToast()
   const isMobile = useIsMobile()
+
+  // 從 localStorage 讀取自訂排序
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) setOrderedIds(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  // 根據 orderedIds 排列供應商（新增的補在最後）
+  const sortedSuppliers = useMemo(() => {
+    if (orderedIds.length === 0) return [...suppliers]
+    const idSet = new Set(orderedIds)
+    const ordered = orderedIds
+      .map((id) => suppliers.find((s) => s.id === id))
+      .filter((s): s is Supplier => !!s)
+    const rest = suppliers.filter((s) => !idSet.has(s.id))
+    return [...ordered, ...rest]
+  }, [suppliers, orderedIds])
+
+  const onDragEnd = useCallback((result: DropResult) => {
+    if (!result.destination) return
+    const newList = Array.from(sortedSuppliers)
+    const [moved] = newList.splice(result.source.index, 1)
+    newList.splice(result.destination.index, 0, moved)
+    const newIds = newList.map((s) => s.id)
+    setOrderedIds(newIds)
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(newIds)) } catch {}
+  }, [sortedSuppliers])
 
   // 取得所有商品，建立 code 對應 name/unit
   useEffect(() => {
@@ -52,12 +85,12 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
 
   const filteredSuppliers: Supplier[] = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return [...suppliers]
-    return suppliers.filter((s: Supplier) =>
+    if (!keyword) return sortedSuppliers
+    return sortedSuppliers.filter((s: Supplier) =>
       s.name.toLowerCase().includes(keyword) ||
       (s.contact_person || "").toLowerCase().includes(keyword)
     )
-  }, [suppliers, searchText])
+  }, [sortedSuppliers, searchText])
 
   // 分段查詢進貨歷史
   const fetchHistory = async (supplierId: string) => {
@@ -126,14 +159,34 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
           {suppliers.length === 0 ? "目前資料庫沒有供應商，請手動新增。" : "查無符合的供應商，請調整搜尋條件。"}
         </div>
       ) : (
-        <Accordion type="single" collapsible className="w-full">
-          {filteredSuppliers.map((s, idx) => (
-            <AccordionItem key={s.id || `supplier-row-${idx}`} value={String(s.id || `supplier-row-${idx}`)}>
-              <AccordionTrigger className="px-6 hover:no-underline">
-                <div className="flex items-center w-full">
-                  <div className="flex-1 text-left text-base font-bold text-gray-900 truncate">{s.name}</div>
-                </div>
-              </AccordionTrigger>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="suppliers-list" isDropDisabled={!!searchText}>
+            {(provided) => (
+              <Accordion type="single" collapsible className="w-full" ref={provided.innerRef} {...provided.droppableProps}>
+                {filteredSuppliers.map((s, idx) => (
+                  <Draggable key={s.id || `supplier-row-${idx}`} draggableId={String(s.id || `supplier-row-${idx}`)} index={idx} isDragDisabled={!!searchText}>
+                    {(drag, snapshot) => (
+                      <AccordionItem
+                        ref={drag.innerRef}
+                        {...drag.draggableProps}
+                        value={String(s.id || `supplier-row-${idx}`)}
+                        className={snapshot.isDragging ? "shadow-lg bg-blue-50 rounded-md" : ""}
+                      >
+                        <AccordionTrigger className="px-6 hover:no-underline">
+                          <div className="flex items-center w-full gap-2">
+                            {!searchText && (
+                              <span
+                                {...drag.dragHandleProps}
+                                className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing flex-shrink-0"
+                                title="拖曳調整順序"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <GripVertical className="h-4 w-4" />
+                              </span>
+                            )}
+                            <div className="flex-1 text-left text-base font-bold text-gray-900 truncate">{s.name}</div>
+                          </div>
+                        </AccordionTrigger>
               <AccordionContent className="px-6 pb-4">
                 <div className={isMobile ? "space-y-2" : "grid grid-cols-3 gap-3"}>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
@@ -250,9 +303,15 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
                   </div>
                 )}
               </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+                    </AccordionItem>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </Accordion>
+            )}
+          </Droppable>
+        </DragDropContext>
       )}
       {/* 編輯/刪除 Dialogs */}
       {editSupplier && (
