@@ -69,6 +69,7 @@ export function ARTable({
   const lastInitialSearchRef = useRef(initialSearch)
   const pendingSearchRef = useRef<string | null>(null)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
+  const [openAccordionValue, setOpenAccordionValue] = useState("")
   const [showAllCustomers, setShowAllCustomers] = useState(initialShowAllCustomers)
   const [isPending, startTransition] = useTransition()
   const [isRowActionPending, startRowActionTransition] = useTransition()
@@ -1639,7 +1640,7 @@ export function ARTable({
                 : "目前沒有欠款客戶"}
           </div>
         ) : (
-          <Accordion type="single" collapsible className="w-full">
+          <Accordion type="single" collapsible className="w-full" onValueChange={(value) => setOpenAccordionValue(value)}>
             {customerSummaries.map((summary) => (
               <AccordionItem key={`${summary.customerCno}-${summary.customerName}`} value={`${summary.customerCno}-${summary.customerName}`}>
                 {(() => {
@@ -1652,6 +1653,12 @@ export function ARTable({
                     return bTime - aTime
                   })
                   const visibleOrderCount = showAllCustomers ? summary.orderCount : sortedOrders.length
+                  const customerKey = `${summary.customerCno}-${summary.customerName}`
+                  const isThisCustomerRevealed = !isPrivacyMode || openAccordionValue === customerKey
+                  const renderCustomerAmount = (value: number) =>
+                    isThisCustomerRevealed
+                      ? formatCurrencyOneDecimal(value)
+                      : <span className="text-muted-foreground tracking-widest">****</span>
 
                   // --- 響應式卡片設計 ---
                   return (
@@ -1665,11 +1672,11 @@ export function ARTable({
                               <span className="text-xs text-muted-foreground">{summary.customerCno}・{visibleOrderCount} 筆單據</span>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 justify-between text-xs sm:text-sm">
-                              <span>應收合計 {renderAmount(summary.totalDue)}</span>
-                              <span>已收 {renderAmount(summary.totalPaid)}</span>
+                              <span>應收合計 {renderCustomerAmount(summary.totalDue)}</span>
+                              <span>已收 {renderCustomerAmount(summary.totalPaid)}</span>
                             </div>
                             <div className="flex items-center gap-2 justify-between mt-1">
-                              <span className="text-destructive text-lg sm:text-xl font-bold">總欠款 {renderAmount(summary.totalOutstanding)}</span>
+                              <span className="text-destructive text-lg sm:text-xl font-bold">總欠款 {renderCustomerAmount(summary.totalOutstanding)}</span>
                             </div>
                           </div>
                         </AccordionTrigger>

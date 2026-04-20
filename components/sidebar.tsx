@@ -23,6 +23,7 @@ import {
   Upload,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
@@ -71,6 +72,7 @@ export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const { toast } = useToast()
+  const isMobile = useIsMobile()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   const [isCreatingBackup, setIsCreatingBackup] = useState(false)
@@ -544,6 +546,7 @@ export function Sidebar() {
           href={item.href}
           onMouseEnter={() => handleLinkPrefetch(item.href)}
           onFocus={() => handleLinkPrefetch(item.href)}
+          onClick={() => { if (isMobile) setCollapsed(true) }}
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
             isActive
