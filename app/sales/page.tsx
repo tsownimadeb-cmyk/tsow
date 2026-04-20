@@ -61,16 +61,9 @@ export default async function SalesPage(props: any) {
   // 產生分頁 URL
   function getPageUrl(targetPage: number) {
     const params = new URLSearchParams();
-    if (
-      searchParams &&
-      typeof searchParams === 'object' &&
-      !Array.isArray(searchParams) &&
-      searchParams !== null &&
-      searchParams.constructor === Object
-    ) {
+    if (searchParams && typeof searchParams === 'object' && !Array.isArray(searchParams)) {
       for (const [key, value] of Object.entries(searchParams)) {
         if (key === 'page') continue;
-        if (!Object.prototype.hasOwnProperty.call(searchParams, key)) continue;
         if (typeof value === 'string') params.set(key, value);
         else if (Array.isArray(value) && value.length > 0) params.set(key, value[0]);
       }

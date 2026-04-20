@@ -14,7 +14,6 @@ export async function fetchPurchasesRows(
     .select(selectText, { count: "exact" })
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
-    .range(from, to)
 
   if (searchText && searchText.trim() !== "") {
     // 搜尋 order_no、notes（備註）、供應商名稱
@@ -31,7 +30,7 @@ export async function fetchPurchasesRows(
     }
     query = query.or(orConditions.join(","))
   }
-  const result: PostgrestSingleResponse<any> = await query
+  const result: PostgrestSingleResponse<any> = await query.range(from, to)
 
   const purchaseRows = result.data || []
   const purchaseIds = purchaseRows.map((row: any) => row.id)

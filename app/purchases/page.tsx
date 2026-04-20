@@ -58,16 +58,9 @@ export default async function PurchasesPage(props: any) {
   // 產生分頁 URL
   function getPageUrl(targetPage: number) {
     const params = new URLSearchParams();
-    if (
-      searchParams &&
-      typeof searchParams === 'object' &&
-      !Array.isArray(searchParams) &&
-      searchParams !== null &&
-      searchParams.constructor === Object
-    ) {
+    if (searchParams && typeof searchParams === 'object' && !Array.isArray(searchParams)) {
       for (const [key, value] of Object.entries(searchParams)) {
         if (key === 'page') continue;
-        if (!Object.prototype.hasOwnProperty.call(searchParams, key)) continue;
         if (typeof value === 'string') params.set(key, value);
         else if (Array.isArray(value) && value.length > 0) params.set(key, value[0]);
       }
@@ -98,6 +91,7 @@ export default async function PurchasesPage(props: any) {
         <Link href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</Link>
         {/* 指定跳頁 */}
         <form method="get" action="/purchases" className="flex items-center gap-2" style={{ display: 'inline' }}>
+          {searchText && <input type="hidden" name="search" value={searchText} />}
           <input
             type="number"
             name="page"

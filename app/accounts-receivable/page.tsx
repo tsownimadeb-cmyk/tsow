@@ -524,13 +524,7 @@ export default async function ARPage(props: any) {
 
     function getPageUrl(targetPage: number) {
       const params = new URLSearchParams()
-      if (
-        searchParams &&
-        typeof searchParams === "object" &&
-        !Array.isArray(searchParams) &&
-        searchParams !== null &&
-        searchParams.constructor === Object
-      ) {
+      if (searchParams && typeof searchParams === "object" && !Array.isArray(searchParams)) {
         for (const [key, value] of Object.entries(searchParams)) {
           if (key === "page") continue
           if (typeof value === "string") params.set(key, value)
