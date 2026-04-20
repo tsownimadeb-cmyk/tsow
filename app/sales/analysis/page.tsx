@@ -118,39 +118,45 @@ export default async function SalesAnalysisPage({ searchParams }: SalesAnalysisP
   const sales = (salesRows || []) as SalesOrderRow[]
   const salesOrderIds = sales.map((row) => row.id).filter(Boolean)
 
-  const [{ data: customerRows }, { data: salesItemRows }, { data: arRows }] = await Promise.all([
-    supabase.from("customers").select("code,name"),
-    salesOrderIds.length
-      ? supabase
-          .from("sales_order_items")
-          .select("sales_order_id,code,quantity,subtotal,unit_price")
-          .in("sales_order_id", salesOrderIds)
-      : Promise.resolve({ data: [] as SalesItemRow[] }),
-    salesOrderIds.length
-      ? supabase
-          .from("accounts_receivable")
-          .select("sales_order_id,customer_cno,due_date,paid_at,status")
-          .in("sales_order_id", salesOrderIds)
-      : Promise.resolve({ data: [] as AccountsReceivableRow[] }),
+  const IN_CHUNK_SIZE = 50
+
+  async function fetchInChunks<T>(
+    table: string,
+    selectFields: string,
+    column: string,
+    ids: string[],
+  ): Promise<T[]> {
+    if (ids.length === 0) return []
+    const rows: T[] = []
+    for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + IN_CHUNK_SIZE)
+      const { data } = await supabase.from(table).select(selectFields).in(column, chunk)
+      if (data) rows.push(...(data as T[]))
+    }
+    return rows
+  }
+
+  const [customerRows, salesItemRows, arRows] = await Promise.all([
+    supabase.from("customers").select("code,name").then((r) => r.data || []),
+    fetchInChunks<SalesItemRow>("sales_order_items", "sales_order_id,code,quantity,subtotal,unit_price", "sales_order_id", salesOrderIds),
+    fetchInChunks<AccountsReceivableRow>("accounts_receivable", "sales_order_id,customer_cno,due_date,paid_at,status", "sales_order_id", salesOrderIds),
   ])
 
-  const salesItems = (salesItemRows || []) as SalesItemRow[]
-  const arRecords = (arRows || []) as AccountsReceivableRow[]
-  const customers = (customerRows || []) as CustomerRow[]
+  const salesItems = salesItemRows as SalesItemRow[]
+  const arRecords = arRows as AccountsReceivableRow[]
+  const customers = customerRows as CustomerRow[]
 
   const productCodes = Array.from(
     new Set(salesItems.map((row) => String(row.code ?? "").trim()).filter(Boolean)),
   )
 
-  const { data: productRows } = productCodes.length
-    ? await supabase.from("products").select("code,cost,name").in("code", productCodes)
-    : { data: [] as ProductCostRow[] }
+  const productRows = await fetchInChunks<ProductCostRow>("products", "code,cost,name", "code", productCodes)
 
   const productCostMap = new Map(
-    ((productRows || []) as ProductCostRow[]).map((row) => [String(row.code || "").trim(), toSafeNumber(row.cost)]),
+    productRows.map((row) => [String(row.code || "").trim(), toSafeNumber(row.cost)]),
   )
   const productNameMap = new Map(
-    ((productRows || []) as ProductCostRow[]).map((row) => [String(row.code || "").trim(), String(row.name || row.code || "未知商品")]),
+    productRows.map((row) => [String(row.code || "").trim(), String(row.name || row.code || "未知商品")]),
   )
   const customerNameMap = new Map(
     customers.map((row) => [String(row.code || "").trim(), String(row.name || row.code || "未知客戶")]),
