@@ -346,8 +346,8 @@ export function APTable({ records }: APTableProps) {
 
   return (
     <div className="space-y-4 overflow-x-hidden">
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜尋供應商、單號..."
@@ -378,7 +378,7 @@ export function APTable({ records }: APTableProps) {
         >
           {isPrivacyMode ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
         </Button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant={showAllSuppliers ? "outline" : "default"} size="sm" onClick={() => setShowAllSuppliers(false)}>
             只看欠款供應商
           </Button>
@@ -388,18 +388,18 @@ export function APTable({ records }: APTableProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">應付合計</p>
-          <p className="text-2xl font-semibold">{renderAmount(totalAmount)}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">應付合計</p>
+          <p className="text-lg sm:text-2xl font-semibold">{renderAmount(totalAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">已付金額</p>
-          <p className="text-2xl font-semibold">{renderAmount(paidAmount)}</p>
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">已付金額</p>
+          <p className="text-lg sm:text-2xl font-semibold">{renderAmount(paidAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground mb-1">應付未付</p>
-          <p className="text-2xl font-semibold text-destructive">
+        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground mb-1">應付未付</p>
+          <p className="text-lg sm:text-2xl font-semibold text-destructive">
             {isPrivacyMode ? <span className="text-muted-foreground tracking-widest">****</span> : formatCurrencyOneDecimal(outstandingAmount)}
           </p>
         </div>

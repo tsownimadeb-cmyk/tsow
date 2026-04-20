@@ -83,17 +83,17 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
 
   return (
     <div className="rounded-md border border-gray-200 bg-white">
-      <div className="px-6 py-4 border-b border-gray-200 bg-white relative max-w-sm">
+      <div className="px-3 sm:px-6 py-4 border-b border-gray-200 bg-white relative">
         <Input
           placeholder="搜尋商品編號 / 名稱 / 規格 / 種類"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          className="pr-8"
+          className="pr-8 w-full sm:max-w-sm"
         />
         {searchText && (
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+            className="absolute right-5 sm:right-8 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
             onClick={() => setSearchText("")}
             aria-label="清除搜尋"
           >
@@ -103,7 +103,9 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
           </button>
         )}
       </div>
-      <div className="grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+
+      {/* 桌面版標題列 */}
+      <div className="hidden md:grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
         <div className="col-span-2">編號</div>
         <div className="col-span-3">商品名稱</div>
         <div className="col-span-3">規格 / 單位</div>
@@ -116,87 +118,176 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
           {products.length === 0 ? "目前資料庫沒有商品，請手動新增。" : "查無符合的商品，請調整搜尋條件。"}
         </div>
       ) : (
-        <Accordion type="single" collapsible className="w-full">
-          {filteredProducts.map((p, index) => (
-            <AccordionItem key={p.code || `product-row-${index}`} value={String(p.code || `product-row-${index}`)}>
-              <AccordionTrigger className="px-6 hover:no-underline">
-                <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
-                  <div className="col-span-2 text-sm font-mono text-gray-600">{p.code}</div>
-                  <div className="col-span-3 text-sm font-bold text-gray-900">{p.name}</div>
-                  <div className="col-span-3 text-sm text-gray-500">
-                    {p.spec || "—"} {p.unit || ""}
+        <>
+          {/* 桌面版 Accordion */}
+          <Accordion type="single" collapsible className="hidden md:block w-full">
+            {filteredProducts.map((p, index) => (
+              <AccordionItem key={p.code || `product-row-${index}`} value={String(p.code || `product-row-${index}`)}>
+                <AccordionTrigger className="px-6 hover:no-underline">
+                  <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
+                    <div className="col-span-2 text-sm font-mono text-gray-600">{p.code}</div>
+                    <div className="col-span-3 text-sm font-bold text-gray-900">{p.name}</div>
+                    <div className="col-span-3 text-sm text-gray-500">
+                      {p.spec || "—"} {p.unit || ""}
+                    </div>
+                    <div className="col-span-2 text-right text-sm font-medium text-gray-700">
+                      {Number(p.purchase_qty_total || 0).toLocaleString()}
+                    </div>
+                    <div className="col-span-2 text-right text-sm font-semibold">
+                      <span className={Number(p.stock_qty) < Number(p.safety_stock || 0) ? "text-red-600" : "text-gray-700"}>
+                        {Number(p.stock_qty).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
-                  <div className="col-span-2 text-right text-sm font-medium text-gray-700">
-                    {Number(p.purchase_qty_total || 0).toLocaleString()}
-                  </div>
-                  <div className="col-span-2 text-right text-sm font-semibold">
-                    <span className={Number(p.stock_qty) < Number(p.safety_stock || 0) ? "text-red-600" : "text-gray-700"}>
-                      {Number(p.stock_qty).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </AccordionTrigger>
+                </AccordionTrigger>
 
-              <AccordionContent className="px-6 pb-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">預設進貨單價</p>
-                    <p className="mt-1 text-base font-semibold text-gray-700">{formatCurrencyOneDecimal(Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0))}</p>
+                <AccordionContent className="px-6 pb-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500">預設進貨單價</p>
+                      <p className="mt-1 text-base font-semibold text-gray-700">{formatCurrencyOneDecimal(Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0))}</p>
+                    </div>
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500">定價</p>
+                      <p className="mt-1 text-base font-semibold text-blue-600">{formatCurrencyOneDecimal(Number(p.price || 0))}</p>
+                    </div>
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500">特價</p>
+                      <p className="mt-1 text-base font-semibold" style={{ color: p.sale_price && Number(p.sale_price) > 0 ? "#ef4444" : "#999" }}>
+                        {p.sale_price && Number(p.sale_price) > 0 ? formatCurrencyOneDecimal(Number(p.sale_price)) : "—"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">定價</p>
-                    <p className="mt-1 text-base font-semibold text-blue-600">{formatCurrencyOneDecimal(Number(p.price || 0))}</p>
-                  </div>
-                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">特價</p>
-                    <p className="mt-1 text-base font-semibold" style={{ color: p.sale_price && Number(p.sale_price) > 0 ? "#ef4444" : "#999" }}>
-                      {p.sale_price && Number(p.sale_price) > 0 ? formatCurrencyOneDecimal(Number(p.sale_price)) : "—"}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="mt-3 flex items-center justify-end gap-2">
-                  {p.code ? (
-                    <ProductDialog
-                      mode="edit"
-                      product={{
-                        code: p.code,
-                        name: p.name,
-                        spec: p.spec,
-                        unit: p.unit,
-                        category: p.category,
-                        base_price: Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0),
-                        price: p.price,
-                        cost: p.cost,
-                        sale_price: p.sale_price,
-                        supplier_id: p.supplier_id || "",
-                        stock_qty: p.stock_qty,
-                        purchase_qty_total: p.purchase_qty_total,
-                        safety_stock: p.safety_stock,
-                      }}
-                    >
-                      <Button variant="outline" size="sm">
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    {p.code ? (
+                      <ProductDialog
+                        mode="edit"
+                        product={{
+                          code: p.code,
+                          name: p.name,
+                          spec: p.spec,
+                          unit: p.unit,
+                          category: p.category,
+                          base_price: Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0),
+                          price: p.price,
+                          cost: p.cost,
+                          sale_price: p.sale_price,
+                          supplier_id: p.supplier_id || "",
+                          stock_qty: p.stock_qty,
+                          purchase_qty_total: p.purchase_qty_total,
+                          safety_stock: p.safety_stock,
+                        }}
+                      >
+                        <Button variant="outline" size="sm">
+                          編輯
+                        </Button>
+                      </ProductDialog>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled title="缺少商品 code，無法編輯">
                         編輯
                       </Button>
-                    </ProductDialog>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled title="缺少商品 code，無法編輯">
-                      編輯
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(p)}
+                      disabled={!p.code || deletingCode === p.code}
+                    >
+                      {deletingCode === p.code ? "刪除中..." : "刪除"}
                     </Button>
-                  )}
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(p)}
-                    disabled={!p.code || deletingCode === p.code}
-                  >
-                    {deletingCode === p.code ? "刪除中..." : "刪除"}
-                  </Button>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+
+          {/* 手機版卡片列表 */}
+          <div className="block md:hidden divide-y divide-gray-100">
+            {filteredProducts.map((p, index) => {
+              const isLowStock = Number(p.stock_qty) < Number(p.safety_stock || 0)
+              return (
+                <details key={p.code || `product-mobile-${index}`} className="group">
+                  <summary className="flex items-center justify-between px-3 py-3 cursor-pointer list-none">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-mono text-blue-600 shrink-0">{p.code}</span>
+                        <span className="text-sm font-bold text-gray-900 truncate">{p.name}</span>
+                      </div>
+                      {(p.spec || p.unit) && (
+                        <div className="text-xs text-gray-500 mt-0.5">{p.spec || ""}{p.unit ? ` · ${p.unit}` : ""}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 ml-2 shrink-0">
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">庫存</div>
+                        <div className={`text-sm font-bold ${isLowStock ? "text-red-600" : "text-gray-700"}`}>
+                          {Number(p.stock_qty).toLocaleString()}
+                        </div>
+                      </div>
+                      <svg className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  </summary>
+                  <div className="px-3 pb-3 bg-gray-50 border-t border-gray-100">
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      <div className="rounded border border-gray-200 bg-white p-2 text-center">
+                        <p className="text-xs text-gray-500">進貨單價</p>
+                        <p className="text-sm font-semibold text-gray-700">{formatCurrencyOneDecimal(Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0))}</p>
+                      </div>
+                      <div className="rounded border border-gray-200 bg-white p-2 text-center">
+                        <p className="text-xs text-gray-500">定價</p>
+                        <p className="text-sm font-semibold text-blue-600">{formatCurrencyOneDecimal(Number(p.price || 0))}</p>
+                      </div>
+                      <div className="rounded border border-gray-200 bg-white p-2 text-center">
+                        <p className="text-xs text-gray-500">特價</p>
+                        <p className="text-sm font-semibold" style={{ color: p.sale_price && Number(p.sale_price) > 0 ? "#ef4444" : "#999" }}>
+                          {p.sale_price && Number(p.sale_price) > 0 ? formatCurrencyOneDecimal(Number(p.sale_price)) : "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                      <span>進貨總量：{Number(p.purchase_qty_total || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      {p.code ? (
+                        <ProductDialog
+                          mode="edit"
+                          product={{
+                            code: p.code,
+                            name: p.name,
+                            spec: p.spec,
+                            unit: p.unit,
+                            category: p.category,
+                            base_price: Number(p.base_price ?? p.purchase_price ?? p.cost ?? 0),
+                            price: p.price,
+                            cost: p.cost,
+                            sale_price: p.sale_price,
+                            supplier_id: p.supplier_id || "",
+                            stock_qty: p.stock_qty,
+                            purchase_qty_total: p.purchase_qty_total,
+                            safety_stock: p.safety_stock,
+                          }}
+                        >
+                          <Button variant="outline" size="sm">編輯</Button>
+                        </ProductDialog>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled>編輯</Button>
+                      )}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDelete(p)}
+                        disabled={!p.code || deletingCode === p.code}
+                      >
+                        {deletingCode === p.code ? "刪除中..." : "刪除"}
+                      </Button>
+                    </div>
+                  </div>
+                </details>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )

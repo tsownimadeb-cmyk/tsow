@@ -429,66 +429,78 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
               return (
                 <div
                   key={purchase.id}
-                  className={`bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
+                  className={`bg-white rounded-lg border flex flex-col shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
                 >
-                  {/* 第一列：單號（左）+ 付款狀態（右） */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-base">{purchase.order_no || "-"}</span>
-                    {purchase.is_paid ? (
-                      <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
-                        <Check className="h-3 w-3" />已付款
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
-                        <X className="h-3 w-3" />未付款
-                      </Badge>
-                    )}
-                  </div>
-                  {/* 第二列：供應商名稱 */}
-                  <div className="text-xs text-gray-500">{supplierName}</div>
-                  {/* 第三列：日期（左）+ 總金額（右，加粗紅字） */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{orderDate}</span>
-                    <span className="font-bold text-red-600 text-base">{formatCurrencyOneDecimal(goodsAmount)}</span>
-                  </div>
-                  {/* 顯示明細按鈕 */}
-                  <button
-                    type="button"
-                    className="mt-2 flex items-center justify-center gap-1 text-sm text-primary font-medium focus:outline-none"
+                  {/* 可點擊摘要區 */}
+                  <div
+                    className="p-4 flex flex-col gap-2 cursor-pointer"
                     onClick={() => setExpandedId(isExpanded ? null : purchase.id)}
                   >
-                    {isExpanded ? (
-                      <>
-                        <span>隱藏明細</span>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
-                      </>
-                    ) : (
-                      <>
-                        <span>顯示明細</span>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                      </>
-                    )}
-                  </button>
+                    {/* 第一列：單號（左）+ 付款狀態（右） */}
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-base">{purchase.order_no || "-"}</span>
+                      {purchase.is_paid ? (
+                        <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
+                          <Check className="h-3 w-3" />已付款
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
+                          <X className="h-3 w-3" />未付款
+                        </Badge>
+                      )}
+                    </div>
+                    {/* 第二列：供應商名稱 */}
+                    <div className="text-xs text-gray-500">{supplierName}</div>
+                    {/* 第三列：日期（左）+ 總金額（右，加粗紅字） */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">{orderDate}</span>
+                      <span className="font-bold text-red-600 text-base">{formatCurrencyOneDecimal(goodsAmount)}</span>
+                    </div>
+                  </div>
+                  {/* 操作按鈕列 */}
+                  <div className="flex items-center gap-2 px-4 pb-3 border-t border-gray-100 pt-2">
+                    <PurchaseDialog suppliers={suppliers} products={products} mode="edit" purchase={purchase}>
+                      <Button variant="outline" size="sm" className="flex-1 h-8">編輯</Button>
+                    </PurchaseDialog>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleTogglePaid(purchase)}
+                      disabled={isPending && updatingId === purchase.id}
+                      className="flex-1 h-8 text-xs"
+                    >
+                      {purchase.is_paid ? "標記未付" : "標記已付"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDeletePurchase(purchase)}
+                      disabled={deletingPurchaseId === purchase.id}
+                      className="h-8 px-3"
+                    >
+                      {deletingPurchaseId === purchase.id ? "..." : "刪除"}
+                    </Button>
+                  </div>
                   {/* 摺疊明細內容 */}
                   {isExpanded && (
-                    <>
+                    <div className="px-4 pb-4 border-t border-gray-100">
                       {/* 備註欄位（有內容才顯示） */}
                       {purchase.notes && (
-                        <div className="mb-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded">
-                          <span className="font-bold mr-2">備註：</span>
+                        <div className="mt-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded text-xs">
+                          <span className="font-bold mr-1">備註：</span>
                           <span className="whitespace-pre-line">{purchase.notes}</span>
                         </div>
                       )}
-                      <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
+                      <div className="mt-2 space-y-1 bg-gray-50 rounded p-2">
                         {purchase.items && purchase.items.length > 0 ? (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-1">
                             {purchase.items.map((item) => {
                               const itemCode = (item as any).code || null
                               const productName = item.product?.name || (itemCode
                                 ? productMap.get(itemCode)?.name || itemCode
                                 : "-")
                               return (
-                                <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
+                                <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1">
                                   <span className="flex-1 truncate">{productName}</span>
                                   <span className="w-10 text-right">{item.quantity}</span>
                                   <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
@@ -500,7 +512,12 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                           <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
                         )}
                       </div>
-                    </>
+                      <div className="mt-2 text-right space-y-0.5">
+                        <p className="text-xs text-muted-foreground">貨款：{formatCurrencyOneDecimal(goodsAmount)}</p>
+                        <p className="text-xs text-muted-foreground">運費（另計）：{formatCurrencyOneDecimal(shippingFee)}</p>
+                        <p className="text-xs font-semibold">落地總成本：{formatCurrencyOneDecimal(landedTotal)}</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               )

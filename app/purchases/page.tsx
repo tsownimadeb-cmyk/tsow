@@ -71,12 +71,12 @@ export default async function PurchasesPage(props: any) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">進貨管理</h1>
-          <p className="text-muted-foreground">管理進貨單與進貨紀錄</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">進貨管理</h1>
+          <p className="text-sm text-muted-foreground">管理進貨單與進貨紀錄</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PurchaseDialogWrapper suppliers={suppliers || []} products={products || []} />
           <PurchasesBatchActions />
         </div>
@@ -85,23 +85,14 @@ export default async function PurchasesPage(props: any) {
       <PurchasesTable purchases={purchases || []} suppliers={suppliers || []} products={products || []} />
 
       {/* 分頁控制 */}
-      <div className="flex items-center justify-center gap-4 mt-4">
-        <Link href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`btn ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}>上一頁</Link>
-        <span>第 {page} 頁 / 共 {totalPages} 頁</span>
-        <Link href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`btn ${page >= totalPages ? 'pointer-events-none opacity-50' : ''}`}>下一頁</Link>
-        {/* 指定跳頁 */}
-        <form method="get" action="/purchases" className="flex items-center gap-2" style={{ display: 'inline' }}>
+      <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-sm">
+        <Link href={getPageUrl(page - 1)} aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} className={`px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}>上一頁</Link>
+        <span className="px-2 text-muted-foreground">第 {page} 頁 / 共 {totalPages} 頁</span>
+        <Link href={getPageUrl(page + 1)} aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : 0} className={`px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}>下一頁</Link>
+        <form method="get" action="/purchases" className="flex items-center gap-1.5">
           {searchText && <input type="hidden" name="search" value={searchText} />}
-          <input
-            type="number"
-            name="page"
-            min={1}
-            max={totalPages}
-            defaultValue={page}
-            className="border rounded px-2 py-1 w-16 text-center"
-            aria-label="跳至指定頁數"
-          />
-          <button type="submit" className="btn">跳頁</button>
+          <input type="number" name="page" min={1} max={totalPages} defaultValue={page} className="border rounded px-2 py-1 w-14 text-center text-sm" aria-label="跳至指定頁數" />
+          <button type="submit" className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50">跳頁</button>
         </form>
       </div>
     </div>

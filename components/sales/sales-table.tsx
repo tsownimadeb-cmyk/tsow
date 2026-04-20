@@ -515,46 +515,79 @@ export function SalesTable({
               return (
                 <div
                   key={sale.id}
-                  className={`bg-white rounded-lg border p-4 flex flex-col gap-2 shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
-                  onClick={() => setExpandedId(isExpanded ? null : sale.id)}
-                  style={{ cursor: 'pointer' }}
+                  className={`bg-white rounded-lg border flex flex-col shadow-sm transition-all duration-200 ${isExpanded ? 'ring-2 ring-primary' : ''}`}
                 >
-                  {/* 頂部：單號+付款狀態 */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-base">{sale.order_no}</span>
-                    {sale.is_paid ? (
-                      <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
-                        <Check className="h-3 w-3" />已付款
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
-                        <X className="h-3 w-3" />未付款
-                      </Badge>
-                    )}
+                  {/* 可點擊的摘要區 */}
+                  <div
+                    className="p-4 flex flex-col gap-2 cursor-pointer"
+                    onClick={() => setExpandedId(isExpanded ? null : sale.id)}
+                  >
+                    {/* 頂部：單號+付款狀態 */}
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-base">{sale.order_no}</span>
+                      {sale.is_paid ? (
+                        <Badge variant="default" className="gap-1 text-xs px-2 py-0.5">
+                          <Check className="h-3 w-3" />已付款
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 text-xs px-2 py-0.5">
+                          <X className="h-3 w-3" />未付款
+                        </Badge>
+                      )}
+                    </div>
+                    {/* 中部：客戶名稱與配送方式 */}
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{customerName}</span>
+                      <span>配送：{deliveryLabel}</span>
+                    </div>
+                    {/* 底部：日期+總金額 */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</span>
+                      <span className="font-bold text-base text-right">{formatCurrencyOneDecimal(Number(sale.total_amount))}</span>
+                    </div>
                   </div>
-                  {/* 中部：客戶名稱與配送方式 */}
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs text-gray-500">{customerName}</span>
-                    <span className="text-xs text-gray-500">配送：{deliveryLabel}</span>
-                  </div>
-                  {/* 底部：日期+總金額 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{new Date(sale.order_date).toLocaleDateString("zh-TW")}</span>
-                    <span className="font-bold text-base text-right">{formatCurrencyOneDecimal(Number(sale.total_amount))}</span>
+                  {/* 操作按鈕列 */}
+                  <div className="flex items-center gap-2 px-4 pb-3 border-t border-gray-100 pt-2" onClick={(e) => e.stopPropagation()}>
+                    <SalesDialog
+                      customers={customers}
+                      products={products}
+                      mode="edit"
+                      sales={{ ...sale, sales_order_items: sale.sales_order_items ?? sale.items ?? [] }}
+                    >
+                      <Button variant="outline" size="sm" className="flex-1 h-8">編輯</Button>
+                    </SalesDialog>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleTogglePaid(sale)}
+                      disabled={isPending && updatingId === sale.id}
+                      className="flex-1 h-8 text-xs"
+                    >
+                      {sale.is_paid ? "標記未付" : "標記已付"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDeleteSale(sale)}
+                      disabled={deletingSaleId === String(sale.id ?? sale.order_no ?? "").trim()}
+                      className="h-8 px-3"
+                    >
+                      {deletingSaleId === String(sale.id ?? sale.order_no ?? "").trim() ? "..." : "刪除"}
+                    </Button>
                   </div>
                   {/* 摺疊明細 */}
                   {isExpanded && (
-                    <>
+                    <div className="px-4 pb-4 border-t border-gray-100">
                       {/* 備註欄位（有內容才顯示） */}
                       {sale.notes && (
-                        <div className="mb-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded">
-                          <span className="font-bold mr-2">備註：</span>
+                        <div className="mt-2 p-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded text-xs">
+                          <span className="font-bold mr-1">備註：</span>
                           <span className="whitespace-pre-line">{sale.notes}</span>
                         </div>
                       )}
-                      <div className="mt-2 border-t pt-2 space-y-2 bg-gray-50 rounded">
+                      <div className="mt-2 space-y-1 bg-gray-50 rounded p-2">
                         {sale.items && sale.items.length > 0 ? (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-1">
                             {sale.items.map((item) => {
                               const code = String(item.code ?? '').trim();
                               const product = productMap.get(code);
@@ -572,7 +605,7 @@ export function SalesTable({
                           <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
                         )}
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               )
