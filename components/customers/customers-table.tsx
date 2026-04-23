@@ -190,12 +190,24 @@ export function CustomersTable({
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">聯絡人</p>
-                      <p className="mt-1 text-base text-gray-700">{c.contact_person || <span className="text-slate-400">—</span>}</p>
+                      <p className="text-xs text-gray-500">電話2</p>
+                      <p className="mt-1 text-base font-semibold text-gray-700">
+                        {c.tel2 ? (
+                          <a href={`tel:${c.tel2}`} className="underline text-blue-700 hover:text-blue-900">{c.tel2}</a>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">地址</p>
-                      <p className="mt-1 text-base text-gray-700">{c.addr || <span className="text-slate-400">—</span>}</p>
+                      <p className="text-xs text-gray-500">電話3</p>
+                      <p className="mt-1 text-base font-semibold text-gray-700">
+                        {c.tel3 ? (
+                          <a href={`tel:${c.tel3}`} className="underline text-blue-700 hover:text-blue-900">{c.tel3}</a>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">價格等級</p>
