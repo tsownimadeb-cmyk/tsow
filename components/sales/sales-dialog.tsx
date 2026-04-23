@@ -752,10 +752,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                           <Input
                             className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             type="number"
-                            min="1"
+                            min="0"
                             value={item.quantity}
                             onFocus={(e) => e.target.select()}
-                            onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
+                            onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 0)}
                           />
                         </TableCell>
                         <TableCell>
@@ -815,10 +815,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                       <Input
                         className="flex-1"
                         type="number"
-                        min="1"
+                        min="0"
                         value={item.quantity}
                         onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateItem(index, 'quantity', Number.parseInt(e.target.value) || 1)}
+                        onChange={(e) => updateItem(index, 'quantity', Number.parseInt(e.target.value) || 0)}
                       />
                     </div>
                     <div className="flex items-center gap-2">
