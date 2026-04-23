@@ -188,34 +188,34 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
                           </div>
                         </AccordionTrigger>
               <AccordionContent className="px-6 pb-4">
-                <div className={isMobile ? "space-y-2" : "grid grid-cols-3 gap-3"}>
+                <div className={isMobile ? "space-y-2" : "grid grid-cols-4 gap-3"}>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">聯絡人</p>
                     <p className="mt-1 text-base font-semibold text-gray-700">{s.contact_person || "—"}</p>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">聯絡電話</p>
-                    <div className="mt-1 space-y-1">
-                      <div className="text-base font-semibold text-blue-600">
-                        {s.phone ? (
-                          <a href={`tel:${s.phone}`} className="hover:underline">{s.phone}</a>
-                        ) : "—"}
-                      </div>
-                      <div className="text-base font-semibold text-blue-600">
-                        {s.phone2 ? (
-                          <a href={`tel:${s.phone2}`} className="hover:underline">{s.phone2}</a>
-                        ) : null}
-                      </div>
-                      <div className="text-base font-semibold text-blue-600">
-                        {s.phone3 ? (
-                          <a href={`tel:${s.phone3}`} className="hover:underline">{s.phone3}</a>
-                        ) : null}
-                      </div>
-                    </div>
+                    <p className="text-xs text-gray-500">電話1</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">
+                      {s.phone ? (
+                        <a href={`tel:${s.phone}`} className="hover:underline">{s.phone}</a>
+                      ) : "—"}
+                    </p>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">地址</p>
-                    <p className="mt-1 text-base font-semibold text-gray-700">{s.address || "—"}</p>
+                    <p className="text-xs text-gray-500">電話2</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">
+                      {s.phone2 ? (
+                        <a href={`tel:${s.phone2}`} className="hover:underline">{s.phone2}</a>
+                      ) : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">電話3</p>
+                    <p className="mt-1 text-base font-semibold text-blue-600">
+                      {s.phone3 ? (
+                        <a href={`tel:${s.phone3}`} className="hover:underline">{s.phone3}</a>
+                      ) : "—"}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 justify-end">
