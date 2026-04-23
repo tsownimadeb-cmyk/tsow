@@ -1,11 +1,15 @@
 "use client"
 
 import React, { useMemo, useState } from "react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { ProductListRowWithProfit } from "@/lib/products"
 import type { Supplier } from "@/lib/types"
+
+type SortKey = "sales_qty_total" | "cash_received_total" | "sales_amount_total" | "cash_gross_profit" | "gross_profit" | "cash_gross_margin"
+type SortDir = "asc" | "desc"
 
 interface ProfitAnalysisTableProps {
   products: ProductListRowWithProfit[]
@@ -49,6 +53,24 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
   const [searchText, setSearchText] = useState("")
   const [selectedSupplierId, setSelectedSupplierId] = useState("")
   const [expandedProductCodes, setExpandedProductCodes] = useState<Set<string>>(new Set())
+  const [sortKey, setSortKey] = useState<SortKey>("cash_gross_profit")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "desc" ? "asc" : "desc"))
+    } else {
+      setSortKey(key)
+      setSortDir("desc")
+    }
+  }
+
+  const SortIcon = ({ columnKey }: { columnKey: SortKey }) => {
+    if (sortKey !== columnKey) return null
+    return sortDir === "desc"
+      ? <ArrowDown className="ml-1 inline-block h-3.5 w-3.5" />
+      : <ArrowUp className="ml-1 inline-block h-3.5 w-3.5" />
+  }
 
   const supplierMap = useMemo(() => {
     return new Map(suppliers.map((supplier) => [String(supplier.id), supplier.name]))
@@ -56,26 +78,34 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
 
   const filteredProducts = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    let base = [...products].sort((a, b) => Number(b.cash_gross_profit || 0) - Number(a.cash_gross_profit || 0))
+    let base = [...products]
 
     if (selectedSupplierId) {
       base = base.filter((product) => String(product.supplier_id || "") === selectedSupplierId)
     }
 
-    if (!keyword) return base
+    if (keyword) {
+      base = base.filter((product) => {
+        const supplierName = product.supplier_id ? supplierMap.get(String(product.supplier_id)) || "" : ""
+        const haystacks = [
+          String(product.code || ""),
+          String(product.name || ""),
+          String(product.spec || ""),
+          String(product.category || ""),
+          supplierName,
+        ]
+        return haystacks.some((value) => value.toLowerCase().includes(keyword))
+      })
+    }
 
-    return base.filter((product) => {
-      const supplierName = product.supplier_id ? supplierMap.get(String(product.supplier_id)) || "" : ""
-      const haystacks = [
-        String(product.code || ""),
-        String(product.name || ""),
-        String(product.spec || ""),
-        String(product.category || ""),
-        supplierName,
-      ]
-      return haystacks.some((value) => value.toLowerCase().includes(keyword))
+    base.sort((a, b) => {
+      const aVal = Number(a[sortKey] || 0)
+      const bVal = Number(b[sortKey] || 0)
+      return sortDir === "desc" ? bVal - aVal : aVal - bVal
     })
-  }, [products, searchText, selectedSupplierId, supplierMap])
+
+    return base
+  }, [products, searchText, selectedSupplierId, supplierMap, sortKey, sortDir])
 
   const stats = useMemo(() => {
     const soldProducts = filteredProducts.filter((product) => Number(product.sales_qty_total || 0) > 0)
@@ -192,12 +222,42 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             <TableRow>
               <TableHead>廠商</TableHead>
               <TableHead>商品名稱</TableHead>
-              <TableHead className="text-right">已售數量</TableHead>
-              <TableHead className="text-right">實收金額</TableHead>
-              <TableHead className="text-right">應收金額</TableHead>
-              <TableHead className="text-right">實收現金毛利</TableHead>
-              <TableHead className="text-right">應收現金毛利</TableHead>
-              <TableHead className="text-right">實收毛利率</TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "sales_qty_total" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("sales_qty_total")}
+              >
+                已售數量<SortIcon columnKey="sales_qty_total" />
+              </TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "cash_received_total" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("cash_received_total")}
+              >
+                實收金額<SortIcon columnKey="cash_received_total" />
+              </TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "sales_amount_total" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("sales_amount_total")}
+              >
+                應收金額<SortIcon columnKey="sales_amount_total" />
+              </TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "cash_gross_profit" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("cash_gross_profit")}
+              >
+                實收現金毛利<SortIcon columnKey="cash_gross_profit" />
+              </TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "gross_profit" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("gross_profit")}
+              >
+                應收現金毛利<SortIcon columnKey="gross_profit" />
+              </TableHead>
+              <TableHead
+                className={`cursor-pointer select-none text-right hover:bg-slate-50 ${sortKey === "cash_gross_margin" ? "font-bold text-slate-900" : ""}`}
+                onClick={() => handleSort("cash_gross_margin")}
+              >
+                實收毛利率<SortIcon columnKey="cash_gross_margin" />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
