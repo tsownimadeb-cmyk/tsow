@@ -503,7 +503,14 @@ export function Sidebar() {
       return (
         <div key={item.name}>
           <button
-            onClick={() => toggleExpanded(item.name)}
+            onClick={() => {
+              if (collapsed) {
+                setCollapsed(false)
+                setExpandedItems((prev) => prev.includes(item.name) ? prev : [...prev, item.name])
+              } else {
+                toggleExpanded(item.name)
+              }
+            }}
             className={cn(
               "w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
               isActive

@@ -52,6 +52,10 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // 收起行動裝置鍵盤
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      (document.activeElement as HTMLInputElement).blur()
+    }
     const supabase = createClient()
 
     const data = {
@@ -180,6 +184,7 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
             <Input
               id="statement_day"
               type="number"
+              inputMode="numeric"
               min={1}
               max={31}
               value={formData.statement_day}

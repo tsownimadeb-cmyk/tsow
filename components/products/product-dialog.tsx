@@ -103,6 +103,10 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // 收起行動裝置鍵盤
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      (document.activeElement as HTMLInputElement).blur()
+    }
     const supabase = createClient()
 
     const basePayload = {
@@ -229,29 +233,29 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
           <div className="grid grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>預設進貨單價</Label>
-              <Input type="number" value={formData.base_price} onChange={(e) => setFormData({...formData, base_price: Number(e.target.value)})} />
+              <Input type="number" inputMode="decimal" step="0.01" value={formData.base_price} onChange={(e) => setFormData({...formData, base_price: Number(e.target.value)})} />
             </div>
             <div className="space-y-2">
               <Label>定價</Label>
-              <Input type="number" value={formData.price} onChange={(e) => setFormData({...formData, price: Number(e.target.value)})} />
+              <Input type="number" inputMode="decimal" step="0.01" value={formData.price} onChange={(e) => setFormData({...formData, price: Number(e.target.value)})} />
             </div>
             <div className="space-y-2">
               <Label>特價</Label>
-              <Input type="number" value={formData.sale_price} onChange={(e) => setFormData({...formData, sale_price: Number(e.target.value)})} />
+              <Input type="number" inputMode="decimal" step="0.01" value={formData.sale_price} onChange={(e) => setFormData({...formData, sale_price: Number(e.target.value)})} />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>初始庫存</Label>
-              <Input type="number" value={formData.stock_qty} onChange={(e) => setFormData({...formData, stock_qty: Number(e.target.value)})} />
+              <Input type="number" inputMode="numeric" value={formData.stock_qty} onChange={(e) => setFormData({...formData, stock_qty: Number(e.target.value)})} />
             </div>
             <div className="space-y-2">
               <Label>進貨總量</Label>
-              <Input type="number" value={formData.purchase_qty_total} onChange={(e) => setFormData({...formData, purchase_qty_total: Number(e.target.value)})} />
+              <Input type="number" inputMode="numeric" value={formData.purchase_qty_total} onChange={(e) => setFormData({...formData, purchase_qty_total: Number(e.target.value)})} />
             </div>
             <div className="space-y-2">
               <Label>安全庫存</Label>
-              <Input type="number" value={formData.safety_stock} onChange={(e) => setFormData({...formData, safety_stock: Number(e.target.value)})} />
+              <Input type="number" inputMode="numeric" value={formData.safety_stock} onChange={(e) => setFormData({...formData, safety_stock: Number(e.target.value)})} />
             </div>
           </div>
           <div className="space-y-2">

@@ -80,6 +80,10 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // 收起行動裝置鍵盤
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      (document.activeElement as HTMLInputElement).blur()
+    }
     const supabase = createClient()
 
     startTransition(async () => {
@@ -282,8 +286,7 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
           <div className="space-y-2">
             <Label htmlFor="tel1">電話1</Label>
             <Input
-              id="tel1"
-              value={formData.tel1}
+              id="tel1"              inputMode="tel"              value={formData.tel1}
               onChange={(e) => setFormData({ ...formData, tel1: e.target.value })}
             />
           </div>
@@ -291,8 +294,7 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
           <div className="space-y-2">
             <Label htmlFor="tel2">電話2</Label>
             <Input
-              id="tel2"
-              value={formData.tel2}
+              id="tel2"              inputMode="tel"              value={formData.tel2}
               onChange={(e) => setFormData({ ...formData, tel2: e.target.value })}
             />
           </div>
@@ -300,8 +302,7 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
           <div className="space-y-2">
             <Label htmlFor="tel3">電話3</Label>
             <Input
-              id="tel3"
-              value={formData.tel3}
+              id="tel3"              inputMode="tel"              value={formData.tel3}
               onChange={(e) => setFormData({ ...formData, tel3: e.target.value })}
             />
           </div>

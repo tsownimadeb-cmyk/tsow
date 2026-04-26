@@ -211,6 +211,10 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // 收起行動裝置鍵盤
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      (document.activeElement as HTMLInputElement).blur()
+    }
     if (items.length === 0) {
       toastApi.error("請至少新增一筆進貨明細")
       return
@@ -607,6 +611,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             <Input
               id="shipping_fee"
               type="number"
+              inputMode="decimal"
               min="0"
               step="0.01"
               value={formData.shipping_fee}
@@ -672,6 +677,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                           <Input
                             className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             type="number"
+                            inputMode="numeric"
                             min="1"
                             value={item.quantity}
                             onFocus={(e) => e.target.select()}
@@ -681,6 +687,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                         <TableCell>
                           <Input
                             type="number"
+                            inputMode="decimal"
                             min="0"
                             step="0.01"
                             value={item.unit_price}
@@ -735,6 +742,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                       <Input
                         className="flex-1"
                         type="number"
+                        inputMode="numeric"
                         min="1"
                         value={item.quantity}
                         onFocus={(e) => e.target.select()}
@@ -746,6 +754,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                       <Input
                         className="flex-1"
                         type="number"
+                        inputMode="decimal"
                         min="0"
                         step="0.01"
                         value={item.unit_price}
