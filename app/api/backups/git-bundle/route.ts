@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir } from "node:fs/promises"
+import { mkdir, readFile, unlink } from "node:fs/promises"
 import path from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -30,10 +30,18 @@ export async function POST(request: NextRequest) {
       windowsHide: true,
     })
 
-    return NextResponse.json({
-      success: true,
-      filePath: `backups/git/${fileName}`,
-      message: "Git bundle 建立成功",
+    const bundleData = await readFile(bundlePath)
+
+    // 刪除暫存檔，bundle 由瀏覽器下載保存
+    await unlink(bundlePath).catch(() => {})
+
+    return new NextResponse(bundleData, {
+      status: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-disposition": `attachment; filename="${fileName}"`,
+        "content-length": String(bundleData.byteLength),
+      },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "建立備份失敗"

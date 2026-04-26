@@ -11,7 +11,9 @@ type QueryResult = {
   warning: string | null
 }
 
-const isMissingRelationError = (message: string) => /relation\s+"[^"]+"\s+does not exist/i.test(message)
+const isMissingRelationError = (message: string) =>
+  /relation\s+"[^"]+"\s+does not exist/i.test(message) ||
+  /could not find the table/i.test(message)
 
 async function queryTable(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -94,6 +96,20 @@ export async function GET(request: NextRequest) {
       queryTable(supabase, "sales_order_items", [{ column: "created_at", ascending: false }]),
       queryTable(supabase, "accounts_receivable", [{ column: "created_at", ascending: false }]),
       queryTable(supabase, "accounts_payable", [{ column: "created_at", ascending: false }]),
+      queryTable(supabase, "purchase_returns", [
+        { column: "return_date", ascending: false },
+        { column: "created_at", ascending: false },
+      ]),
+      queryTable(supabase, "purchase_return_items", [{ column: "created_at", ascending: false }]),
+      queryTable(supabase, "sales_returns", [
+        { column: "return_date", ascending: false },
+        { column: "created_at", ascending: false },
+      ]),
+      queryTable(supabase, "sales_return_items", [{ column: "created_at", ascending: false }]),
+      queryTable(supabase, "ar_receipts", [
+        { column: "payment_date", ascending: false },
+        { column: "created_at", ascending: false },
+      ]),
     ])
 
     const warnings = tableQueries

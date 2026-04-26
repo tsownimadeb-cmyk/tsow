@@ -14,8 +14,13 @@ type ImportPayload = {
     sales_order_items?: Record<string, unknown>[]
     purchase_orders?: Record<string, unknown>[]
     purchase_order_items?: Record<string, unknown>[]
+    purchase_returns?: Record<string, unknown>[]
+    purchase_return_items?: Record<string, unknown>[]
+    sales_returns?: Record<string, unknown>[]
+    sales_return_items?: Record<string, unknown>[]
     accounts_receivable?: Record<string, unknown>[]
     accounts_payable?: Record<string, unknown>[]
+    ar_receipts?: Record<string, unknown>[]
     customers?: Record<string, unknown>[]
     products?: Record<string, unknown>[]
   }
@@ -28,8 +33,13 @@ type SourceTables = {
   sales_order_items: Record<string, unknown>[]
   purchase_orders: Record<string, unknown>[]
   purchase_order_items: Record<string, unknown>[]
+  purchase_returns: Record<string, unknown>[]
+  purchase_return_items: Record<string, unknown>[]
+  sales_returns: Record<string, unknown>[]
+  sales_return_items: Record<string, unknown>[]
   accounts_receivable: Record<string, unknown>[]
   accounts_payable: Record<string, unknown>[]
+  ar_receipts: Record<string, unknown>[]
   customers: Record<string, unknown>[]
   products: Record<string, unknown>[]
 }
@@ -175,10 +185,15 @@ async function parseSourceTablesFromFile(file: File): Promise<SourceTables> {
       products: await readCsvEntry("products.csv"),
       purchase_orders: await readCsvEntry("purchase_orders.csv"),
       purchase_order_items: await readCsvEntry("purchase_order_items.csv"),
+      purchase_returns: await readCsvEntry("purchase_returns.csv"),
+      purchase_return_items: await readCsvEntry("purchase_return_items.csv"),
       sales_orders: await readCsvEntry("sales_orders.csv"),
       sales_order_items: await readCsvEntry("sales_order_items.csv"),
+      sales_returns: await readCsvEntry("sales_returns.csv"),
+      sales_return_items: await readCsvEntry("sales_return_items.csv"),
       accounts_receivable: await readCsvEntry("accounts_receivable.csv"),
       accounts_payable: await readCsvEntry("accounts_payable.csv"),
+      ar_receipts: await readCsvEntry("ar_receipts.csv"),
     }
   }
 
@@ -202,8 +217,13 @@ async function parseSourceTablesFromFile(file: File): Promise<SourceTables> {
     sales_order_items: Array.isArray(tables.sales_order_items) ? tables.sales_order_items : [],
     purchase_orders: Array.isArray(tables.purchase_orders) ? tables.purchase_orders : [],
     purchase_order_items: Array.isArray(tables.purchase_order_items) ? tables.purchase_order_items : [],
+    purchase_returns: Array.isArray(tables.purchase_returns) ? tables.purchase_returns : [],
+    purchase_return_items: Array.isArray(tables.purchase_return_items) ? tables.purchase_return_items : [],
+    sales_returns: Array.isArray(tables.sales_returns) ? tables.sales_returns : [],
+    sales_return_items: Array.isArray(tables.sales_return_items) ? tables.sales_return_items : [],
     accounts_receivable: Array.isArray(tables.accounts_receivable) ? tables.accounts_receivable : [],
     accounts_payable: Array.isArray(tables.accounts_payable) ? tables.accounts_payable : [],
+    ar_receipts: Array.isArray(tables.ar_receipts) ? tables.ar_receipts : [],
     customers: Array.isArray(tables.customers) ? tables.customers : [],
     products: Array.isArray(tables.products) ? tables.products : [],
   }
@@ -266,10 +286,15 @@ export async function POST(request: NextRequest) {
     const sourceProducts = sourceTables.products
     const sourcePurchaseOrders = sourceTables.purchase_orders
     const sourcePurchaseItems = sourceTables.purchase_order_items
+    const sourcePurchaseReturns = sourceTables.purchase_returns
+    const sourcePurchaseReturnItems = sourceTables.purchase_return_items
     const sourceSalesOrders = sourceTables.sales_orders
     const sourceSalesItems = sourceTables.sales_order_items
+    const sourceSalesReturns = sourceTables.sales_returns
+    const sourceSalesReturnItems = sourceTables.sales_return_items
     const sourceAccountsReceivable = sourceTables.accounts_receivable
     const sourceAccountsPayable = sourceTables.accounts_payable
+    const sourceArReceipts = sourceTables.ar_receipts
 
     const categories = sourceCategories
       .map((row) => ({
@@ -454,6 +479,7 @@ export async function POST(request: NextRequest) {
       const totalAmountRaw = row.total_amount === null || row.total_amount === undefined ? null : asNumber(row.total_amount, 0)
       const totalAmount = totalAmountRaw === null ? Math.max(amountDue, paidAmount) : Math.max(totalAmountRaw, amountDue, paidAmount)
       return {
+        id: asNullableString(row.id),
         order_no: orderNo,
         customer_cno: asNullableString(row.customer_cno),
         amount_due: amountDue,
@@ -475,6 +501,7 @@ export async function POST(request: NextRequest) {
       const totalAmountRaw = row.total_amount === null || row.total_amount === undefined ? null : asNumber(row.total_amount, 0)
       const totalAmount = totalAmountRaw === null ? Math.max(amountDue, paidAmount) : Math.max(totalAmountRaw, amountDue, paidAmount)
       return {
+        id: asNullableString(row.id),
         order_no: orderNo,
         supplier_id: asNullableString(row.supplier_id),
         amount_due: amountDue,
@@ -495,10 +522,15 @@ export async function POST(request: NextRequest) {
         products: products.length,
         purchase_orders: purchaseOrders.length,
         purchase_order_items: purchaseItemsRaw.length,
+        purchase_returns: sourcePurchaseReturns.length,
+        purchase_return_items: sourcePurchaseReturnItems.length,
         sales_orders: salesOrders.length,
         sales_order_items: salesItemsRaw.length,
+        sales_returns: sourceSalesReturns.length,
+        sales_return_items: sourceSalesReturnItems.length,
         accounts_receivable: accountsReceivableRaw.length,
         accounts_payable: accountsPayableRaw.length,
+        ar_receipts: sourceArReceipts.length,
       })
 
       return NextResponse.json({
@@ -541,6 +573,7 @@ export async function POST(request: NextRequest) {
 
     if (salesOrders.length > 0) {
       const orderPayloads = salesOrders.map((row) => ({
+        ...(row.id ? { id: row.id } : {}),
         order_no: row.order_no!,
         customer_cno: row.customer_cno,
         delivery_method: row.delivery_method,
@@ -618,6 +651,7 @@ export async function POST(request: NextRequest) {
 
     if (purchaseOrders.length > 0) {
       const purchaseOrderPayloads = purchaseOrders.map((row) => ({
+        ...(row.id ? { id: row.id } : {}),
         order_no: row.order_no!,
         supplier_id: row.supplier_id,
         order_date: row.order_date,
@@ -713,6 +747,7 @@ export async function POST(request: NextRequest) {
           const amountDue = Math.max(asNumber(row.amount_due, totalAmount), 0)
           const paidAmount = Math.min(Math.max(asNumber(row.paid_amount, 0), 0), totalAmount)
           return {
+            ...(row.id ? { id: row.id } : {}),
             sales_order_id: String(order?.id || ""),
             customer_cno: row.customer_cno || asNullableString(order?.customer_cno),
             amount_due: amountDue,
@@ -736,6 +771,7 @@ export async function POST(request: NextRequest) {
           const amountDue = Math.max(asNumber(row.amount_due, totalAmount), 0)
           const paidAmount = Math.min(Math.max(asNumber(row.paid_amount, 0), 0), totalAmount)
           return {
+            ...(row.id ? { id: row.id } : {}),
             purchase_order_id: String(order?.id || ""),
             supplier_id: row.supplier_id || asNullableString(order?.supplier_id),
             amount_due: amountDue,
@@ -778,6 +814,59 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 進貨退回主檔與明細
+    const purchaseReturns = sourcePurchaseReturns.filter((row) => asNullableString(row.id))
+    if (purchaseReturns.length > 0) {
+      const purchaseReturnsResult = await resilientUpsert(supabase, "purchase_returns", purchaseReturns, "id")
+      if (!purchaseReturnsResult.success) {
+        return NextResponse.json({ success: false, message: `匯入 purchase_returns 失敗: ${purchaseReturnsResult.error}` }, { status: 500 })
+      }
+
+      const returnIds = purchaseReturns.map((row) => String(row.id)).filter(Boolean)
+      await supabase.from("purchase_return_items").delete().in("purchase_return_id", returnIds)
+
+      const purchaseReturnItems = sourcePurchaseReturnItems.filter((row) =>
+        asNullableString(row.id) && asNullableString(row.purchase_return_id)
+      )
+      if (purchaseReturnItems.length > 0) {
+        const purchaseReturnItemsResult = await resilientInsert(supabase, "purchase_return_items", purchaseReturnItems)
+        if (!purchaseReturnItemsResult.success) {
+          return NextResponse.json({ success: false, message: `匯入 purchase_return_items 失敗: ${purchaseReturnItemsResult.error}` }, { status: 500 })
+        }
+      }
+    }
+
+    // 銷貨退回主檔與明細
+    const salesReturns = sourceSalesReturns.filter((row) => asNullableString(row.id))
+    if (salesReturns.length > 0) {
+      const salesReturnsResult = await resilientUpsert(supabase, "sales_returns", salesReturns, "id")
+      if (!salesReturnsResult.success) {
+        return NextResponse.json({ success: false, message: `匯入 sales_returns 失敗: ${salesReturnsResult.error}` }, { status: 500 })
+      }
+
+      const salesReturnIds = salesReturns.map((row) => String(row.id)).filter(Boolean)
+      await supabase.from("sales_return_items").delete().in("sales_return_id", salesReturnIds)
+
+      const salesReturnItems = sourceSalesReturnItems.filter((row) =>
+        asNullableString(row.id) && asNullableString(row.sales_return_id)
+      )
+      if (salesReturnItems.length > 0) {
+        const salesReturnItemsResult = await resilientInsert(supabase, "sales_return_items", salesReturnItems)
+        if (!salesReturnItemsResult.success) {
+          return NextResponse.json({ success: false, message: `匯入 sales_return_items 失敗: ${salesReturnItemsResult.error}` }, { status: 500 })
+        }
+      }
+    }
+
+    // 應收帳款收款履歷
+    const arReceipts = sourceArReceipts.filter((row) => asNullableString(row.id))
+    if (arReceipts.length > 0) {
+      const arReceiptsResult = await resilientUpsert(supabase, "ar_receipts", arReceipts, "id")
+      if (!arReceiptsResult.success) {
+        return NextResponse.json({ success: false, message: `匯入 ar_receipts 失敗: ${arReceiptsResult.error}` }, { status: 500 })
+      }
+    }
+
     return NextResponse.json({
       success: true,
       summary: toSummary({
@@ -787,10 +876,15 @@ export async function POST(request: NextRequest) {
         products: products.length,
         purchase_orders: purchaseOrders.length,
         purchase_order_items: purchaseItemsRaw.length,
+        purchase_returns: sourcePurchaseReturns.length,
+        purchase_return_items: sourcePurchaseReturnItems.length,
         sales_orders: salesOrders.length,
         sales_order_items: salesItemsRaw.length,
+        sales_returns: sourceSalesReturns.length,
+        sales_return_items: sourceSalesReturnItems.length,
         accounts_receivable: accountsReceivableRaw.length,
         accounts_payable: accountsPayableRaw.length,
+        ar_receipts: sourceArReceipts.length,
       }),
       message: "匯入完成",
     })

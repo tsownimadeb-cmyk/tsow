@@ -19,6 +19,7 @@ import {
   Settings,
   Archive,
   FolderOpen,
+  FolderCog,
   Download,
   Upload,
 } from "lucide-react"
@@ -28,6 +29,7 @@ import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
+import { useBackupDirectory } from "@/hooks/use-backup-directory"
 
 interface NavItem {
   name: string
@@ -81,6 +83,7 @@ export function Sidebar() {
   const [isImportingBusinessData, setIsImportingBusinessData] = useState(false)
   const [dueCheckCount, setDueCheckCount] = useState(0)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
+  const { dirName, pickDirectory, saveFileTo, clearDirectory } = useBackupDirectory()
 
   const getTodayText = () => {
     const now = new Date()
@@ -157,25 +160,54 @@ export function Sidebar() {
     void router.prefetch(href)
   }
 
+  const handleSetBackupDirectory = async () => {
+    try {
+      const handle = await pickDirectory()
+      toast({
+        title: "備份路徑已設定",
+        description: `所有備份將儲存至：${handle.name}`,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      const message = error instanceof Error ? error.message : "無法設定備份路徑"
+      toast({ title: "設定失敗", description: message, variant: "destructive" })
+    }
+  }
+
   const handleCreateGitBundle = async () => {
     if (isCreatingBackup) return
 
     setIsCreatingBackup(true)
     try {
       const response = await fetch("/api/backups/git-bundle", { method: "POST" })
-      const data = (await response.json()) as {
-        success?: boolean
-        message?: string
-        filePath?: string
-      }
 
-      if (!response.ok || !data.success) {
+      if (!response.ok) {
+        const data = (await response.json()) as { message?: string }
         throw new Error(data.message || "建立備份失敗")
       }
 
+      const blob = await response.blob()
+      const contentDisposition = response.headers.get("content-disposition") || ""
+      const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/)
+      const fileName = fileNameMatch?.[1] ?? `git-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.bundle`
+
+      const saved = await saveFileTo(blob, fileName)
+      if (saved) {
+        toast({ title: "備份完成", description: `已儲存至 ${dirName ?? ""}/${fileName}` })
+        return
+      }
+
+      // 未設定路徑則由瀏覽器下載
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = fileName
+      a.click()
+      URL.revokeObjectURL(url)
+
       toast({
         title: "備份完成",
-        description: data.filePath ? `已建立 ${data.filePath}` : "Git bundle 已建立",
+        description: `${fileName} 已下載`,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "建立備份失敗"
@@ -240,7 +272,11 @@ export function Sidebar() {
       const contentDisposition = response.headers.get("content-disposition") || ""
       const matched = contentDisposition.match(/filename=\"?([^\";]+)\"?/) 
       const fileName = matched?.[1] || `business-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`
-
+      const saved = await saveFileTo(blob, fileName)
+      if (saved) {
+        toast({ title: "匯出完成", description: `已儲存至 ${dirName ?? ""}/${fileName}` })
+        return
+      }
       const downloadUrl = URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = downloadUrl
@@ -282,7 +318,11 @@ export function Sidebar() {
       const contentDisposition = response.headers.get("content-disposition") || ""
       const matched = contentDisposition.match(/filename=\"?([^\";]+)\"?/) 
       const fileName = matched?.[1] || `business-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.zip`
-
+      const saved = await saveFileTo(blob, fileName)
+      if (saved) {
+        toast({ title: "匯出完成", description: `已儲存至 ${dirName ?? ""}/${fileName}` })
+        return
+      }
       const downloadUrl = URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = downloadUrl
@@ -446,6 +486,11 @@ export function Sidebar() {
       name: "設置",
       icon: Settings,
       children: [
+      {
+          name: dirName ? `備份路徑：${dirName}` : "設定備份路徑",
+          icon: FolderCog,
+          onClick: handleSetBackupDirectory,
+        },
         {
           name: isCreatingBackup ? "備份中..." : "備份（Git Bundle）",
           icon: Archive,
