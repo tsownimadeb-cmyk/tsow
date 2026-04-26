@@ -9,6 +9,7 @@ export interface Category {
 export interface Supplier {
   id: string
   name: string
+  sort_order?: number | null
   contact_person: string | null
   phone: string | null
   phone2: string | null

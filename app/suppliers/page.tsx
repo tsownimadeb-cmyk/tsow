@@ -8,7 +8,23 @@ import { Plus } from "lucide-react"
 export default async function SuppliersPage() {
   const supabase = await createClient()
 
-  const { data: suppliers } = await supabase.from("suppliers").select("*").order("created_at", { ascending: false })
+  let suppliers: any[] = []
+
+  const sortedResult = await supabase
+    .from("suppliers")
+    .select("*")
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false })
+
+  if (sortedResult.error) {
+    const fallbackResult = await supabase
+      .from("suppliers")
+      .select("*")
+      .order("created_at", { ascending: false })
+    suppliers = fallbackResult.data || []
+  } else {
+    suppliers = sortedResult.data || []
+  }
 
   return (
     <div className="space-y-6">
@@ -28,7 +44,7 @@ export default async function SuppliersPage() {
         </div>
       </div>
 
-      <SuppliersTable suppliers={suppliers || []} />
+      <SuppliersTable suppliers={suppliers} />
     </div>
   )
 }

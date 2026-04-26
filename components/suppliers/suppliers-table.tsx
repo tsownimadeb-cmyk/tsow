@@ -14,10 +14,6 @@ import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Supplier, PurchaseOrder, Product } from "@/lib/types"
 import { GripVertical, Phone, Search, Pencil, Trash2 } from "lucide-react"
 
-const STORAGE_KEY = "suppliers-sort-order"
-
-
-
 interface SuppliersTableProps {
   suppliers: Supplier[]
 }
@@ -29,38 +25,53 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
   const [history, setHistory] = useState<Record<string, PurchaseOrder[]>>({})
   const [products, setProducts] = useState<Product[]>([])
-  const [orderedIds, setOrderedIds] = useState<string[]>([])
+  const [orderedSuppliers, setOrderedSuppliers] = useState<Supplier[]>(suppliers)
+  const [isSavingOrder, setIsSavingOrder] = useState(false)
   const { toast } = useToast()
   const isMobile = useIsMobile()
 
-  // 從 localStorage 讀取自訂排序
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) setOrderedIds(JSON.parse(saved))
-    } catch {}
+    setOrderedSuppliers(suppliers)
+  }, [suppliers])
+
+  const saveOrderToDatabase = useCallback(async (list: Supplier[]) => {
+    const supabase = createClient()
+    const payload = list.map((supplier, index) => ({
+      id: supplier.id,
+      sort_order: index + 1,
+    }))
+
+    const { error } = await supabase
+      .from("suppliers")
+      .upsert(payload, { onConflict: "id" })
+
+    if (error) {
+      throw error
+    }
   }, [])
 
-  // 根據 orderedIds 排列供應商（新增的補在最後）
-  const sortedSuppliers = useMemo(() => {
-    if (orderedIds.length === 0) return [...suppliers]
-    const idSet = new Set(orderedIds)
-    const ordered = orderedIds
-      .map((id) => suppliers.find((s) => s.id === id))
-      .filter((s): s is Supplier => !!s)
-    const rest = suppliers.filter((s) => !idSet.has(s.id))
-    return [...ordered, ...rest]
-  }, [suppliers, orderedIds])
-
   const onDragEnd = useCallback((result: DropResult) => {
-    if (!result.destination) return
-    const newList = Array.from(sortedSuppliers)
+    if (!result.destination || isSavingOrder) return
+    const previousList = Array.from(orderedSuppliers)
+    const newList = Array.from(orderedSuppliers)
     const [moved] = newList.splice(result.source.index, 1)
     newList.splice(result.destination.index, 0, moved)
-    const newIds = newList.map((s) => s.id)
-    setOrderedIds(newIds)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(newIds)) } catch {}
-  }, [sortedSuppliers])
+    setOrderedSuppliers(newList)
+
+    setIsSavingOrder(true)
+    void saveOrderToDatabase(newList)
+      .catch((error: any) => {
+        setOrderedSuppliers(previousList)
+        toast({
+          title: "排序儲存失敗",
+          description: error?.message || "無法同步供應商排序，已還原到先前順序",
+          variant: "destructive",
+        })
+      })
+      .finally(() => {
+        setIsSavingOrder(false)
+      })
+  }, [isSavingOrder, orderedSuppliers, saveOrderToDatabase, toast])
 
   // 取得所有商品，建立 code 對應 name/unit
   useEffect(() => {
@@ -85,12 +96,12 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
 
   const filteredSuppliers: Supplier[] = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return sortedSuppliers
-    return sortedSuppliers.filter((s: Supplier) =>
+    if (!keyword) return orderedSuppliers
+    return orderedSuppliers.filter((s: Supplier) =>
       s.name.toLowerCase().includes(keyword) ||
       (s.contact_person || "").toLowerCase().includes(keyword)
     )
-  }, [sortedSuppliers, searchText])
+  }, [orderedSuppliers, searchText])
 
   // 分段查詢進貨歷史
   const fetchHistory = async (supplierId: string) => {
@@ -160,11 +171,11 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
         </div>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="suppliers-list" isDropDisabled={!!searchText}>
+          <Droppable droppableId="suppliers-list" isDropDisabled={!!searchText || isSavingOrder}>
             {(provided) => (
               <Accordion type="single" collapsible className="w-full" ref={provided.innerRef} {...provided.droppableProps}>
                 {filteredSuppliers.map((s, idx) => (
-                  <Draggable key={s.id || `supplier-row-${idx}`} draggableId={String(s.id || `supplier-row-${idx}`)} index={idx} isDragDisabled={!!searchText}>
+                  <Draggable key={s.id || `supplier-row-${idx}`} draggableId={String(s.id || `supplier-row-${idx}`)} index={idx} isDragDisabled={!!searchText || isSavingOrder}>
                     {(drag, snapshot) => (
                       <AccordionItem
                         ref={drag.innerRef}

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -42,8 +42,6 @@ interface OrderItem {
   unit_price: number
 }
 
-const SUPPLIERS_SORT_STORAGE_KEY = "suppliers-sort-order"
-
 export function PurchaseDialog({ suppliers, products, mode, purchase, children, open, onOpenChange }: PurchaseDialogProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -75,29 +73,6 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
   const [formData, setFormData] = useState(getInitialFormData)
   const [items, setItems] = useState<OrderItem[]>(getInitialItems)
-  const [orderedSupplierIds, setOrderedSupplierIds] = useState<string[]>([])
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(SUPPLIERS_SORT_STORAGE_KEY)
-      if (!saved) return
-      const parsed = JSON.parse(saved)
-      if (!Array.isArray(parsed)) return
-      setOrderedSupplierIds(parsed.map((id) => String(id)))
-    } catch {
-      setOrderedSupplierIds([])
-    }
-  }, [])
-
-  const sortedSuppliers = useMemo(() => {
-    if (orderedSupplierIds.length === 0) return suppliers
-    const idSet = new Set(orderedSupplierIds)
-    const ordered = orderedSupplierIds
-      .map((id) => suppliers.find((supplier) => supplier.id === id))
-      .filter((supplier): supplier is Supplier => Boolean(supplier))
-    const rest = suppliers.filter((supplier) => !idSet.has(supplier.id))
-    return [...ordered, ...rest]
-  }, [suppliers, orderedSupplierIds])
 
   useEffect(() => {
     if (mode === "edit") {
@@ -608,7 +583,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
                   <SelectValue placeholder="選擇供應商" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedSuppliers.map((supplier) => (
+                  {suppliers.map((supplier) => (
                     <SelectItem key={supplier.id} value={supplier.id}>
                       {supplier.name}
                     </SelectItem>

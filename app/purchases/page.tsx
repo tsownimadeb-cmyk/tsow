@@ -34,21 +34,28 @@ export default async function PurchasesPage(props: any) {
   const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = await fetchPurchasesRows(supabase, from, to, searchText);
 
   // 供應商與商品查詢（不分頁）
-  const [suppliersResult, productsResult] = await Promise.all([
+  const [suppliersSortedResult, productsResult] = await Promise.all([
     supabase
       .from("suppliers")
-      .select("id,name,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+      .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+      .order("sort_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
     supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
   ]);
-  const suppliers = suppliersResult.data || [];
+
+  const suppliers = suppliersSortedResult.error
+    ? (await supabase
+        .from("suppliers")
+        .select("id,name,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+        .order("created_at", { ascending: false })).data || []
+    : suppliersSortedResult.data || [];
   const products = productsResult.data || [];
 
   if (purchasesWarning) {
     console.error("[PurchasesPage] 查詢 purchase_orders 失敗:", purchasesWarning);
   }
-  if (suppliersResult.error) {
-    console.error("[PurchasesPage] 查詢 suppliers 失敗:", suppliersResult.error);
+  if (suppliersSortedResult.error) {
+    console.error("[PurchasesPage] 查詢 suppliers 排序失敗，已回退 created_at 排序:", suppliersSortedResult.error);
   }
   if (productsResult.error) {
     console.error("[PurchasesPage] 查詢 products 失敗:", productsResult.error);
