@@ -70,11 +70,29 @@ const toSafeNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+const isDateText = (value: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""))
+
+const toDateKey = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+const shiftDateKeyByYear = (dateKey: string, yearOffset: number) => {
+  const date = new Date(`${dateKey}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ""
+  date.setFullYear(date.getFullYear() + yearOffset)
+  return toDateKey(date)
+}
+
 interface PurchasesAnalysisPageProps {
   searchParams?: {
-    year?: string
+    startDate?: string | string[]
+    endDate?: string | string[]
   } | Promise<{
-    year?: string
+    startDate?: string | string[]
+    endDate?: string | string[]
   }>
 }
 
@@ -84,26 +102,40 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
 
   const now = new Date()
   const resolvedSearchParams = await Promise.resolve(searchParams)
-  const selectedYear = Number.parseInt(String(resolvedSearchParams?.year ?? now.getFullYear()), 10)
-  const year = Number.isFinite(selectedYear) ? Math.max(2000, Math.min(2100, selectedYear)) : now.getFullYear()
+  const getParam = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
 
-  const yearStart = `${year}-01-01`
-  const yearEnd = `${year}-12-31`
-  const previousYearStart = `${year - 1}-01-01`
-  const previousYearEnd = `${year - 1}-12-31`
+  const rawStartDate = getParam(resolvedSearchParams?.startDate)
+  const rawEndDate = getParam(resolvedSearchParams?.endDate)
 
-  const { data: purchaseRows, error: purchaseError } = await supabase
+  const startDate = isDateText(rawStartDate) ? String(rawStartDate) : ""
+  const endDate = isDateText(rawEndDate) ? String(rawEndDate) : ""
+
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
+
+  const previousStartDate = startDate ? shiftDateKeyByYear(startDate, -1) : ""
+  const previousEndDate = endDate ? shiftDateKeyByYear(endDate, -1) : ""
+
+  let purchaseQuery = supabase
     .from("purchase_orders")
     .select("id,supplier_id,order_date,total_amount,shipping_fee,status")
-    .gte("order_date", yearStart)
-    .lte("order_date", yearEnd)
+
+  if (startDate) {
+    purchaseQuery = purchaseQuery.gte("order_date", startDate)
+  }
+  if (endDate) {
+    purchaseQuery = purchaseQuery.lte("order_date", endDate)
+  }
+
+  const { data: purchaseRows, error: purchaseError } = await purchaseQuery
 
   if (purchaseError) {
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">進貨分析</h1>
-          <p className="text-muted-foreground">讀取年度進貨資料失敗</p>
+          <p className="text-muted-foreground">讀取期間進貨資料失敗</p>
         </div>
         <Card>
           <CardContent className="py-6 text-sm text-destructive">{purchaseError.message}</CardContent>
@@ -141,11 +173,18 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
     ? await supabase.from("products").select("code,name").in("code", productCodes)
     : { data: [] as ProductRow[] }
 
-  const { data: previousYearPurchaseRows } = await supabase
+  let previousYearPurchaseQuery = supabase
     .from("purchase_orders")
     .select("id")
-    .gte("order_date", previousYearStart)
-    .lte("order_date", previousYearEnd)
+
+  if (previousStartDate) {
+    previousYearPurchaseQuery = previousYearPurchaseQuery.gte("order_date", previousStartDate)
+  }
+  if (previousEndDate) {
+    previousYearPurchaseQuery = previousYearPurchaseQuery.lte("order_date", previousEndDate)
+  }
+
+  const { data: previousYearPurchaseRows } = await previousYearPurchaseQuery
 
   const previousYearOrderIds = (previousYearPurchaseRows || [])
     .map((row) => String(row.id || "").trim())
@@ -256,7 +295,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">進貨分析</h1>
-          <p className="text-muted-foreground">依年度檢視進貨總覽、供應商與商品排行</p>
+          <p className="text-muted-foreground">依日期區間檢視進貨總覽、供應商與商品排行</p>
         </div>
         <Button variant="outline" asChild>
           <Link href="/purchases">
@@ -267,21 +306,27 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
       </div>
 
       <div className="rounded-md border border-border bg-card p-4">
-        <form className="flex flex-wrap items-center gap-3">
-          <Input
-            name="year"
-            type="number"
-            min={2000}
-            max={2100}
-            defaultValue={String(year)}
-            className="w-32"
-            aria-label="年份"
-          />
-          <Button type="submit" variant="outline">套用</Button>
-          <Button type="button" variant="ghost" asChild>
-            <Link href={`/purchases/analysis?year=${now.getFullYear()}`}>今年</Link>
-          </Button>
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <Input type="date" name="startDate" defaultValue={startDate} aria-label="開始日期" />
+          <Input type="date" name="endDate" defaultValue={endDate} aria-label="結束日期" />
+          <div className="flex gap-2">
+            <Button type="submit" variant="outline">套用</Button>
+            <Button type="button" variant="ghost" asChild>
+              <Link href="/purchases/analysis">清除</Link>
+            </Button>
+          </div>
         </form>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/purchases/analysis?startDate=${toDateKey(thisMonthStart)}&endDate=${toDateKey(now)}`}>本月</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/purchases/analysis?startDate=${toDateKey(lastMonthStart)}&endDate=${toDateKey(lastMonthEnd)}`}>上個月</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/purchases/analysis?startDate=${now.getFullYear()}-01-01&endDate=${toDateKey(now)}`}>今年</Link>
+          </Button>
+        </div>
       </div>
 
       {/* 統計卡片：手機2欄Grid，縮小padding與標題 */}
@@ -289,7 +334,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
       <div className="grid grid-cols-2 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-3">
           <CardHeader className="pb-1 px-2">
-            <CardTitle className="text-xs font-medium">年度進貨金額</CardTitle>
+            <CardTitle className="text-xs font-medium">期間進貨金額</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pb-2 pt-1">
             <div className="text-lg sm:text-xl font-bold text-foreground">{formatCurrencyNoDecimal(totalPurchaseAmount)}</div>
@@ -297,7 +342,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
         </Card>
         <Card className="p-3">
           <CardHeader className="pb-1 px-2">
-            <CardTitle className="text-xs font-medium">年度進貨單數</CardTitle>
+            <CardTitle className="text-xs font-medium">期間進貨單數</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pb-2 pt-1">
             <div className="text-lg sm:text-xl font-bold text-foreground">{formatAmountNoDecimal(purchases.length)}</div>
@@ -313,7 +358,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
         </Card>
         <Card className="p-3">
           <CardHeader className="pb-1 px-2">
-            <CardTitle className="text-xs font-medium">年度運費總額</CardTitle>
+            <CardTitle className="text-xs font-medium">期間運費總額</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pb-2 pt-1">
             <div className="text-lg sm:text-xl font-bold text-foreground">{formatCurrencyNoDecimal(totalShippingFee)}</div>
@@ -340,7 +385,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
                 </div>
               ))
             ) : (
-              <div className="text-center text-muted-foreground py-4">本年度無進貨資料</div>
+              <div className="text-center text-muted-foreground py-4">此區間無進貨資料</div>
             )}
           </div>
           {/* 桌面版表格 */}
@@ -366,7 +411,7 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground">本年度無進貨資料</TableCell>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">此區間無進貨資料</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -414,12 +459,12 @@ export default async function PurchasesAnalysisPage({ searchParams }: PurchasesA
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">本年度無進貨明細</TableCell>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">此區間無進貨明細</TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
-          <p className="mt-3 text-xs text-muted-foreground">趨勢以「本年平均單價」對比「去年平均單價」計算。</p>
+          <p className="mt-3 text-xs text-muted-foreground">趨勢以「本期平均單價」對比「去年同期平均單價」計算。</p>
         </CardContent>
       </Card>
     </div>
