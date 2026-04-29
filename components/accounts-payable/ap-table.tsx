@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -29,6 +30,7 @@ export function APTable({ records }: APTableProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState("")
+  const searchInputProps = useImeInput(search, setSearch)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
   const [showAllSuppliers, setShowAllSuppliers] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -351,8 +353,7 @@ export function APTable({ records }: APTableProps) {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜尋供應商、單號..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            {...searchInputProps}
             className="pl-10 pr-8"
           />
           {search && (

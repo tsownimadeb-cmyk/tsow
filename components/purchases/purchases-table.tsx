@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,6 +28,13 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const initialSearch = searchParams?.get('search') || "";
   const [search, setSearch] = useState(initialSearch)
+  const searchInputProps = useImeInput(search, (value) => {
+    setSearch(value)
+    const params = new URLSearchParams(window.location.search)
+    if (value) { params.set('search', value) } else { params.delete('search') }
+    params.set('page', '1')
+    router.push(`/purchases?${params.toString()}`)
+  })
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingPurchaseId, setDeletingPurchaseId] = useState<string | null>(null)
@@ -254,20 +262,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜尋單號、備註或廠商名稱..."
-            value={search}
-            onChange={(e) => {
-              const value = e.target.value;
-              setSearch(value);
-              // 變更 URL 並帶上搜尋參數
-              const params = new URLSearchParams(window.location.search);
-              if (value) {
-                params.set('search', value);
-              } else {
-                params.delete('search');
-              }
-              params.set('page', '1'); // 搜尋時回到第一頁
-              router.push(`/purchases?${params.toString()}`);
-            }}
+            {...searchInputProps}
             className="pl-10 pr-8"
           />
           {search && (

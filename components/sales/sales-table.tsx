@@ -11,6 +11,7 @@ import { Search, Check, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { SalesDialog } from "@/components/sales/sales-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { SalesOrder, Customer, Product } from "@/lib/types"
@@ -42,6 +43,8 @@ export function SalesTable({
   const [search, setSearch] = useState(initialSearch)
   const [showProductSearch, setShowProductSearch] = useState(Boolean(initialProductSearch))
   const [productSearch, setProductSearch] = useState(initialProductSearch)
+  const searchProps = useImeInput(search, setSearch)
+  const productSearchProps = useImeInput(productSearch, setProductSearch)
   const debouncedSearch = useDebounce(search, 500)
   const debouncedProductSearch = useDebounce(productSearch, 500)
   const [isPending, startTransition] = useTransition()
@@ -324,8 +327,7 @@ export function SalesTable({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜尋單號、客戶名稱..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              {...searchProps}
               className="pl-10 pr-8"
             />
             {search && (
@@ -364,8 +366,7 @@ export function SalesTable({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜尋商品名稱或編號..."
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
+              {...productSearchProps}
               className="pl-10 pr-8"
             />
             {productSearch && (

@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react"
 import { ArrowDown, ArrowUp } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { ProductListRowWithProfit } from "@/lib/products"
@@ -51,6 +52,7 @@ const getMarginTheme = (margin: number) => {
 
 export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTableProps) {
   const [searchText, setSearchText] = useState("")
+  const searchInputProps = useImeInput(searchText, setSearchText)
   const [selectedSupplierId, setSelectedSupplierId] = useState("")
   const [expandedProductCodes, setExpandedProductCodes] = useState<Set<string>>(new Set())
   const [sortKey, setSortKey] = useState<SortKey>("cash_gross_profit")
@@ -210,8 +212,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
           </div>
           <Input
             placeholder="搜尋商品編號 / 名稱 / 規格 / 種類 / 廠商"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
+            {...searchInputProps}
           />
         </div>
       </div>

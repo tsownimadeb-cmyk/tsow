@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { cn, formatCurrencyOneDecimal } from "@/lib/utils"
@@ -114,6 +115,7 @@ export function APChecksTable({ records, initialSearch = "" }: { records: APChec
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
+  const searchInputProps = useImeInput(search, setSearch)
   const debouncedSearch = useDebounce(search, 500)
   const lastInitialSearchRef = useRef(initialSearch)
   const urlFilter = normalizeStatusFilter(searchParams.get("status"))
@@ -502,8 +504,7 @@ export function APChecksTable({ records, initialSearch = "" }: { records: APChec
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            {...searchInputProps}
             placeholder="搜尋供應商、進貨單號"
             className="pl-10"
           />

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { SupplierDialog } from "./supplier-dialog"
 import { DeleteSupplierDialog } from "./delete-supplier-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
@@ -20,6 +21,7 @@ interface SuppliersTableProps {
 
 export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   const [searchText, setSearchText] = useState("")
+  const searchInputProps = useImeInput(searchText, setSearchText)
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
   const [deleteSupplier, setDeleteSupplier] = useState<Supplier | null>(null)
   const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
@@ -148,8 +150,7 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
       <div className="px-6 py-4 border-b border-gray-200 bg-white relative max-w-sm">
         <Input
           placeholder="搜尋供應商名稱 / 聯絡人"
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
+          {...searchInputProps}
           className="pr-8"
         />
         {searchText && (

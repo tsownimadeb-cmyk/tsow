@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -65,6 +66,7 @@ export function ARTable({
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
+  const searchInputProps = useImeInput(search, setSearch)
   const debouncedSearch = useDebounce(search, 300)
   const lastInitialSearchRef = useRef(initialSearch)
   const pendingSearchRef = useRef<string | null>(null)
@@ -1565,8 +1567,7 @@ export function ARTable({
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜尋客戶、單號..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            {...searchInputProps}
             className="pl-10 pr-8"
           />
           {search && (

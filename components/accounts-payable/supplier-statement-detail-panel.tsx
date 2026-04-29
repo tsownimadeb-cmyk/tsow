@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { format } from "date-fns"
 import { ChevronDown } from "lucide-react"
 
@@ -82,6 +83,7 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
   const [allTime, setAllTime] = useState(false)
   const [selectedSupplierId, setSelectedSupplierId] = useState("")
   const [supplierSearch, setSupplierSearch] = useState("")
+  const supplierSearchInputProps = useImeInput(supplierSearch, setSupplierSearch)
   const [statement, setStatement] = useState<StatementRow | null>(null)
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -392,8 +394,7 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
               <input
                 className="w-full rounded border px-2 py-1 text-sm"
                 placeholder="搜尋廠商..."
-                value={supplierSearch}
-                onChange={(event) => setSupplierSearch(event.target.value)}
+                {...supplierSearchInputProps}
                 onClick={(event) => event.stopPropagation()}
               />
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { Input } from "@/components/ui/input"
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
 import { Card } from "@/components/ui/card"
@@ -21,6 +22,7 @@ export function CustomersTable({
   const router = useRouter();
   const [customers, setCustomers] = useState(customersProp);
   const [searchText, setSearchText] = useState(initialSearchText);
+  const searchInputProps = useImeInput(searchText, setSearchText);
   const debouncedSearch = useDebounce(searchText, 500);
   const lastInitialSearchRef = useRef(initialSearchText);
   const [, startTransition] = useTransition();
@@ -128,8 +130,7 @@ export function CustomersTable({
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="搜尋名稱或編號..."
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
+          {...searchInputProps}
           className="pl-10 pr-8"
         />
         {searchText && (

@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useImeInput } from "@/hooks/use-ime-input"
 import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -24,6 +25,7 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
   const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
   const [searchText, setSearchText] = useState(initialSearch)
+  const searchInputProps = useImeInput(searchText, setSearchText)
   const debouncedSearch = useDebounce(searchText, 500)
   const [, startTransition] = useTransition()
   const lastInitialSearchRef = useRef(initialSearch)
@@ -86,8 +88,7 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
       <div className="px-3 sm:px-6 py-4 border-b border-gray-200 bg-white relative">
         <Input
           placeholder="搜尋商品編號 / 名稱 / 規格 / 種類"
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
+          {...searchInputProps}
           className="pr-8 w-full sm:max-w-sm"
         />
         {searchText && (
