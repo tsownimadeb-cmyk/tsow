@@ -35,20 +35,15 @@ export default async function SalesPage(props: any) {
 
   const supabase = await createClient();
 
-  // 分頁查詢銷貨單（支援單號 / 客戶 / 商品搜尋）
-  const { rows: salesRaw, totalCount, warning: salesWarning } = await fetchSalesRows(
-    supabase,
-    from,
-    to,
-    searchText,
-    productSearchText,
-  );
-
-  // 客戶與商品查詢（不分頁）
-  const [{ data: customers }, { data: products }] = await Promise.all([
+  const [salesQueryResult, customersResult, productsResult] = await Promise.all([
+    fetchSalesRows(supabase, from, to, searchText, productSearchText),
     supabase.from("customers").select("*").order("code"),
     supabase.from("products").select("*").order("code"),
   ]);
+
+  const { rows: salesRaw, totalCount, warning: salesWarning } = salesQueryResult;
+  const customers = customersResult.data;
+  const products = productsResult.data;
 
   if (salesWarning) {
     console.error("[SalesPage] 查詢 sales_orders 失敗:", salesWarning);

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,71 @@ const deliveryMethodMap: Record<"self_delivery" | "company_delivery" | "customer
   customer_pickup: "客戶自取",
 }
 const STOCK_ADJUSTMENT_NOTE_TAG = "[STOCK_ADJUSTMENT]"
+
+const SalesItemsTableRows = React.memo(function SalesItemsTableRows({
+  items,
+  productMap,
+}: {
+  items: SalesOrder["items"]
+  productMap: Map<string, { name: string; unit: string | null }>
+}) {
+  if (!items || items.length === 0) {
+    return (
+      <TableRow>
+        <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+          無商品明細
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  return (
+    <>
+      {items.map((item) => {
+        const code = String(item.code ?? "").trim()
+        const product = productMap.get(code)
+        const displayName = product ? product.name : `${code}(待查)`
+        return (
+          <TableRow key={item.id}>
+            <TableCell>{displayName}</TableCell>
+            <TableCell className="text-right">{item.quantity}</TableCell>
+            <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+            <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
+          </TableRow>
+        )
+      })}
+    </>
+  )
+})
+
+const SalesItemsCompactRows = React.memo(function SalesItemsCompactRows({
+  items,
+  productMap,
+}: {
+  items: SalesOrder["items"]
+  productMap: Map<string, { name: string; unit: string | null }>
+}) {
+  if (!items || items.length === 0) {
+    return <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {items.map((item) => {
+        const code = String(item.code ?? "").trim()
+        const product = productMap.get(code)
+        const displayName = product ? product.name : `${code}(待查)`
+        return (
+          <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
+            <span className="flex-1 truncate">{displayName}</span>
+            <span className="w-10 text-right">{item.quantity}</span>
+            <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
 
 export function SalesTable({
   sales,
@@ -102,8 +167,9 @@ export function SalesTable({
     })
   }, [debouncedProductSearch, debouncedSearch, router, startTransition])
 
-  const customerMap = new Map(
-    customers.map((customer) => [customer.code, customer] as const),
+  const customerMap = useMemo(
+    () => new Map(customers.map((customer) => [customer.code, customer] as const)),
+    [customers],
   )
   // 統一建立商品編號對應商品資訊的 Map
   const productMap = useMemo(() => {
@@ -114,12 +180,12 @@ export function SalesTable({
     return map
   }, [products])
 
-  const getCustomerDisplayName = (sale: SalesOrder) => {
+  const getCustomerDisplayName = useCallback((sale: SalesOrder) => {
     const customerName = customerMap.get(sale.customer_cno || "")?.name
     if (customerName) return customerName
     if (String(sale.notes || "").includes(STOCK_ADJUSTMENT_NOTE_TAG)) return "校正庫存"
     return "散客"
-  }
+  }, [customerMap])
 
   // 不再前端 filter，直接顯示 props 傳入的 sales
   const filteredSales = sales
@@ -470,27 +536,7 @@ export function SalesTable({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {sale.items && sale.items.length > 0 ? (
-                            sale.items.map((item) => {
-                              const code = String(item.code ?? '').trim();
-                              const product = productMap.get(code);
-                              const displayName = product ? product.name : `${code}(待查)`;
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell>{displayName}</TableCell>
-                                  <TableCell className="text-right">{item.quantity}</TableCell>
-                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
-                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
-                                </TableRow>
-                              )
-                            })
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
-                                無商品明細
-                              </TableCell>
-                            </TableRow>
-                          )}
+                          <SalesItemsTableRows items={sale.items} productMap={productMap} />
                         </TableBody>
                       </Table>
                     </div>
@@ -587,24 +633,7 @@ export function SalesTable({
                         </div>
                       )}
                       <div className="mt-2 space-y-1 bg-gray-50 rounded p-2">
-                        {sale.items && sale.items.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {sale.items.map((item) => {
-                              const code = String(item.code ?? '').trim();
-                              const product = productMap.get(code);
-                              const displayName = product ? product.name : `${code}(待查)`;
-                              return (
-                                <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1">
-                                  <span className="flex-1 truncate">{displayName}</span>
-                                  <span className="w-10 text-right">{item.quantity}</span>
-                                  <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
-                        )}
+                        <SalesItemsCompactRows items={sale.items} productMap={productMap} />
                       </div>
                     </div>
                   )}

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import React, { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { useImeInput } from "@/hooks/use-ime-input"
+import { useDebounce } from "@/hooks/use-debounce"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,28 +20,115 @@ interface PurchasesTableProps {
   purchases: PurchaseOrder[]
   suppliers: Supplier[]
   products: Product[]
+  initialSearch?: string
 }
 
-export function PurchasesTable({ purchases, suppliers, products }: PurchasesTableProps) {
+const PurchaseItemsTableRows = React.memo(function PurchaseItemsTableRows({
+  items,
+  productMap,
+}: {
+  items: PurchaseOrder["items"]
+  productMap: Map<string, Product>
+}) {
+  if (!items || items.length === 0) {
+    return (
+      <TableRow>
+        <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+          無商品明細
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  return (
+    <>
+      {items.map((item) => {
+        const itemCode = (item as any).code || null
+        const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
+        return (
+          <TableRow key={item.id}>
+            <TableCell>{productName}</TableCell>
+            <TableCell className="text-right">{item.quantity}</TableCell>
+            <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
+            <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
+          </TableRow>
+        )
+      })}
+    </>
+  )
+})
+
+const PurchaseItemsCompactRows = React.memo(function PurchaseItemsCompactRows({
+  items,
+  productMap,
+}: {
+  items: PurchaseOrder["items"]
+  productMap: Map<string, Product>
+}) {
+  if (!items || items.length === 0) {
+    return <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {items.map((item) => {
+        const itemCode = (item as any).code || null
+        const productName = item.product?.name || (itemCode ? productMap.get(itemCode)?.name || itemCode : "-")
+        return (
+          <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1">
+            <span className="flex-1 truncate">{productName}</span>
+            <span className="w-10 text-right">{item.quantity}</span>
+            <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
+
+export function PurchasesTable({ purchases, suppliers, products, initialSearch = "" }: PurchasesTableProps) {
   const router = useRouter()
   const { toast } = useToast()
-  // 取得當前 URL search 參數
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const initialSearch = searchParams?.get('search') || "";
   const [search, setSearch] = useState(initialSearch)
-  const searchInputProps = useImeInput(search, (value) => {
-    setSearch(value)
-    const params = new URLSearchParams(window.location.search)
-    if (value) { params.set('search', value) } else { params.delete('search') }
-    params.set('page', '1')
-    router.push(`/purchases?${params.toString()}`)
-  })
+  const searchInputProps = useImeInput(search, setSearch)
+  const debouncedSearch = useDebounce(search, 500)
   const [isPending, startTransition] = useTransition()
+  const lastInitialSearchRef = useRef(initialSearch)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingPurchaseId, setDeletingPurchaseId] = useState<string | null>(null)
 
-  const supplierMap = new Map(suppliers.map((supplier) => [supplier.id, supplier]))
-  const productMap = new Map(products.map((product) => [product.code, product]))
+  useEffect(() => {
+    const previousInitialSearch = lastInitialSearchRef.current
+    lastInitialSearchRef.current = initialSearch
+
+    if (previousInitialSearch === initialSearch) return
+    if (search !== debouncedSearch) return
+    if (initialSearch === search) return
+
+    setSearch(initialSearch)
+  }, [debouncedSearch, initialSearch, search])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const current = params.get("search") || ""
+    if (debouncedSearch === current) return
+
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch)
+    } else {
+      params.delete("search")
+    }
+    params.set("page", "1")
+
+    startTransition(() => {
+      const queryString = params.toString()
+      router.replace(queryString ? `/purchases?${queryString}` : "/purchases")
+    })
+  }, [debouncedSearch, router, startTransition])
+
+  const supplierMap = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier])), [suppliers])
+  const productMap = useMemo(() => new Map(products.map((product) => [product.code, product])), [products])
 
   // 不再前端 filter，直接顯示 props 傳入的 purchases
   const filteredPurchases = purchases
@@ -243,7 +331,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
         return
       }
 
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       toast({
         title: "錯誤",
@@ -269,13 +357,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
             <button
               type="button"
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-              onClick={() => {
-                setSearch("");
-                const params = new URLSearchParams(window.location.search);
-                params.delete('search');
-                params.set('page', '1');
-                router.push(`/purchases?${params.toString()}`);
-              }}
+              onClick={() => setSearch("")}
               aria-label="清除搜尋"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -370,28 +452,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {purchase.items && purchase.items.length > 0 ? (
-                            purchase.items.map((item) => {
-                              const itemCode = (item as any).code || null
-                              const productName = item.product?.name || (itemCode
-                                ? productMap.get(itemCode)?.name || itemCode
-                                : "-")
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell>{productName}</TableCell>
-                                  <TableCell className="text-right">{item.quantity}</TableCell>
-                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</TableCell>
-                                  <TableCell className="text-right">{formatCurrencyOneDecimal(Number(item.subtotal))}</TableCell>
-                                </TableRow>
-                              )
-                            })
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
-                                無商品明細
-                              </TableCell>
-                            </TableRow>
-                          )}
+                          <PurchaseItemsTableRows items={purchase.items} productMap={productMap} />
                         </TableBody>
                       </Table>
                     </div>
@@ -487,25 +548,7 @@ export function PurchasesTable({ purchases, suppliers, products }: PurchasesTabl
                         </div>
                       )}
                       <div className="mt-2 space-y-1 bg-gray-50 rounded p-2">
-                        {purchase.items && purchase.items.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {purchase.items.map((item) => {
-                              const itemCode = (item as any).code || null
-                              const productName = item.product?.name || (itemCode
-                                ? productMap.get(itemCode)?.name || itemCode
-                                : "-")
-                              return (
-                                <div key={item.id} className="flex items-center justify-between text-xs px-2 py-1">
-                                  <span className="flex-1 truncate">{productName}</span>
-                                  <span className="w-10 text-right">{item.quantity}</span>
-                                  <span className="w-16 text-right">{formatCurrencyOneDecimal(Number(item.unit_price))}</span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-center text-muted-foreground py-2 text-xs">無商品明細</div>
-                        )}
+                        <PurchaseItemsCompactRows items={purchase.items} productMap={productMap} />
                       </div>
                       <div className="mt-2 text-right space-y-0.5">
                         <p className="text-xs text-muted-foreground">貨款：{formatCurrencyOneDecimal(goodsAmount)}</p>

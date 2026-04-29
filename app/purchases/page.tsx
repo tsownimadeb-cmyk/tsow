@@ -30,11 +30,8 @@ export default async function PurchasesPage(props: any) {
 
   const supabase = await createClient();
 
-  // 分頁查詢進貨單（支援搜尋）
-  const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = await fetchPurchasesRows(supabase, from, to, searchText);
-
-  // 供應商與商品查詢（不分頁）
-  const [suppliersSortedResult, productsResult] = await Promise.all([
+  const [purchasesQueryResult, suppliersSortedResult, productsResult] = await Promise.all([
+    fetchPurchasesRows(supabase, from, to, searchText),
     supabase
       .from("suppliers")
       .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
@@ -42,6 +39,8 @@ export default async function PurchasesPage(props: any) {
       .order("created_at", { ascending: false }),
     supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
   ]);
+
+  const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = purchasesQueryResult;
 
   const suppliers = suppliersSortedResult.error
     ? (await supabase
@@ -92,7 +91,7 @@ export default async function PurchasesPage(props: any) {
         </div>
       </div>
 
-      <PurchasesTable purchases={purchases || []} suppliers={suppliers || []} products={products || []} />
+      <PurchasesTable purchases={purchases || []} suppliers={suppliers || []} products={products || []} initialSearch={searchText} />
 
       {/* 分頁控制 */}
       <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-sm">

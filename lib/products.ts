@@ -121,6 +121,37 @@ export async function fetchProductsRows(supabase: any, from: number = 0, to: num
   }
 }
 
+export async function fetchAllProductsRows(supabase: any) {
+  const queryByPriority = [
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,purchase_price,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
+    "code,name,spec,unit,category,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total,safety_stock",
+    "code,name,spec,unit,category,cost,price,sale_price,supplier_id,stock_qty,purchase_qty_total",
+  ]
+
+  for (const selectText of queryByPriority) {
+    const result = await supabase.from("products").select(selectText).order("code", { ascending: true })
+    if (!result.error) {
+      return {
+        rows: result.data || [],
+        warning: null as string | null,
+      }
+    }
+  }
+
+  const finalAttempt = await supabase
+    .from("products")
+    .select("code,name,spec,unit,category,base_price,cost,price,sale_price,supplier_id")
+    .order("code", { ascending: true })
+
+  return {
+    rows: finalAttempt.data || [],
+    warning: finalAttempt.error?.message || "products 全量查詢失敗，已回退為基本欄位",
+  }
+}
+
 export async function fetchProductProfitSummaryByCode(
   supabase: any,
   productCodes: string[],
@@ -190,28 +221,36 @@ export async function fetchProductProfitAnalysisByCode(
 
   type PurchaseItemRow = { purchase_order_id: string; code: string; quantity: number; subtotal: number; unit_price: number }
   const purchaseItems: PurchaseItemRow[] = []
-  for (const chunk of chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE)) {
-    const result = await supabase
-      .from("purchase_order_items")
-      .select("purchase_order_id,code,quantity,subtotal,unit_price")
-      .in("code", chunk)
+  const purchaseItemChunkResults = await Promise.all(
+    chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      supabase
+        .from("purchase_order_items")
+        .select("purchase_order_id,code,quantity,subtotal,unit_price")
+        .in("code", chunk),
+    ),
+  )
+  for (const result of purchaseItemChunkResults) {
     if (result.error) {
       warningMessages.push("讀取進貨明細失敗：" + result.error.message)
-    } else {
-      purchaseItems.push(...(result.data || []))
+      continue
     }
+    purchaseItems.push(...(result.data || []))
   }
 
   const purchaseOrderIds = Array.from(new Set(purchaseItems.map((r) => String(r.purchase_order_id || "")).filter(Boolean)))
   type PurchaseOrderRow = { id: string; order_date: string; shipping_fee: number }
   const purchaseOrders: PurchaseOrderRow[] = []
-  for (const chunk of chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE)) {
-    const result = await supabase.from("purchase_orders").select("id,order_date,shipping_fee").in("id", chunk)
+  const purchaseOrderChunkResults = await Promise.all(
+    chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      supabase.from("purchase_orders").select("id,order_date,shipping_fee").in("id", chunk),
+    ),
+  )
+  for (const result of purchaseOrderChunkResults) {
     if (result.error) {
       warningMessages.push("讀取進貨單失敗：" + result.error.message)
-    } else {
-      purchaseOrders.push(...(result.data || []))
+      continue
     }
+    purchaseOrders.push(...(result.data || []))
   }
 
   const purchaseOrderMap = new Map(purchaseOrders.map((o) => [String(o.id), o]))
@@ -266,11 +305,15 @@ export async function fetchProductProfitAnalysisByCode(
 
   type SalesItemRow = { sales_order_id: string; code: string; quantity: number; subtotal: number; unit_price: number }
   const allSalesItems: SalesItemRow[] = []
-  for (const chunk of chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE)) {
-    const result = await supabase
-      .from("sales_order_items")
-      .select("sales_order_id,code,quantity,subtotal,unit_price")
-      .in("code", chunk)
+  const salesItemChunkResults = await Promise.all(
+    chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      supabase
+        .from("sales_order_items")
+        .select("sales_order_id,code,quantity,subtotal,unit_price")
+        .in("code", chunk),
+    ),
+  )
+  for (const result of salesItemChunkResults) {
     if (result.error) {
       return {
         summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
@@ -283,8 +326,12 @@ export async function fetchProductProfitAnalysisByCode(
   const allSalesOrderIds = Array.from(new Set(allSalesItems.map((r) => String(r.sales_order_id || "")).filter(Boolean)))
   type SalesOrderRow = { id: string; order_date: string; status: string; total_amount: number }
   const allSalesOrders: SalesOrderRow[] = []
-  for (const chunk of chunkArray(allSalesOrderIds, IN_FILTER_CHUNK_SIZE)) {
-    const result = await supabase.from("sales_orders").select("id,order_date,status,total_amount").in("id", chunk)
+  const salesOrderChunkResults = await Promise.all(
+    chunkArray(allSalesOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      supabase.from("sales_orders").select("id,order_date,status,total_amount").in("id", chunk),
+    ),
+  )
+  for (const result of salesOrderChunkResults) {
     if (result.error) {
       return {
         summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
@@ -349,11 +396,15 @@ export async function fetchProductProfitAnalysisByCode(
 
   const periodOrderIds = Array.from(trackedByOrderAndCode.keys())
   const receivableRows: { sales_order_id: string; paid_amount: number }[] = []
-  for (const chunk of chunkArray(periodOrderIds, IN_FILTER_CHUNK_SIZE)) {
-    const result = await supabase.from("accounts_receivable").select("sales_order_id,paid_amount").in("sales_order_id", chunk)
+  const receivableChunkResults = await Promise.all(
+    chunkArray(periodOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      supabase.from("accounts_receivable").select("sales_order_id,paid_amount").in("sales_order_id", chunk),
+    ),
+  )
+  for (const result of receivableChunkResults) {
     if (result.error) {
       warningMessages.push(result.error.message || "讀取 accounts_receivable 失敗")
-      break
+      continue
     }
     receivableRows.push(...(result.data || []))
   }

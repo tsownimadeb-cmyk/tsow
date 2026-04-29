@@ -1,10 +1,9 @@
 import Link from "next/link"
-import { unstable_noStore as noStore } from "next/cache"
 import { ArrowLeft } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import {
   fetchProductProfitAnalysisByCode,
-  fetchProductsRows,
+  fetchAllProductsRows,
   normalizeProducts,
   type ProductListRowWithProfit,
 } from "@/lib/products"
@@ -40,8 +39,9 @@ interface ProductProfitAnalysisPageProps {
   }>
 }
 
+export const revalidate = 30
+
 export default async function ProductProfitAnalysisPage({ searchParams }: ProductProfitAnalysisPageProps) {
-  noStore()
   const supabase = await createClient()
 
   const resolvedSearchParams = await Promise.resolve(searchParams)
@@ -58,11 +58,11 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
   const startDate = isDateText(rawStartDate) ? String(rawStartDate) : ""
   const endDate = isDateText(rawEndDate) ? String(rawEndDate) : ""
 
-  // 查詢所有供應商
-  const { data: suppliersRaw, error: suppliersError } = await supabase.from("suppliers").select("id, name")
+  const [{ data: suppliersRaw }, { rows: productsRaw, warning: productsWarning }] = await Promise.all([
+    supabase.from("suppliers").select("id, name"),
+    fetchAllProductsRows(supabase),
+  ])
   const suppliers: Supplier[] = Array.isArray(suppliersRaw) ? suppliersRaw : []
-
-  const { rows: productsRaw, warning: productsWarning } = await fetchProductsRows(supabase, 0, 99999)
   if (productsWarning) {
     console.error("[ProductProfitAnalysisPage] products 查詢失敗:", productsWarning)
   }

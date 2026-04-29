@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef, useTransition } from "react"
+import React, { useState, useEffect, useMemo, useRef, useTransition, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useImeInput } from "@/hooks/use-ime-input"
@@ -11,6 +11,164 @@ import { Search, Phone, User, MapPin, ChevronDown } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 import { CustomerDialog } from "@/components/customers/customer-dialog"
+
+const CustomerHistoryTable = React.memo(function CustomerHistoryTable({
+  loading,
+  rows,
+  productMap,
+}: {
+  loading: boolean
+  rows: any[]
+  productMap: Map<string, { name: string, unit: string | null }>
+}) {
+  if (loading) {
+    return <div className="p-6 text-center text-gray-400">載入中...</div>
+  }
+
+  return (
+    <table className="min-w-[700px] w-full text-sm table-fixed">
+      <thead>
+        <tr className="bg-gray-200">
+          <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[110px]">日期</th>
+          <th className="px-3 py-2 font-semibold text-gray-700 text-left min-w-[180px]">商品名稱</th>
+          <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[80px]">數量</th>
+          <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[90px]">單價</th>
+          <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[100px]">總金額</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length > 0 ? (
+          rows.map((item: any, idx: number) => {
+            const code = String(item.code ?? "").trim()
+            const product = productMap.get(code)
+            const displayName = product ? product.name : `${code}(待查)`
+            return (
+              <tr key={item.sales_order_id + "-" + code + "-" + idx} className="border-b last:border-b-0">
+                <td className="px-3 py-2 text-center align-middle">{item.order_date ? new Date(item.order_date).toLocaleDateString() : "-"}</td>
+                <td className="px-3 py-2 text-left align-middle">{displayName}</td>
+                <td className="px-3 py-2 text-center align-middle">{item.quantity}</td>
+                <td className="px-3 py-2 text-right align-middle">{typeof item.unit_price === "number" ? item.unit_price.toLocaleString() : "-"}</td>
+                <td className="px-3 py-2 text-right align-middle">{typeof item.total_amount === "number" ? item.total_amount.toLocaleString() : "-"}</td>
+              </tr>
+            )
+          })
+        ) : (
+          <tr>
+            <td colSpan={5} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  )
+})
+
+const CustomerRow = React.memo(function CustomerRow({
+  customer,
+  showHistory,
+  loading,
+  orderItems,
+  productMap,
+  onToggleHistory,
+  onChangePriceLevel,
+}: {
+  customer: any
+  showHistory: boolean
+  loading: boolean
+  orderItems: any[]
+  productMap: Map<string, { name: string, unit: string | null }>
+  onToggleHistory: (code: string) => void
+  onChangePriceLevel: (code: string, level: string) => Promise<void>
+}) {
+  return (
+    <AccordionItem value={String(customer.code)}>
+      <Card className="w-full rounded-xl border bg-white shadow-sm transition-all md:max-w-3xl mx-auto">
+        <div className="flex items-start justify-between px-6 pt-4">
+          <div className="flex items-center gap-4">
+            <span className="font-mono text-sm text-blue-600 min-w-[60px]">{customer.code}</span>
+            <span className="font-bold text-gray-900 text-base">{customer.name}</span>
+          </div>
+          <div>
+            <CustomerDialog mode="edit" customer={customer}>
+              <button
+                type="button"
+                className="rounded-full p-1.5 hover:bg-gray-100 focus:outline-none border border-gray-200"
+                title="編輯客戶"
+                aria-label="編輯客戶"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13h3l8-8a2.828 2.828 0 10-4-4l-8 8v3zm0 0v3h3" />
+                </svg>
+              </button>
+            </CustomerDialog>
+          </div>
+        </div>
+        <AccordionTrigger className="px-6 py-2 hover:no-underline flex items-center">
+          <div className="flex-1" />
+          <ChevronDown className="ml-2 h-5 w-5 text-gray-400" />
+        </AccordionTrigger>
+        <AccordionContent className="px-6 pb-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-gray-500">電話</p>
+              <p className="mt-1 text-base font-semibold text-gray-700">
+                {customer.tel1 ? (
+                  <a href={`tel:${customer.tel1}`} className="underline text-blue-700 hover:text-blue-900">{customer.tel1}</a>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">電話2</p>
+              <p className="mt-1 text-base font-semibold text-gray-700">
+                {customer.tel2 ? (
+                  <a href={`tel:${customer.tel2}`} className="underline text-blue-700 hover:text-blue-900">{customer.tel2}</a>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">電話3</p>
+              <p className="mt-1 text-base font-semibold text-gray-700">
+                {customer.tel3 ? (
+                  <a href={`tel:${customer.tel3}`} className="underline text-blue-700 hover:text-blue-900">{customer.tel3}</a>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">價格等級</p>
+              <select
+                className="mt-1 w-full rounded border border-gray-300 bg-white py-1 px-2 text-sm text-gray-700"
+                value={customer.price_level || "sale"}
+                onChange={(e) => void onChangePriceLevel(customer.code, e.target.value)}
+              >
+                <option value="sale">特價</option>
+                <option value="price">定價</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-4">
+            <button
+              type="button"
+              className="w-full rounded-md border border-gray-200 bg-gray-50 py-2 text-sm font-medium text-blue-700 hover:bg-gray-100 transition"
+              onClick={() => onToggleHistory(customer.code)}
+            >
+              {showHistory ? "隱藏完整訂單歷史紀錄" : "查看完整訂單歷史紀錄"}
+            </button>
+          </div>
+          {showHistory && (
+            <div className="mt-4 rounded-lg bg-gray-100 p-0 overflow-x-auto">
+              <CustomerHistoryTable loading={loading} rows={orderItems} productMap={productMap} />
+            </div>
+          )}
+        </AccordionContent>
+      </Card>
+    </AccordionItem>
+  )
+})
 
 export function CustomersTable({
   customers: customersProp,
@@ -26,7 +184,7 @@ export function CustomersTable({
   const debouncedSearch = useDebounce(searchText, 500);
   const lastInitialSearchRef = useRef(initialSearchText);
   const [, startTransition] = useTransition();
-  const isMobile = useIsMobile();
+  useIsMobile();
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
   // 每個客戶的訂單明細資料
   const [orderItemsMap, setOrderItemsMap] = useState<{ [code: string]: any[] }>({});
@@ -78,7 +236,7 @@ export function CustomersTable({
 
 
   // 查詢客戶所有訂單明細
-  const handleToggleHistory = async (code: string) => {
+  const handleToggleHistory = useCallback(async (code: string) => {
     setShowHistory((prev) => ({ ...prev, [code]: !prev[code] }));
     if (!orderItemsMap[code] && !loadingMap[code]) {
       setLoadingMap((prev) => ({ ...prev, [code]: true }));
@@ -122,7 +280,20 @@ export function CustomersTable({
       setOrderItemsMap((prev) => ({ ...prev, [code]: itemsWithOrder }));
       setLoadingMap((prev) => ({ ...prev, [code]: false }));
     }
-  };
+  }, [loadingMap, orderItemsMap]);
+
+  const handleChangePriceLevel = useCallback(async (code: string, newLevel: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("customers")
+      .update({ price_level: newLevel })
+      .eq("code", code);
+    if (!error) {
+      setCustomers((prev) => prev.map((item) => item.code === code ? { ...item, price_level: newLevel } : item));
+    } else {
+      alert("儲存價格等級失敗: " + error.message);
+    }
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -151,144 +322,16 @@ export function CustomersTable({
       ) : (
         <Accordion type="single" collapsible className="w-full">
           {filteredCustomers.map((c: any) => (
-            <AccordionItem key={c.code} value={String(c.code)}>
-              <Card className="w-full rounded-xl border bg-white shadow-sm transition-all md:max-w-3xl mx-auto">
-                <div className="flex items-start justify-between px-6 pt-4">
-                  <div className="flex items-center gap-4">
-                    <span className="font-mono text-sm text-blue-600 min-w-[60px]">{c.code}</span>
-                    <span className="font-bold text-gray-900 text-base">{c.name}</span>
-                  </div>
-                  {/* 編輯按鈕入口 */}
-                  <div>
-                    <CustomerDialog mode="edit" customer={c}>
-                      <button
-                        type="button"
-                        className="rounded-full p-1.5 hover:bg-gray-100 focus:outline-none border border-gray-200"
-                        title="編輯客戶"
-                        aria-label="編輯客戶"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13h3l8-8a2.828 2.828 0 10-4-4l-8 8v3zm0 0v3h3" />
-                        </svg>
-                      </button>
-                    </CustomerDialog>
-                  </div>
-                </div>
-                <AccordionTrigger className="px-6 py-2 hover:no-underline flex items-center">
-                  <div className="flex-1" />
-                  <ChevronDown className="ml-2 h-5 w-5 text-gray-400" />
-                </AccordionTrigger>
-                <AccordionContent className="px-6 pb-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div>
-                      <p className="text-xs text-gray-500">電話</p>
-                      <p className="mt-1 text-base font-semibold text-gray-700">
-                        {c.tel1 ? (
-                          <a href={`tel:${c.tel1}`} className="underline text-blue-700 hover:text-blue-900">{c.tel1}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">電話2</p>
-                      <p className="mt-1 text-base font-semibold text-gray-700">
-                        {c.tel2 ? (
-                          <a href={`tel:${c.tel2}`} className="underline text-blue-700 hover:text-blue-900">{c.tel2}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">電話3</p>
-                      <p className="mt-1 text-base font-semibold text-gray-700">
-                        {c.tel3 ? (
-                          <a href={`tel:${c.tel3}`} className="underline text-blue-700 hover:text-blue-900">{c.tel3}</a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">價格等級</p>
-                      <select
-                        className="mt-1 w-full rounded border border-gray-300 bg-white py-1 px-2 text-sm text-gray-700"
-                        value={c.price_level || "sale"}
-                        onChange={async (e) => {
-                          const newLevel = e.target.value;
-                          const supabase = createClient();
-                          const { error } = await supabase
-                            .from("customers")
-                            .update({ price_level: newLevel })
-                            .eq("code", c.code);
-                          if (!error) {
-                            setCustomers((prev) => prev.map((item) => item.code === c.code ? { ...item, price_level: newLevel } : item));
-                          } else {
-                            alert("儲存價格等級失敗: " + error.message);
-                          }
-                        }}
-                      >
-                        <option value="sale">特價</option>
-                        <option value="price">定價</option>
-                      </select>
-                    </div>
-                  </div>
-                  {/* 第二層摺疊開關按鈕 */}
-                  <div className="mt-4">
-                    <button
-                      type="button"
-                      className="w-full rounded-md border border-gray-200 bg-gray-50 py-2 text-sm font-medium text-blue-700 hover:bg-gray-100 transition"
-                      onClick={() => handleToggleHistory(c.code)}
-                    >
-                      {showHistory[c.code] ? '隱藏完整訂單歷史紀錄' : '查看完整訂單歷史紀錄'}
-                    </button>
-                  </div>
-                  {/* 第二層內容：歷史訂單明細表格（商品名稱、數量、總金額） */}
-                  {showHistory[c.code] && (
-                    <div className="mt-4 rounded-lg bg-gray-100 p-0 overflow-x-auto">
-                      {loadingMap[c.code] ? (
-                        <div className="p-6 text-center text-gray-400">載入中...</div>
-                      ) : (
-                        <table className="min-w-[700px] w-full text-sm table-fixed">
-                          <thead>
-                            <tr className="bg-gray-200">
-                              <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[110px]">日期</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 text-left min-w-[180px]">商品名稱</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 text-center min-w-[80px]">數量</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[90px]">單價</th>
-                              <th className="px-3 py-2 font-semibold text-gray-700 text-right min-w-[100px]">總金額</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(orderItemsMap[c.code] && orderItemsMap[c.code].length > 0) ? (
-                              orderItemsMap[c.code].map((item: any, idx: number) => {
-                                const code = String(item.code ?? '').trim();
-                                const product = productMap.get(code);
-                                const displayName = product ? product.name : `${code}(待查)`;
-                                return (
-                                  <tr key={item.sales_order_id + '-' + code + '-' + idx} className="border-b last:border-b-0">
-                                    <td className="px-3 py-2 text-center align-middle">{item.order_date ? new Date(item.order_date).toLocaleDateString() : '-'}</td>
-                                    <td className="px-3 py-2 text-left align-middle">{displayName}</td>
-                                    <td className="px-3 py-2 text-center align-middle">{item.quantity}</td>
-                                    <td className="px-3 py-2 text-right align-middle">{typeof item.unit_price === 'number' ? item.unit_price.toLocaleString() : '-'}</td>
-                                    <td className="px-3 py-2 text-right align-middle">{typeof item.total_amount === 'number' ? item.total_amount.toLocaleString() : '-'}</td>
-                                  </tr>
-                                );
-                              })
-                            ) : (
-                              <tr>
-                                <td colSpan={5} className="px-3 py-6 text-center text-gray-400">查無歷史訂單</td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  )}
-                </AccordionContent>
-              </Card>
-            </AccordionItem>
+            <CustomerRow
+              key={c.code}
+              customer={c}
+              showHistory={Boolean(showHistory[c.code])}
+              loading={Boolean(loadingMap[c.code])}
+              orderItems={orderItemsMap[c.code] || []}
+              productMap={productMap}
+              onToggleHistory={handleToggleHistory}
+              onChangePriceLevel={handleChangePriceLevel}
+            />
           ))}
         </Accordion>
       )}

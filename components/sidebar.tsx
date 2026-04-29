@@ -22,6 +22,8 @@ import {
   FolderCog,
   Download,
   Upload,
+  RotateCcw,
+  RotateCw,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -70,6 +72,17 @@ const AP_CHECK_STATUS_TAG = "[AP_CHECK_STATUS]"
 const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
 const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
 
+const PREFETCH_PATHS = [
+  "/products",
+  "/products/profit-analysis",
+  "/purchases",
+  "/sales",
+  "/customers",
+  "/suppliers",
+  "/accounts-receivable",
+  "/accounts-payable",
+]
+
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
@@ -101,12 +114,12 @@ export function Sidebar() {
       const [apResult, arResult] = await Promise.all([
         supabase
           .from("accounts_payable")
-          .select("*")
+          .select("notes,check_no,check_bank,check_issue_date")
           .lte("due_date", today)
           .neq("status", "paid"),
         supabase
           .from("accounts_receivable")
-          .select("*")
+          .select("notes,check_no,check_bank,check_issue_date")
           .lte("due_date", today)
           .neq("status", "paid"),
       ])
@@ -133,7 +146,27 @@ export function Sidebar() {
 
   useEffect(() => {
     void loadDueCheckCount()
-  }, [pathname])
+  }, [])
+
+  useEffect(() => {
+    const schedule =
+      typeof window !== "undefined" && "requestIdleCallback" in window
+        ? window.requestIdleCallback.bind(window)
+        : ((cb: IdleRequestCallback) => window.setTimeout(cb, 150))
+
+    const cancel =
+      typeof window !== "undefined" && "cancelIdleCallback" in window
+        ? window.cancelIdleCallback.bind(window)
+        : window.clearTimeout
+
+    const handle = schedule(() => {
+      PREFETCH_PATHS.forEach((href) => {
+        void router.prefetch(href)
+      })
+    })
+
+    return () => cancel(handle as number)
+  }, [router])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -439,7 +472,7 @@ export function Sidebar() {
       children: [
         { name: "新建進貨", href: "/purchases?create=true", icon: Plus },
         // 新增進貨退回子項目
-        { name: "進貨退回", href: "/purchase-returns", icon: require("lucide-react").RotateCcw },
+        { name: "進貨退回", href: "/purchase-returns", icon: RotateCcw },
         { name: "進貨分析", href: "/purchases/analysis", icon: ChartColumn },
       ],
     },
@@ -450,7 +483,7 @@ export function Sidebar() {
       children: [
         { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
         // 新增銷貨退回子項目
-        { name: "銷貨退回", href: "/sales-returns", icon: require("lucide-react").RotateCw },
+        { name: "銷貨退回", href: "/sales-returns", icon: RotateCw },
         { name: "銷貨分析", href: "/sales/analysis", icon: ChartColumn },
       ],
     },
