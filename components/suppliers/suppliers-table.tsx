@@ -38,18 +38,16 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
 
   const saveOrderToDatabase = useCallback(async (list: Supplier[]) => {
     const supabase = createClient()
-    const payload = list.map((supplier, index) => ({
-      id: supplier.id,
-      sort_order: index + 1,
-    }))
-
-    const { error } = await supabase
-      .from("suppliers")
-      .upsert(payload, { onConflict: "id" })
-
-    if (error) {
-      throw error
-    }
+    const results = await Promise.all(
+      list.map((supplier, index) =>
+        supabase
+          .from("suppliers")
+          .update({ sort_order: index + 1 })
+          .eq("id", supplier.id)
+      )
+    )
+    const failed = results.find((r) => r.error)
+    if (failed?.error) throw failed.error
   }, [])
 
   const onDragEnd = useCallback((result: DropResult) => {
