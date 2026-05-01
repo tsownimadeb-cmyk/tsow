@@ -16,6 +16,11 @@ interface ARTableClientProps {
     code: string
     name: string
   }>
+  globalTotals?: {
+    totalDue: number
+    totalPaid: number
+    totalOverpaid: number
+  }
 }
 
 export function ARTableClient({
@@ -23,6 +28,7 @@ export function ARTableClient({
   initialSearch = "",
   initialShowAllCustomers = false,
   allCustomers = [],
+  globalTotals,
 }: ARTableClientProps) {
   return (
     <ARTable
@@ -30,6 +36,7 @@ export function ARTableClient({
       initialSearch={initialSearch}
       initialShowAllCustomers={initialShowAllCustomers}
       allCustomers={allCustomers}
+      globalTotals={globalTotals}
     />
   )
 }

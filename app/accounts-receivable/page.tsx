@@ -38,6 +38,19 @@ export default async function ARPage(props: any) {
     const to = from + PAGE_SIZE - 1
 
     const supabase = await createClient()
+
+    // 全域統計：不分頁，直接加總所有符合 viewMode 的訂單
+    const { data: globalTotalsData } = await supabase.rpc("get_global_ar_totals", {
+      p_view_mode: viewMode,
+    })
+    const globalTotals = globalTotalsData?.[0]
+      ? {
+          totalDue: Number(globalTotalsData[0].total_due ?? 0),
+          totalPaid: Number(globalTotalsData[0].total_paid ?? 0),
+          totalOverpaid: Number(globalTotalsData[0].total_overpaid ?? 0),
+        }
+      : null
+
     const normalizeCode = (value: unknown) => String(value ?? "").trim().toUpperCase()
     const escapeLikeValue = (value: string) =>
       value
@@ -576,6 +589,7 @@ export default async function ARPage(props: any) {
               records={enrichedRecords}
               initialSearch={searchText}
               initialShowAllCustomers={initialShowAllCustomers}
+              globalTotals={globalTotals ?? undefined}
               allCustomers={customersList.flatMap((customer) => {
                 const keys = Array.from(
                   new Set(

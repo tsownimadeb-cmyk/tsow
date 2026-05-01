@@ -47,6 +47,11 @@ interface ARTableProps {
     code: string
     name: string
   }>
+  globalTotals?: {
+    totalDue: number
+    totalPaid: number
+    totalOverpaid: number
+  }
 }
 
 const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
@@ -61,6 +66,7 @@ export function ARTable({
   initialSearch = "",
   initialShowAllCustomers = false,
   allCustomers = [],
+  globalTotals,
 }: ARTableProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -207,9 +213,14 @@ export function ARTable({
     })
   }, [debouncedSearch, records])
 
-  const totalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
-  const paidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
-  const overpaidAmount = filteredRecords.reduce((sum, record) => sum + Math.max(0, Number(record.overpaid_amount ?? 0) || 0), 0)
+  const localTotalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
+  const localPaidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
+  const localOverpaidAmount = filteredRecords.reduce((sum, record) => sum + Math.max(0, Number(record.overpaid_amount ?? 0) || 0), 0)
+
+  // 頂部統計方塊使用全域數字（來自 server），沒有搜尋時才有全域資料
+  const totalAmount = globalTotals?.totalDue ?? localTotalAmount
+  const paidAmount = globalTotals?.totalPaid ?? localPaidAmount
+  const overpaidAmount = globalTotals?.totalOverpaid ?? localOverpaidAmount
   const outstandingAmount = totalAmount - paidAmount
 
   const customerNameMap = useMemo(
@@ -1612,14 +1623,10 @@ export function ARTable({
       </div>
 
       {/* 統計方塊：手機直排、桌面橫排，字體縮小 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
         <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
           <p className="text-xs sm:text-sm text-muted-foreground mb-1">應收合計</p>
           <p className="text-lg sm:text-2xl font-semibold">{renderAmount(totalAmount)}</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground mb-1">已收金額</p>
-          <p className="text-lg sm:text-2xl font-semibold">{renderAmount(paidAmount)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
           <p className="text-xs sm:text-sm text-muted-foreground mb-1">應收未付</p>
