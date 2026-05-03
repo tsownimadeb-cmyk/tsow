@@ -226,7 +226,8 @@ export async function fetchProductProfitAnalysisByCode(
       supabase
         .from("purchase_order_items")
         .select("purchase_order_id,code,quantity,subtotal,unit_price")
-        .in("code", chunk),
+        .in("code", chunk)
+        .limit(50000),
     ),
   )
   for (const result of purchaseItemChunkResults) {
@@ -242,7 +243,7 @@ export async function fetchProductProfitAnalysisByCode(
   const purchaseOrders: PurchaseOrderRow[] = []
   const purchaseOrderChunkResults = await Promise.all(
     chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase.from("purchase_orders").select("id,order_date,shipping_fee").in("id", chunk),
+      supabase.from("purchase_orders").select("id,order_date,shipping_fee").in("id", chunk).limit(50000),
     ),
   )
   for (const result of purchaseOrderChunkResults) {
@@ -310,7 +311,8 @@ export async function fetchProductProfitAnalysisByCode(
       supabase
         .from("sales_order_items")
         .select("sales_order_id,code,quantity,subtotal,unit_price")
-        .in("code", chunk),
+        .in("code", chunk)
+        .limit(50000),
     ),
   )
   for (const result of salesItemChunkResults) {
@@ -328,7 +330,7 @@ export async function fetchProductProfitAnalysisByCode(
   const allSalesOrders: SalesOrderRow[] = []
   const salesOrderChunkResults = await Promise.all(
     chunkArray(allSalesOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase.from("sales_orders").select("id,order_date,status,total_amount").in("id", chunk),
+      supabase.from("sales_orders").select("id,order_date,status,total_amount").in("id", chunk).limit(50000),
     ),
   )
   for (const result of salesOrderChunkResults) {
@@ -343,12 +345,12 @@ export async function fetchProductProfitAnalysisByCode(
 
   const salesOrderMap = new Map(allSalesOrders.map((o) => [String(o.id), o]))
 
-  // Attach order_date to each sale item, filter out cancelled
+  // Attach order_date to each sale item, only keep completed sales
   type SalesItemWithDate = SalesItemRow & { order_date: string; order_total_amount: number }
   const activeSalesItems: SalesItemWithDate[] = allSalesItems
     .map((row) => {
       const order = salesOrderMap.get(String(row.sales_order_id || ""))
-      if (!order || String(order.status || "").trim().toLowerCase() === "cancelled") return null
+      if (!order || String(order.status || "").trim().toLowerCase() !== "completed") return null
       return { ...row, order_date: String(order.order_date || ""), order_total_amount: toNumber(order.total_amount) }
     })
     .filter(Boolean) as SalesItemWithDate[]
@@ -370,11 +372,13 @@ export async function fetchProductProfitAnalysisByCode(
     const sub = toNumber(row.subtotal)
     const up = toNumber(row.unit_price)
     const salesAmt = sub > 0 ? sub : qty * up
-    if (!Number.isFinite(salesAmt) || salesAmt <= 0) continue
 
-    // Always consume FIFO queue (even for out-of-period sales) to keep ordering accurate
+    // Always consume FIFO queue (even for zero-price or out-of-period sales) to keep
+    // ordering accurate – stock physically left inventory regardless of sale price.
     const batches = fifoBatchesByCode.get(code) ?? []
     const fifoCogs = consumeFifo(batches, qty)
+
+    if (!Number.isFinite(salesAmt) || salesAmt <= 0) continue
 
     if (!isInPeriod(row.order_date)) continue
 
