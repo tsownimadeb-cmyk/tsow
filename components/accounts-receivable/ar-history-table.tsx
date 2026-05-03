@@ -1,11 +1,12 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 const PAGE_SIZE = 20
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -76,19 +77,20 @@ type Props = {
 }
 
 export function ARHistoryTable({ initialRecords }: Props) {
-    // 將格式化備註的邏輯移到 client component 內部
-    const INTERNAL_NOTE_PREFIXES = ["[AR_PAYMENT]", "[AR_CHECK_LINKED]", "[AR_CHECK_STATUS]", "[PARTIAL_SETTLEMENT]"]
-    const formatReceiptNotes = (notes: string | null) => {
-      const visibleLines = String(notes || "")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line && !INTERNAL_NOTE_PREFIXES.some((prefix) => line.startsWith(prefix)))
-      return visibleLines.length > 0 ? visibleLines.join("\n") : "-"
-    }
+  // 將格式化備註的邏輯移到 client component 內部
+  const INTERNAL_NOTE_PREFIXES = ["[AR_PAYMENT]", "[AR_CHECK_LINKED]", "[AR_CHECK_STATUS]", "[PARTIAL_SETTLEMENT]"]
+  const formatReceiptNotes = (notes: string | null) => {
+    const visibleLines = String(notes || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !INTERNAL_NOTE_PREFIXES.some((prefix) => line.startsWith(prefix)))
+    return visibleLines.length > 0 ? visibleLines.join("\n") : "-"
+  }
   const router = useRouter()
   const { toast } = useToast()
   const [records, setRecords] = useState<ReceiptRecord[]>(initialRecords)
   const [page, setPage] = useState(1)
+  const [openGroupKey, setOpenGroupKey] = useState("")
   const [editingRecord, setEditingRecord] = useState<ReceiptRecord | null>(null)
   const [deleteRecord, setDeleteRecord] = useState<ReceiptRecord | null>(null)
   const [editForm, setEditForm] = useState<EditFormState>(EMPTY_EDIT_FORM)
@@ -105,11 +107,56 @@ export function ARHistoryTable({ initialRecords }: Props) {
     })
   }, [records])
 
-  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / PAGE_SIZE))
-  const pagedRecords = useMemo(() => {
+  const groupedRecords = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string
+        paymentDate: string
+        customerName: string
+        customerCno: string
+        totalAmount: number
+        records: ReceiptRecord[]
+      }
+    >()
+
+    sortedRecords.forEach((record) => {
+      const paymentDate = String(record.payment_date || "-").trim() || "-"
+      const customerName = String(record.customer_name || "散客").trim() || "散客"
+      const customerCno = String(record.customer_cno || "未指定").trim() || "未指定"
+      const key = `${paymentDate}__${customerName}__${customerCno}`
+
+      const existingGroup = groups.get(key)
+      if (existingGroup) {
+        existingGroup.records.push(record)
+        existingGroup.totalAmount += Number(record.payment_amount || 0)
+        return
+      }
+
+      groups.set(key, {
+        key,
+        paymentDate,
+        customerName,
+        customerCno,
+        totalAmount: Number(record.payment_amount || 0),
+        records: [record],
+      })
+    })
+
+    return Array.from(groups.values())
+  }, [sortedRecords])
+
+  const totalPages = Math.max(1, Math.ceil(groupedRecords.length / PAGE_SIZE))
+  const pagedGroups = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE
-    return sortedRecords.slice(start, start + PAGE_SIZE)
-  }, [sortedRecords, page])
+    return groupedRecords.slice(start, start + PAGE_SIZE)
+  }, [groupedRecords, page])
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [page, totalPages])
 
   const openEditDialog = (record: ReceiptRecord) => {
     setEditingRecord(record)
@@ -280,8 +327,15 @@ export function ARHistoryTable({ initialRecords }: Props) {
       const paymentAmount = Number(deleteRecord.payment_amount || 0)
       const receivableResult = await updateReceivableByDelta(deleteRecord, -paymentAmount)
 
-      if (!receivableResult.ok) {
-        toast({ title: "錯誤", description: receivableResult.error, variant: "destructive" })
+      // 若找不到對應 AR 記錄（例如已先執行「恢復未付款」），
+      // 允許繼續刪除收款履歷；若是其他資料庫錯誤才阻擋。
+      const arNotFound =
+        !receivableResult.ok &&
+        typeof (receivableResult as { error?: string }).error === "string" &&
+        (receivableResult as { error: string }).error.includes("找不到對應的應收帳款")
+
+      if (!receivableResult.ok && !arNotFound) {
+        toast({ title: "錯誤", description: (receivableResult as { error: string }).error, variant: "destructive" })
         return
       }
 
@@ -289,78 +343,170 @@ export function ARHistoryTable({ initialRecords }: Props) {
       const { error } = await supabase.from("ar_receipts").delete().eq("id", deleteRecord.id)
 
       if (error) {
-        await updateReceivableByDelta(deleteRecord, paymentAmount)
+        // 若之前 AR 更新成功，回補差額；若找不到 AR 則不回補
+        if (!arNotFound) {
+          await updateReceivableByDelta(deleteRecord, paymentAmount)
+        }
         toast({ title: "錯誤", description: error.message || "刪除收款履歷失敗", variant: "destructive" })
         return
       }
 
       setRecords((prev) => prev.filter((item) => item.id !== deleteRecord.id))
       setDeleteRecord(null)
-      toast({ title: "成功", description: "收款履歷已刪除，並回補未收金額" })
+      toast({
+        title: "成功",
+        description: arNotFound
+          ? "收款履歷已刪除（應收帳款已於先前恢復未付款，無需再回補）"
+          : "收款履歷已刪除，並回補未收金額",
+      })
       router.refresh()
     })
   }
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="border px-2 py-2">收款日期</th>
-              <th className="border px-2 py-2">客戶名稱</th>
-              <th className="border px-2 py-2">客戶代號</th>
-              <th className="border px-2 py-2">對應單號</th>
-              <th className="border px-2 py-2">收款方式</th>
-              <th className="border px-2 py-2">支票號碼</th>
-              <th className="border px-2 py-2">支票到期日</th>
-              <th className="border px-2 py-2 text-right">實收金額</th>
-              <th className="border px-2 py-2">備註</th>
-              <th className="border px-2 py-2 text-center">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pagedRecords.map((rec) => {
-              const isCheckPayment = rec.payment_method === "支票"
+      <div className="rounded-lg border bg-card">
+        {pagedGroups.length === 0 ? (
+          <div className="py-8 text-center text-muted-foreground">目前尚無收款履歷資料</div>
+        ) : (
+          <Accordion type="single" collapsible className="w-full" onValueChange={(value) => setOpenGroupKey(value)}>
+            {pagedGroups.map((group) => {
+              const isExpanded = openGroupKey === group.key
               return (
-                <tr key={rec.id}>
-                  <td className="border px-2 py-1">{rec.payment_date || "-"}</td>
-                  <td className="border px-2 py-1">{rec.customer_name || "-"}</td>
-                  <td className="border px-2 py-1">{rec.customer_cno || "-"}</td>
-                  <td className="border px-2 py-1">{rec.order_no || "-"}</td>
-                  <td className="border px-2 py-1">{rec.payment_method || "-"}</td>
-                  <td className="border px-2 py-1">{isCheckPayment ? rec.check_no || "-" : "-"}</td>
-                  <td className="border px-2 py-1">{isCheckPayment ? rec.check_due_date || "-" : "-"}</td>
-                  <td className="border px-2 py-1 text-right">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</td>
-                  <td className="border px-2 py-1 whitespace-pre-line">{formatReceiptNotes(rec.notes)}</td>
-                  <td className="border px-2 py-1 text-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button type="button" size="sm" variant="outline" disabled={isPending}>
-                          操作
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEditDialog(rec)} disabled={isPending}>
-                          修改
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setDeleteRecord(rec)} disabled={isPending} variant="destructive">
-                          刪除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
+                <AccordionItem key={group.key} value={group.key}>
+                  <AccordionTrigger className="px-4 hover:no-underline">
+                    <div className="w-full space-y-1 text-left">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-base font-semibold">{group.customerName}</span>
+                        <span className="text-xs text-muted-foreground">{group.customerCno}・{group.records.length} 筆收款</span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                        <span>收款日期 {group.paymentDate}</span>
+                        <span className={isExpanded ? "text-foreground" : "text-primary"}>實收合計 {group.totalAmount.toLocaleString("zh-TW")}</span>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4">
+                    <div className="overflow-x-auto rounded-md border">
+                      <table className="hidden min-w-full text-sm sm:table">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="border px-2 py-2">對應單號</th>
+                            <th className="border px-2 py-2">收款方式</th>
+                            <th className="border px-2 py-2">支票號碼</th>
+                            <th className="border px-2 py-2">支票到期日</th>
+                            <th className="border px-2 py-2 text-right">實收金額</th>
+                            <th className="border px-2 py-2">備註</th>
+                            <th className="border px-2 py-2 text-center">操作</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.records.map((rec) => {
+                            const isCheckPayment = rec.payment_method === "支票"
+                            return (
+                              <tr key={rec.id}>
+                                <td className="border px-2 py-1">{rec.order_no || "-"}</td>
+                                <td className="border px-2 py-1">{rec.payment_method || "-"}</td>
+                                <td className="border px-2 py-1">{isCheckPayment ? rec.check_no || "-" : "-"}</td>
+                                <td className="border px-2 py-1">{isCheckPayment ? rec.check_due_date || "-" : "-"}</td>
+                                <td className="border px-2 py-1 text-right">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</td>
+                                <td className="border px-2 py-1 whitespace-pre-line">{formatReceiptNotes(rec.notes)}</td>
+                                <td className="border px-2 py-1 text-center">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button type="button" size="sm" variant="outline" disabled={isPending}>
+                                        操作
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => openEditDialog(rec)} disabled={isPending}>
+                                        修改
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => setDeleteRecord(rec)} disabled={isPending} variant="destructive">
+                                        刪除
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          <tr className="bg-muted/40">
+                            <td className="border px-2 py-2 text-right font-semibold" colSpan={4}>合計</td>
+                            <td className="border px-2 py-2 text-right font-semibold text-primary">{group.totalAmount.toLocaleString("zh-TW")}</td>
+                            <td className="border px-2 py-2" colSpan={2} />
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <div className="space-y-2 p-2 sm:hidden">
+                        {group.records.map((rec) => {
+                          const isCheckPayment = rec.payment_method === "支票"
+                          return (
+                            <div key={rec.id} className="rounded-md border bg-background p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-muted-foreground">對應單號</span>
+                                <span className="font-medium">{rec.order_no || "-"}</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">收款方式</p>
+                                  <p>{rec.payment_method || "-"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">實收金額</p>
+                                  <p className="font-semibold text-primary">{Number(rec.payment_amount || 0).toLocaleString("zh-TW")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">支票號碼</p>
+                                  <p>{isCheckPayment ? rec.check_no || "-" : "-"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">支票到期日</p>
+                                  <p>{isCheckPayment ? rec.check_due_date || "-" : "-"}</p>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">備註</p>
+                                <p className="whitespace-pre-line text-sm">{formatReceiptNotes(rec.notes)}</p>
+                              </div>
+                              <div className="flex justify-end">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button type="button" size="sm" variant="outline" disabled={isPending}>
+                                      操作
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => openEditDialog(rec)} disabled={isPending}>
+                                      修改
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setDeleteRecord(rec)} disabled={isPending} variant="destructive">
+                                      刪除
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        <div className="rounded-md bg-muted/40 px-3 py-2 text-right text-sm font-semibold">
+                          合計 {group.totalAmount.toLocaleString("zh-TW")}
+                        </div>
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               )
             })}
-          </tbody>
-        </table>
+          </Accordion>
+        )}
       </div>
 
       {/* 分頁控制 */}
       <div className="flex items-center justify-between mt-4">
         <div className="text-sm text-muted-foreground">
-          共 {sortedRecords.length} 筆，頁次 {page} / {totalPages}
+          共 {sortedRecords.length} 筆收款（{groupedRecords.length} 組），頁次 {page} / {totalPages}
         </div>
         <div className="flex gap-2">
           <Button
