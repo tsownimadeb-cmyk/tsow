@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type PurchaseReturn = {
   id: string;
@@ -44,6 +45,7 @@ type PurchaseReturnItem = {
 };
 
 export default function PurchaseReturnsListPage() {
+  const router = useRouter();
   const [returns, setReturns] = useState<PurchaseReturn[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [itemsMap, setItemsMap] = useState<Record<string, PurchaseReturnItem[]>>({});
@@ -258,7 +260,7 @@ export default function PurchaseReturnsListPage() {
       ) : (
         <div>
           <div className="hidden md:block w-full border border-gray-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[5%_15%_15%_15%_15%_15%_13%_7%] bg-muted text-sm font-semibold border-b">
+            <div className="grid grid-cols-[4%_14%_12%_12%_12%_10%_10%_26%] bg-muted text-sm font-semibold border-b">
               <div className="py-3 px-3 text-center"></div>
               <div className="py-3 px-3 text-left">進貨單號</div>
               <div className="py-3 px-3 text-left">供應商</div>
@@ -270,7 +272,7 @@ export default function PurchaseReturnsListPage() {
             </div>
             {returns.map((ret) => (
               <div key={ret.id}>
-                <div className="grid grid-cols-[5%_15%_15%_15%_15%_15%_13%_7%] border-b last:border-0 items-center hover:bg-gray-50">
+                <div className="grid grid-cols-[4%_14%_12%_12%_12%_10%_10%_26%] border-b last:border-0 items-center hover:bg-gray-50">
                   <div className="py-3 px-3 text-center">
                     <button
                       onClick={() => handleExpand(ret.id)}
@@ -309,6 +311,9 @@ export default function PurchaseReturnsListPage() {
                     <div className="flex items-center justify-center gap-2">
                       <Button size="sm" variant="outline" onClick={() => handleExpand(ret.id)}>
                         檢視
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => router.push(`/purchase-returns/${ret.id}/edit`)}>
+                        編輯
                       </Button>
                       <Button
                         size="sm"
@@ -384,9 +389,12 @@ export default function PurchaseReturnsListPage() {
                     <span className="text-right text-2xl font-bold text-emerald-700 break-all">${typeof ret.total_amount === "number" ? ret.total_amount.toLocaleString("zh-TW") : "-"}</span>
                   </div>
                 </CardContent>
-                <CardFooter className="flex gap-4 pt-2">
+                <CardFooter className="flex gap-2 pt-2 flex-wrap">
                   <Button className="flex-1 py-3 text-base" variant="outline" onClick={() => handleExpand(ret.id)}>
                     檢視
+                  </Button>
+                  <Button className="flex-1 py-3 text-base" variant="outline" onClick={() => router.push(`/purchase-returns/${ret.id}/edit`)}>
+                    編輯
                   </Button>
                   <Button
                     className="flex-1 py-3 text-base"

@@ -73,60 +73,21 @@ export default function SalesReturnsPage() {
 
       // 2. Insert sales_returns 主表（狀態 completed，正確欄位）
       const totalAmount = itemsToReturn.reduce((sum, item) => sum + (item.returnQty * item.salePrice), 0);
-      const { data: returnMain, error: returnMainError } = await supabase
-        .from("sales_returns")
-        .insert([
-          {
-            sales_order_id: selectedOrder.id,
-            order_number: selectedOrder.orderNumber, // 銷貨單號
-            customer_code: selectedOrder.customerCode, // 客戶編號
-            total_amount: totalAmount,
-            status: "completed",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-        ])
-        .select();
-      if (returnMainError || !returnMain || !returnMain[0]) {
-        throw new Error(returnMainError?.message || "建立退回主表失敗");
-      }
-      const salesReturnId = returnMain[0].id;
 
-      // 3. Insert sales_return_items 明細表（正確欄位）
-      const itemsPayload = itemsToReturn.map(item => ({
-        sales_return_id: salesReturnId,
-        product_code: item.productId,
-        quantity: item.returnQty,
-        unit_price: item.salePrice,
-        reason: item.reason,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
-      const { error: itemsError } = await supabase
-        .from("sales_return_items")
-        .insert(itemsPayload);
-      if (itemsError) throw new Error(itemsError.message || "退回明細寫入失敗");
-
-      // 4. 更新 products 的庫存（加回退回數量）
-      for (const item of itemsToReturn) {
-        // 先查出當前庫存
-        const { data: productData, error: selectError } = await supabase
-          .from("products")
-          .select("stock_qty")
-          .eq("code", item.productId)
-          .single();
-        if (selectError || !productData) throw new Error(selectError?.message || `無法查詢商品 ${item.productName}`);
-        
-        // 計算新庫存
-        const newStockQty = (productData.stock_qty || 0) + item.returnQty;
-        
-        // 更新庫存
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ stock_qty: newStockQty, updated_at: new Date().toISOString() })
-          .eq("code", item.productId);
-        if (updateError) throw new Error(updateError.message || `商品 ${item.productName} 庫存更新失敗`);
-      }
+      // 呼叫 RPC：單一交易內完成建立主表、明細、加庫存
+      const { error: rpcError } = await supabase.rpc("create_sales_return", {
+        p_sales_order_id: selectedOrder.id,
+        p_order_number:   selectedOrder.orderNumber,
+        p_customer_code:  selectedOrder.customerCode,
+        p_total_amount:   totalAmount,
+        p_items: itemsToReturn.map(item => ({
+          product_code: item.productId,
+          quantity:     item.returnQty,
+          unit_price:   item.salePrice,
+          reason:       item.reason || null,
+        })),
+      });
+      if (rpcError) throw new Error(rpcError.message || "建立銷貨退回失敗");
 
       toast({ title: "退回成功", description: "銷貨退回已完成。" });
       setTimeout(() => {
