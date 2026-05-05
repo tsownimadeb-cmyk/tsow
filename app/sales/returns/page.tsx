@@ -72,6 +72,7 @@ export default function SalesReturnsPage() {
       }
 
       // 2. Insert sales_returns 主表（狀態 completed，正確欄位）
+      const totalAmount = itemsToReturn.reduce((sum, item) => sum + (item.returnQty * item.salePrice), 0);
       const { data: returnMain, error: returnMainError } = await supabase
         .from("sales_returns")
         .insert([
@@ -79,6 +80,7 @@ export default function SalesReturnsPage() {
             sales_order_id: selectedOrder.id,
             order_number: selectedOrder.orderNumber, // 銷貨單號
             customer_code: selectedOrder.customerCode, // 客戶編號
+            total_amount: totalAmount,
             status: "completed",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -167,6 +169,7 @@ export default function SalesReturnsPage() {
                     max={item.originalQty}
                     value={ret?.returnQty ?? ""}
                     onChange={e => handleReturnQtyChange(item.productId, Number(e.target.value))}
+                    onFocus={e => e.target.select()}
                     className="h-9 w-full text-right"
                     style={{ maxWidth: 80 }}
                   />
@@ -208,6 +211,7 @@ export default function SalesReturnsPage() {
                       max={item.originalQty}
                       value={ret?.returnQty ?? ""}
                       onChange={e => handleReturnQtyChange(item.productId, Number(e.target.value))}
+                      onFocus={e => e.target.select()}
                       className="h-9 w-20 text-right"
                     />
                   </div>

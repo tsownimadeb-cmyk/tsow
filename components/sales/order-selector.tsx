@@ -1,7 +1,7 @@
-// TODO: 實作銷貨單選擇元件，參考進貨單 OrderSelector
-// 這裡僅為樣板，需串接實際銷貨單資料
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export type SalesOrder = {
   id: string;
@@ -19,141 +19,272 @@ export type SalesOrderItem = {
   salePrice: number;
 };
 
+interface Customer {
+  code: string;
+  name: string;
+}
+
+function getDefaultDateRange() {
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(from.getMonth() - 1);
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
+}
+
 export default function OrderSelector({ onSelect }: {
   onSelect: (order: SalesOrder, items: SalesOrderItem[]) => void;
 }) {
+  const defaults = getDefaultDateRange();
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerCode, setSelectedCustomerCode] = useState("");
+  const [showCustomerList, setShowCustomerList] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [dateFrom, setDateFrom] = useState(defaults.from);
+  const [dateTo, setDateTo] = useState(defaults.to);
   const [orders, setOrders] = useState<SalesOrder[]>([]);
-  const [customers, setCustomers] = useState<Record<string, string>>({});
-  const [selectedOrderId, setSelectedOrderId] = useState<string>("");
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [itemsLoading, setItemsLoading] = useState(false);
 
+  // 載入所有客戶（依 code 排序）
   useEffect(() => {
-    // 載入銷貨單列表與客戶姓名（從 Supabase）
-    const fetchOrdersAndCustomers = async () => {
+    const fetchCustomers = async () => {
       const supabase = createClient();
-      // 1. 先查銷貨單
-      const { data: orderData, error: orderError } = await supabase
-        .from("sales_orders")
-        .select("id, order_no, customer_cno, order_date")
-        .order("order_date", { ascending: false });
-      if (orderError || !orderData) return;
-
-      const ordersList = orderData.map((o: any) => ({
-        id: o.id,
-        orderNumber: o.order_no || "",
-        orderDate: o.order_date,
-        customerCode: o.customer_cno,
-        customerName: "", // 將在下方填入
-      }));
-      setOrders(ordersList);
-
-      // 2. 查詢所有用到的 customer_cno
-      const cnos = Array.from(new Set(orderData.map((o: any) => o.customer_cno).filter(Boolean)));
-      if (cnos.length === 0) return;
-      const { data: customerData, error: customerError } = await supabase
+      const { data } = await supabase
         .from("customers")
         .select("code, name")
-        .in("code", cnos);
-      if (customerError || !customerData) return;
-      const customerMap: Record<string, string> = {};
-      for (const c of customerData) {
-        customerMap[c.code] = c.name;
-      }
-      setCustomers(customerMap);
-      // 更新 orders，填入客戶名稱
-      const updatedOrders = ordersList.map((o: any) => ({
-        ...o,
-        customerName: o.customerCode ? customerMap[o.customerCode] || "" : "",
-      }));
-      setOrders(updatedOrders);
+        .order("code", { ascending: true });
+      if (data) setCustomers(data);
     };
-    fetchOrdersAndCustomers();
+    fetchCustomers();
   }, []);
 
-  const handleSelect = async (orderId: string) => {
-    setSelectedOrderId(orderId);
-    const order = orders.find(o => o.id === orderId);
+  // 依客戶 + 日期範圍查詢銷貨單
+  useEffect(() => {
+    if (!selectedCustomerCode) {
+      setOrders([]);
+      setSelectedOrderId("");
+      return;
+    }
+    const fetchOrders = async () => {
+      setOrdersLoading(true);
+      setSelectedOrderId("");
+      const supabase = createClient();
+      let query = supabase
+        .from("sales_orders")
+        .select("id, order_no, customer_cno, order_date")
+        .eq("customer_cno", selectedCustomerCode)
+        .order("order_date", { ascending: false });
+      if (dateFrom) query = query.gte("order_date", dateFrom);
+      if (dateTo) query = query.lte("order_date", dateTo);
+      const { data, error } = await query;
+      if (!error && data) {
+        setOrders(
+          data.map((o: any) => ({
+            id: o.id,
+            orderNumber: o.order_no || "",
+            orderDate: o.order_date,
+            customerCode: o.customer_cno,
+            customerName: customerSearch,
+          }))
+        );
+      } else {
+        setOrders([]);
+      }
+      setOrdersLoading(false);
+    };
+    fetchOrders();
+  }, [selectedCustomerCode, dateFrom, dateTo]);
+
+  const filteredCustomers = isTyping
+    ? customers.filter((c) =>
+        c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+        c.code.toLowerCase().includes(customerSearch.toLowerCase())
+      )
+    : customers;
+
+  const handleCustomerSelect = (customer: Customer) => {
+    setSelectedCustomerCode(customer.code);
+    setCustomerSearch(customer.name);
+    setIsTyping(false);
+    setShowCustomerList(false);
+  };
+
+  const handleOrderChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    setSelectedOrderId(id);
+    const order = orders.find((o) => o.id === id);
     if (!order) return;
-    // 查詢該銷貨單的明細
+
+    setItemsLoading(true);
     const supabase = createClient();
-    const { data: itemsDataByCode, error: itemsErrorByCode } = await supabase
+
+    const { data: itemsByCode, error: errByCode } = await supabase
       .from("sales_order_items")
       .select("id, code, quantity, unit_price")
-      .eq("sales_order_id", orderId);
+      .eq("sales_order_id", id);
 
-    let itemsData: any[] | null = itemsDataByCode;
-    let usingLegacyProductPno = false;
+    let items: any[] | null = null;
+    let usingLegacy = false;
 
-    if (itemsErrorByCode) {
-      const { data: itemsDataByPno, error: itemsErrorByPno } = await supabase
+    if (!errByCode && itemsByCode && itemsByCode.length > 0) {
+      items = itemsByCode;
+    } else {
+      const { data: itemsByPno } = await supabase
         .from("sales_order_items")
         .select("id, product_pno, quantity, unit_price")
-        .eq("sales_order_id", orderId);
-
-      if (itemsErrorByPno || !itemsDataByPno) {
-        onSelect(order, []);
-        return;
+        .eq("sales_order_id", id);
+      if (itemsByPno && itemsByPno.length > 0) {
+        items = itemsByPno;
+        usingLegacy = true;
       }
-
-      itemsData = itemsDataByPno;
-      usingLegacyProductPno = true;
     }
 
-    if (!itemsData) {
+    if (!items) {
       onSelect(order, []);
+      setItemsLoading(false);
       return;
     }
 
     const codes = Array.from(
-      new Set(
-        itemsData
-          .map((item: any) => String((usingLegacyProductPno ? item.product_pno : item.code) || "").trim())
-          .filter(Boolean)
-      )
+      new Set(items.map((i) => String((usingLegacy ? i.product_pno : i.code) || "").trim()).filter(Boolean))
     );
-    let productNameMap: Record<string, string> = {};
+    let productMap: Record<string, string> = {};
     if (codes.length > 0) {
-      const { data: productData } = await supabase
+      const { data: products } = await supabase
         .from("products")
         .select("code, name")
         .in("code", codes);
-
-      if (productData) {
-        productNameMap = Object.fromEntries(productData.map((p: any) => [String(p.code || ""), String(p.name || "")]));
+      if (products && products.length > 0) {
+        productMap = Object.fromEntries(products.map((p: any) => [String(p.code || ""), String(p.name || "")]));
       } else {
-        const { data: legacyProductData } = await supabase
+        const { data: legacyProducts } = await supabase
           .from("products")
           .select("pno, pname")
           .in("pno", codes);
-        if (legacyProductData) {
-          productNameMap = Object.fromEntries(legacyProductData.map((p: any) => [String(p.pno || ""), String(p.pname || "")]));
+        if (legacyProducts && legacyProducts.length > 0) {
+          productMap = Object.fromEntries(
+            legacyProducts.map((p: any) => [String(p.pno || ""), String(p.pname || "")])
+          );
         }
       }
     }
 
-    // 轉換明細格式
-    const items: SalesOrderItem[] = itemsData.map((item: any) => ({
-      id: item.id,
-      productId: usingLegacyProductPno ? item.product_pno : item.code,
+    const mapped: SalesOrderItem[] = items.map((i: any) => ({
+      id: i.id,
+      productId: usingLegacy ? i.product_pno : i.code,
       productName:
-        productNameMap[String((usingLegacyProductPno ? item.product_pno : item.code) || "")] ||
-        String((usingLegacyProductPno ? item.product_pno : item.code) || ""),
-      originalQty: item.quantity,
-      salePrice: item.unit_price,
+        productMap[String((usingLegacy ? i.product_pno : i.code) || "")] ||
+        String((usingLegacy ? i.product_pno : i.code) || ""),
+      originalQty: i.quantity,
+      salePrice: i.unit_price,
     }));
-    onSelect(order, items);
+
+    onSelect(order, mapped);
+    setItemsLoading(false);
   };
 
   return (
-    <div className="mb-4">
-      <label>選擇銷貨單：</label>
-      <select value={selectedOrderId} onChange={e => handleSelect(e.target.value)}>
-        <option value="">請選擇</option>
-        {orders.map(order => (
-          <option key={order.id} value={order.id}>
-            {order.orderDate} - {order.customerName || "未知客戶"}
-          </option>
-        ))}
-      </select>
+    <div className="mb-4 space-y-3">
+      {/* 客戶搜尋 */}
+      <div className="relative">
+        <label className="block text-sm font-medium text-gray-700 mb-1">客戶</label>
+        <Input
+          placeholder="輸入客戶名稱或代碼搜尋..."
+          value={customerSearch}
+          onChange={(e) => {
+            setCustomerSearch(e.target.value);
+            setIsTyping(true);
+            setShowCustomerList(true);
+            if (!e.target.value) {
+              setSelectedCustomerCode("");
+            }
+          }}
+          onFocus={(e) => {
+            e.target.select();
+            setIsTyping(false);
+            setShowCustomerList(true);
+          }}
+          onBlur={() => setTimeout(() => setShowCustomerList(false), 150)}
+          autoComplete="off"
+        />
+        {showCustomerList && filteredCustomers.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
+            {filteredCustomers.map((c) => (
+              <div
+                key={c.code}
+                className="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer"
+                onMouseDown={() => handleCustomerSelect(c)}
+              >
+                {c.name}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 日期範圍 */}
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">開始日期</label>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">結束日期</label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={() => {
+            const d = getDefaultDateRange();
+            setDateFrom(d.from);
+            setDateTo(d.to);
+          }}
+        >
+          重設
+        </Button>
+      </div>
+
+      {/* 銷貨單選擇 */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">銷貨單</label>
+        {!selectedCustomerCode ? (
+          <p className="text-sm text-gray-400">請先選擇客戶</p>
+        ) : ordersLoading ? (
+          <p className="text-sm text-gray-400">載入銷貨單中...</p>
+        ) : orders.length === 0 ? (
+          <p className="text-sm text-gray-400">此期間無銷貨單</p>
+        ) : (
+          <select
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={selectedOrderId}
+            onChange={handleOrderChange}
+            disabled={itemsLoading}
+          >
+            <option value="" disabled>
+              {itemsLoading ? "載入明細中..." : "請選擇銷貨單"}
+            </option>
+            {orders.map((order) => (
+              <option key={order.id} value={order.id}>
+                {order.orderDate} — {order.orderNumber}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
     </div>
   );
 }
