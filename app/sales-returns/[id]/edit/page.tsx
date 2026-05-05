@@ -48,7 +48,7 @@ export default function EditSalesReturnPage() {
       }
 
       setOrderNumber(ret.order_number || "");
-      setReturnDate(ret.created_at || "");
+      setReturnDate(ret.return_date || "");
 
       // 2. 載入客戶名稱
       if (ret.customer_code) {
@@ -253,11 +253,11 @@ export default function EditSalesReturnPage() {
                 />
               </div>
               <div className="flex justify-between items-center text-sm mt-2">
-                <span className="text-gray-500">退回原因</span>
+                <span className="text-gray-500 shrink-0">退回原因</span>
                 <Input
                   value={item.reason}
                   onChange={(e) => handleReasonChange(item.productId, e.target.value)}
-                  className="h-9 w-32"
+                  className="h-9 flex-1 ml-3"
                 />
               </div>
             </CardContent>

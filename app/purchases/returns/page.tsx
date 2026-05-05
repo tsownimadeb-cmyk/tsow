@@ -119,7 +119,7 @@ export default function PurchaseReturnsPage() {
   };
 
   return (
-    <div>
+    <div className="p-4 md:p-6">
       <h2 className="text-2xl font-bold mb-4">進貨退回</h2>
       {/* 1. 選取進貨單 */}
       <OrderSelector onSelect={handleOrderSelect} />
@@ -195,11 +195,11 @@ export default function PurchaseReturnsPage() {
                     />
                   </div>
                   <div className="flex justify-between items-center text-sm mt-2">
-                    <span className="text-gray-500">退回原因</span>
+                    <span className="text-gray-500 shrink-0">退回原因</span>
                     <Input
                       value={ret?.reason ?? ""}
                       onChange={e => handleReasonChange(item.productId, e.target.value)}
-                      className="h-9 w-32 text-left"
+                      className="h-9 flex-1 ml-3 text-left"
                     />
                   </div>
                 </CardContent>

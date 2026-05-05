@@ -91,7 +91,7 @@ export default function SalesReturnsPage() {
 
       toast({ title: "退回成功", description: "銷貨退回已完成。" });
       setTimeout(() => {
-        router.push("/sales");
+        router.push("/sales-returns");
       }, 800);
     } catch (err: any) {
       toast({ title: "儲存失敗", description: err.message || String(err), variant: "destructive" });
@@ -101,7 +101,7 @@ export default function SalesReturnsPage() {
   };
 
   return (
-    <div>
+    <div className="p-4 md:p-6">
       <h2 className="text-2xl font-bold mb-4">銷貨退回</h2>
       {/* 1. 選取銷貨單 */}
       <OrderSelector onSelect={handleOrderSelect} />
@@ -177,11 +177,11 @@ export default function SalesReturnsPage() {
                     />
                   </div>
                   <div className="flex justify-between items-center text-sm mt-2">
-                    <span className="text-gray-500">退回原因</span>
+                    <span className="text-gray-500 shrink-0">退回原因</span>
                     <Input
                       value={ret?.reason ?? ""}
                       onChange={e => handleReasonChange(item.productId, e.target.value)}
-                      className="h-9 w-32 text-left"
+                      className="h-9 flex-1 ml-3 text-left"
                     />
                   </div>
                 </CardContent>
