@@ -185,6 +185,7 @@ export default function PurchaseReturnsPage() {
                     max={item.originalQty}
                     value={ret?.returnQty ?? ""}
                     onChange={e => handleReturnQtyChange(item.productId, Number(e.target.value))}
+                    onFocus={e => e.target.select()}
                     className="h-9 w-full text-right"
                     style={{ maxWidth: 80 }}
                   />
@@ -226,6 +227,7 @@ export default function PurchaseReturnsPage() {
                       max={item.originalQty}
                       value={ret?.returnQty ?? ""}
                       onChange={e => handleReturnQtyChange(item.productId, Number(e.target.value))}
+                      onFocus={e => e.target.select()}
                       className="h-9 w-20 text-right"
                     />
                   </div>
