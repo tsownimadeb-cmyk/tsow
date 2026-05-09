@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { Supplier } from "@/lib/types"
 
@@ -56,8 +55,6 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
       (document.activeElement as HTMLInputElement).blur()
     }
-    const supabase = createClient()
-
     const data = {
       name: formData.name,
       contact_person: formData.contact_person || null,
@@ -72,29 +69,32 @@ export function SupplierDialog({ mode, supplier, children, open, onOpenChange }:
 
     startTransition(async () => {
       try {
-        let error
-        if (mode === "create") {
-          const result = await supabase.from("suppliers").insert(data)
-          error = result.error
-        } else if (supplier) {
-          const result = await supabase.from("suppliers").update(data).eq("id", supplier.id)
-          error = result.error
+        const endpoint = "/api/offline/suppliers"
+        const method = mode === "create" ? "POST" : "PUT"
+        const body = mode === "create" ? data : { id: supplier?.id, payload: data }
+
+        const response = await fetch(endpoint, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        const result = await response.json().catch(() => null)
+
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.message || `HTTP ${response.status}`)
         }
 
-        if (error) {
-          toast({
-            title: "錯誤",
-            description: error.message || "操作失敗，請稍後再試",
-            variant: "destructive",
-          })
-        } else {
-          toast({
-            title: "成功",
-            description: mode === "create" ? "供應商新增成功" : "供應商更新成功",
-          })
-          setIsOpen(false)
-          router.refresh()
-        }
+        toast({
+          title: "成功",
+          description:
+            result?.offline
+              ? "已離線儲存，待網路恢復後同步"
+              : mode === "create"
+                ? "供應商新增成功"
+                : "供應商更新成功",
+        })
+        setIsOpen(false)
+        router.refresh()
       } catch (error) {
         toast({
           title: "錯誤",

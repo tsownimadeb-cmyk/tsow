@@ -6,6 +6,7 @@ import { ErrorToast } from "@/components/ui/error-toast"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { fetchPurchasesRows, normalizePurchases } from "@/lib/purchases"
+import { getOfflineSnapshot, setOfflineSnapshot } from "@/lib/local-db"
 
 export default async function PurchasesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -30,39 +31,64 @@ export default async function PurchasesPage(props: any) {
 
   const supabase = await createClient();
 
-  const [purchasesQueryResult, suppliersSortedResult, productsResult] = await Promise.all([
-    fetchPurchasesRows(supabase, from, to, searchText),
-    supabase
-      .from("suppliers")
-      .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
-      .order("sort_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-    supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
-  ]);
+  let isOffline = false;
+  let purchases = [];
+  let suppliers = [];
+  let products = [];
+  let total = 0;
+  let totalPages = 1;
 
-  const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = purchasesQueryResult;
-
-  const suppliers = suppliersSortedResult.error
-    ? (await supabase
+  try {
+    const [purchasesQueryResult, suppliersSortedResult, productsResult] = await Promise.all([
+      fetchPurchasesRows(supabase, from, to, searchText),
+      supabase
         .from("suppliers")
-        .select("id,name,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
-        .order("created_at", { ascending: false })).data || []
-    : suppliersSortedResult.data || [];
-  const products = productsResult.data || [];
+        .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+        .order("sort_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false }),
+      supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
+    ]);
 
-  if (purchasesWarning) {
-    console.error("[PurchasesPage] 查詢 purchase_orders 失敗:", purchasesWarning);
-  }
-  if (suppliersSortedResult.error) {
-    console.error("[PurchasesPage] 查詢 suppliers 排序失敗，已回退 created_at 排序:", suppliersSortedResult.error);
-  }
-  if (productsResult.error) {
-    console.error("[PurchasesPage] 查詢 products 失敗:", productsResult.error);
-  }
+    const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = purchasesQueryResult;
 
-  const purchases = normalizePurchases(purchasesRaw || []);
-  const total = totalCount || 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    suppliers = suppliersSortedResult.error
+      ? (await supabase
+          .from("suppliers")
+          .select("id,name,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+          .order("created_at", { ascending: false })).data || []
+      : suppliersSortedResult.data || [];
+    products = productsResult.data || [];
+
+    if (purchasesWarning) {
+      console.error("[PurchasesPage] 查詢 purchase_orders 失敗:", purchasesWarning);
+    }
+    if (suppliersSortedResult.error) {
+      console.error("[PurchasesPage] 查詢 suppliers 排序失敗，已回退 created_at 排序:", suppliersSortedResult.error);
+    }
+    if (productsResult.error) {
+      console.error("[PurchasesPage] 查詢 products 失敗:", productsResult.error);
+    }
+
+    purchases = normalizePurchases(purchasesRaw || []);
+    total = totalCount || 0;
+    totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    // 儲存快照
+    setOfflineSnapshot('desktop-purchases-page', { purchases, suppliers, products });
+  } catch (error) {
+    console.error("[PurchasesPage] 線上查詢失敗，嘗試本地快照:", error);
+    isOffline = true;
+
+    // 從本地快照讀取
+    const snapshot = getOfflineSnapshot<any>('desktop-purchases-page');
+    if (snapshot && snapshot.data) {
+      purchases = snapshot.data.purchases || [];
+      suppliers = snapshot.data.suppliers || [];
+      products = snapshot.data.products || [];
+      total = purchases.length;
+      totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    }
+  }
 
   // 產生分頁 URL
   function getPageUrl(targetPage: number) {
@@ -80,6 +106,11 @@ export default async function PurchasesPage(props: any) {
 
   return (
     <div className="space-y-6">
+      {isOffline && (
+        <div className="px-4 py-3 bg-amber-100 border border-amber-300 rounded text-amber-800 text-sm font-medium">
+          ⚠️ 目前離線模式，顯示本地快照資料
+        </div>
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">進貨管理</h1>

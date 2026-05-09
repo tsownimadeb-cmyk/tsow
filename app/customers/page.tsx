@@ -7,6 +7,7 @@ import Link from "next/link"
 import { Plus } from "lucide-react"
 import { fetchCustomersRows, normalizeCustomers } from "@/lib/customers"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
+import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
 
 export default async function CustomersPage(props: any) {
   const searchParams = await props.searchParams;
@@ -23,13 +24,40 @@ export default async function CustomersPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const supabase = await createClient();
-  const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to, searchText);
-  if (customersWarning) {
-    console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
+  let customers: any[] = [];
+  let total = 0;
+  let loadedFromOffline = false;
+
+  try {
+    const supabase = await createClient();
+    const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to, searchText);
+    if (customersWarning) {
+      console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
+      throw new Error(customersWarning);
+    }
+
+    customers = normalizeCustomers(customersRaw || []);
+    total = totalCount || 0;
+
+    saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.customersPage, {
+      customers,
+      total,
+      page,
+      searchText,
+    });
+  } catch (error) {
+    const snapshot = loadDesktopPageSnapshot<{ customers: any[]; total: number }>(
+      DESKTOP_OFFLINE_KEYS.customersPage,
+    );
+    if (snapshot?.data) {
+      customers = snapshot.data.customers || [];
+      total = snapshot.data.total || customers.length;
+      loadedFromOffline = true;
+    } else {
+      throw error;
+    }
   }
-  const customers = normalizeCustomers(customersRaw || []);
-  const total = totalCount || 0;
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function getPageUrl(targetPage: number) {
@@ -42,6 +70,11 @@ export default async function CustomersPage(props: any) {
   return (
     <div className="space-y-6">
       <MobileCacheWriter cacheKey="ims-cache-customers-list" data={{ customers, total, page, searchText }} />
+      {loadedFromOffline && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          離線模式：目前顯示本機快取資料。
+        </div>
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">客戶管理</h1>

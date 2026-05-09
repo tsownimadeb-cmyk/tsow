@@ -8,7 +8,6 @@ import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Input } from "@/components/ui/input"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { ProductListRow } from "@/lib/products"
@@ -103,11 +102,18 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
 
     try {
       setDeletingCode(productCode)
-      const supabase = createClient()
-      const { error } = await supabase.from("products").delete().eq("code", record.code)
-      if (error) throw error
+      const response = await fetch(`/api/offline/products?code=${encodeURIComponent(productCode)}`, {
+        method: "DELETE",
+      })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || `HTTP ${response.status}`)
+      }
 
-      toast({ title: "成功", description: "商品已刪除" })
+      toast({
+        title: "成功",
+        description: result?.offline ? "已離線刪除，待網路恢復後同步" : "商品已刪除",
+      })
       router.refresh()
     } catch (error: any) {
       toast({

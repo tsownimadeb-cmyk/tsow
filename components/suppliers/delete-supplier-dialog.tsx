@@ -12,7 +12,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { createClient } from "@/lib/supabase/client"
 import type { Supplier } from "@/lib/types"
 
 interface DeleteSupplierDialogProps {
@@ -26,9 +25,13 @@ export function DeleteSupplierDialog({ supplier, open, onOpenChange }: DeleteSup
   const [isPending, startTransition] = useTransition()
 
   const handleDelete = () => {
-    const supabase = createClient()
     startTransition(async () => {
-      await supabase.from("suppliers").delete().eq("id", supplier.id)
+      const response = await fetch(`/api/offline/suppliers?id=${encodeURIComponent(String(supplier.id))}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) {
+        return
+      }
       onOpenChange(false)
       router.refresh()
     })

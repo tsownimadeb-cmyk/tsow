@@ -1,12 +1,18 @@
 import { createClient } from "@/lib/supabase/server"
+import { getLocalDb } from "@/lib/local-db"
 
 export default async function DiagnosticsPage() {
   const supabase = await createClient()
+  const localDb = getLocalDb()
 
   let categoriesTest = { success: false, count: 0, error: null as string | null }
   let suppliersTest = { success: false, count: 0, error: null as string | null }
   let customersTest = { success: false, count: 0, error: null as string | null }
   let productsTest = { success: false, count: 0, error: null as string | null }
+  let localQueueCount = 0
+  let localQueueRows: Array<{ entity: string; operation: string; retry_count: number; updated_at: number }> = []
+  let localSnapshotCount = 0
+  let localDbError: string | null = null
 
   // 測試 categories 表
   try {
@@ -60,6 +66,21 @@ export default async function DiagnosticsPage() {
     productsTest.error = err instanceof Error ? err.message : "未知錯誤"
   }
 
+  // 測試本機同步佇列與快照
+  try {
+    const queueRows = localDb
+      .prepare("SELECT entity, operation, retry_count, updated_at FROM sync_queue ORDER BY updated_at DESC LIMIT 15")
+      .all() as Array<{ entity: string; operation: string; retry_count: number; updated_at: number }>
+    localQueueRows = queueRows
+    const queueCountRow = localDb.prepare("SELECT COUNT(*) AS count FROM sync_queue").get() as any
+    localQueueCount = Number(queueCountRow?.count || 0)
+
+    const snapshotRow = localDb.prepare("SELECT COUNT(*) AS count FROM offline_snapshots").get() as any
+    localSnapshotCount = Number(snapshotRow?.count || 0)
+  } catch (err) {
+    localDbError = err instanceof Error ? err.message : "未知錯誤"
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">資料庫診斷</h1>
@@ -95,6 +116,34 @@ export default async function DiagnosticsPage() {
             {productsTest.success ? `✓ 成功 (${productsTest.count} 筆)` : `✗ 失敗`}
           </p>
           {productsTest.error && <p className="text-sm text-red-600 mt-1">{productsTest.error}</p>}
+        </div>
+
+        <div className="p-4 rounded border">
+          <h2 className="font-semibold mb-2">本機同步佇列</h2>
+          <p className={localDbError ? "text-red-600" : "text-green-600"}>
+            {localDbError ? `✗ 失敗` : `✓ 正常 (${localQueueCount} 筆待同步)`}
+          </p>
+          {localDbError && <p className="text-sm text-red-600 mt-1">{localDbError}</p>}
+          {!localDbError && (
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              {localQueueRows.length === 0 ? (
+                <p>目前沒有待同步資料。</p>
+              ) : (
+                localQueueRows.map((row, idx) => (
+                  <p key={`${row.entity}-${row.operation}-${idx}`}>
+                    {row.entity} / {row.operation} / retry={row.retry_count} / {new Date(Number(row.updated_at || 0)).toLocaleString("zh-TW")}
+                  </p>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 rounded border">
+          <h2 className="font-semibold mb-2">本機離線快照</h2>
+          <p className={localDbError ? "text-red-600" : "text-green-600"}>
+            {localDbError ? `✗ 失敗` : `✓ 正常 (${localSnapshotCount} 筆)`}
+          </p>
         </div>
       </div>
 

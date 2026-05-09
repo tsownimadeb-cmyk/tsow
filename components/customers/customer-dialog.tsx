@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import type { Customer } from "@/lib/types"
 
@@ -32,23 +31,6 @@ interface CustomerDialogProps {
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
-}
-
-const CUSTOMER_REFERENCE_TABLES = [
-  { table: "sales_orders", columns: ["customer_cno"] },
-  { table: "accounts_receivable", columns: ["customer_cno"] },
-  { table: "sales_returns", columns: ["customer_cno", "customer_code"] },
-  { table: "ar_receipts", columns: ["customer_cno"] },
-] as const
-
-function isMissingRenameRpcError(message: string) {
-  return /Could not find the function|does not exist|schema cache/i.test(message)
-}
-
-function isSkippableReferenceSyncError(message: string) {
-  return /column .* does not exist|relation .* does not exist|Could not find the .* column .* in the schema cache|Could not find the table .* in the schema cache/i.test(
-    message
-  )
 }
 
 export function CustomerDialog({ mode, customer, children, open, onOpenChange }: CustomerDialogProps) {
@@ -84,8 +66,6 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
       (document.activeElement as HTMLInputElement).blur()
     }
-    const supabase = createClient()
-
     startTransition(async () => {
       try {
         const nextCode = String(formData.code || "").trim().toUpperCase()
@@ -110,134 +90,40 @@ export function CustomerDialog({ mode, customer, children, open, onOpenChange }:
           }
         }
 
-        const sampleResult = await supabase.from("customers").select("*").limit(1)
-        if (sampleResult.error) {
-          throw new Error(sampleResult.error.message || "讀取 customers 欄位失敗")
+        const payload = {
+          code: nextCode,
+          name: nextName,
+          tel1: formData.tel1 || null,
+          tel2: formData.tel2 || null,
+          tel3: formData.tel3 || null,
+          addr: formData.address || null,
+          address: formData.address || null,
         }
 
-        const existingColumns = new Set<string>(Object.keys((sampleResult.data || [])[0] || {}))
-        const hasColumn = (column: string) => existingColumns.has(column)
-
-        const keyColumn = "code"
-        const legacyCodeColumn = hasColumn("cno") ? "cno" : null
-        const nameColumn = "name"
-        const tel1Column = hasColumn("tel1") ? "tel1" : null
-        const tel2Column = hasColumn("tel2") ? "tel2" : hasColumn("tel11") ? "tel11" : null
-        const tel3Column = hasColumn("fax") ? "fax" : hasColumn("tel3") ? "tel3" : hasColumn("tel12") ? "tel12" : null
-        const addressColumn = hasColumn("addr") ? "addr" : hasColumn("address") ? "address" : null
-
-        const payload: Record<string, string | null> = {
-          [nameColumn]: nextName,
-        }
-
-        if (tel1Column) payload[tel1Column] = formData.tel1 || null
-        if (tel2Column) payload[tel2Column] = formData.tel2 || null
-        if (tel3Column) payload[tel3Column] = formData.tel3 || null
-        if (addressColumn) payload[addressColumn] = formData.address || null
-
-        let error
-        if (mode === "create") {
-          const insertPayload: Record<string, string | null> = {
-            [keyColumn]: nextCode,
-            ...payload,
-          }
-
-          if (legacyCodeColumn) {
-            insertPayload[legacyCodeColumn] = nextCode
-          }
-
-          const result = await supabase.from("customers").insert(insertPayload)
-          error = result.error
-        } else if (customer) {
-          const codeChanged = nextCode !== originalCode
-
-          if (codeChanged) {
-            const duplicateResult = await supabase
-              .from("customers")
-              .select(keyColumn)
-              .eq(keyColumn, nextCode)
-              .maybeSingle()
-
-            if (duplicateResult.error && duplicateResult.error.code !== "PGRST116") {
-              throw new Error(duplicateResult.error.message || "檢查客戶編號失敗")
-            }
-
-            if (duplicateResult.data) {
-              throw new Error(`客戶編號 ${nextCode} 已存在，請改用其他編號`)
-            }
-
-            const rpcResult = await supabase.rpc("rename_customer_code", {
-              p_old_code: originalCode,
-              p_new_code: nextCode,
-            })
-
-            if (rpcResult.error && !isMissingRenameRpcError(rpcResult.error.message || "")) {
-              throw new Error(rpcResult.error.message || "同步客戶編號失敗")
-            }
-
-            if (rpcResult.error) {
-              const keyUpdatePayload: Record<string, string> = {
-                [keyColumn]: nextCode,
-              }
-
-              if (legacyCodeColumn) {
-                keyUpdatePayload[legacyCodeColumn] = nextCode
-              }
-
-              const renameCustomerResult = await supabase
-                .from("customers")
-                .update(keyUpdatePayload)
-                .eq(keyColumn, originalCode)
-
-              if (renameCustomerResult.error) {
-                throw new Error(renameCustomerResult.error.message || "更新客戶編號失敗")
-              }
-
-              for (const ref of CUSTOMER_REFERENCE_TABLES) {
-                for (const column of ref.columns) {
-                  const refResult = await supabase
-                    .from(ref.table)
-                    .update({ [column]: nextCode } as never)
-                    .eq(column, originalCode)
-
-                  const refMessage = refResult.error?.message || ""
-                  if (!refResult.error) {
-                    break
-                  }
-
-                  if (isSkippableReferenceSyncError(refMessage)) {
-                    continue
-                  }
-
-                  throw new Error(`同步 ${ref.table} 失敗：${refMessage}`)
+        const response = await fetch("/api/offline/customers", {
+          method: mode === "create" ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            mode === "create"
+              ? payload
+              : {
+                  targetCode: originalCode || nextCode,
+                  payload,
                 }
+          ),
+        })
 
-              }
-            }
-          }
-
-          const result = await supabase
-            .from("customers")
-            .update(payload)
-            .eq(keyColumn, codeChanged ? nextCode : originalCode)
-
-          error = result.error
+        const result = await response.json().catch(() => null)
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.message || `HTTP ${response.status}`)
         }
 
-        if (error) {
-          toast({
-            title: "錯誤",
-            description: error.message || "操作失敗，請稍後再試",
-            variant: "destructive",
-          })
-        } else {
-          toast({
-            title: "成功",
-            description: mode === "create" ? "客戶新增成功" : "客戶更新成功",
-          })
-          window.location.reload()
-          setIsOpen(false)
-        }
+        toast({
+          title: "成功",
+          description: result?.offline ? "已離線儲存，待網路恢復後同步" : mode === "create" ? "客戶新增成功" : "客戶更新成功",
+        })
+        window.location.reload()
+        setIsOpen(false)
       } catch (error) {
         toast({
           title: "錯誤",

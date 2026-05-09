@@ -8,6 +8,7 @@ import { Plus } from "lucide-react"
 import { fetchProductsRows, normalizeProducts } from "@/lib/products"
 import { RecalcStockBtn } from "@/components/products/recalc-stock-btn"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
+import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
 
 export default async function ProductsPage(props: any) {
   const searchParams = await props.searchParams;
@@ -24,15 +25,41 @@ export default async function ProductsPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const supabase = await createClient()
-  const { rows: productsRaw, totalCount, warning: productsWarning } = await fetchProductsRows(supabase, from, to, searchText)
+  let products: any[] = []
+  let total = 0
+  let loadedFromOffline = false
 
-  if (productsWarning) {
-    console.error("[ProductsPage] products 查詢失敗:", productsWarning)
+  try {
+    const supabase = await createClient()
+    const { rows: productsRaw, totalCount, warning: productsWarning } = await fetchProductsRows(supabase, from, to, searchText)
+
+    if (productsWarning) {
+      console.error("[ProductsPage] products 查詢失敗:", productsWarning)
+      throw new Error(productsWarning)
+    }
+
+    products = normalizeProducts(productsRaw || [])
+    total = totalCount || 0
+
+    saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.productsPage, {
+      products,
+      total,
+      page,
+      searchText,
+    })
+  } catch (error) {
+    const snapshot = loadDesktopPageSnapshot<{ products: any[]; total: number }>(
+      DESKTOP_OFFLINE_KEYS.productsPage,
+    )
+    if (snapshot?.data) {
+      products = snapshot.data.products || []
+      total = snapshot.data.total || products.length
+      loadedFromOffline = true
+    } else {
+      throw error
+    }
   }
 
-  const products = normalizeProducts(productsRaw || [])
-  const total = totalCount || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function getPageUrl(targetPage: number) {
@@ -45,6 +72,11 @@ export default async function ProductsPage(props: any) {
   return (
     <div className="space-y-6">
       <MobileCacheWriter cacheKey="ims-cache-products-list" data={{ products, total, page, searchText }} />
+      {loadedFromOffline && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          離線模式：目前顯示本機快取資料。
+        </div>
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">商品管理</h1>

@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createClient } from "@/lib/supabase/client" // 請確認此路徑與客戶表一致
+import { createClient } from "@/lib/supabase/client" // 僅用於讀取供應商列表
 import { useToast } from "@/hooks/use-toast"
 import type { Product as ProductType, Supplier } from "@/lib/types"
 
@@ -65,11 +65,6 @@ interface ProductDialogProps {
   onOpenChange?: (open: boolean) => void
 }
 
-function isBasePriceColumnMissing(error: any) {
-  const message = String(error?.message || "").toLowerCase()
-  return message.includes("base_price") && (message.includes("column") || message.includes("schema cache"))
-}
-
 export function ProductDialog({ mode, product, children, open, onOpenChange }: ProductDialogProps) {
   const router = useRouter()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -107,8 +102,6 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
       (document.activeElement as HTMLInputElement).blur()
     }
-    const supabase = createClient()
-
     const basePayload = {
       code: formData.code,
       name: formData.name,
@@ -139,51 +132,28 @@ export function ProductDialog({ mode, product, children, open, onOpenChange }: P
     try {
       setIsPending(true)
 
-      if (mode === "create") {
-        const createNew = await supabase.from("products").insert(payloadNewSchema)
-        if (createNew.error) {
-          if (isBasePriceColumnMissing(createNew.error)) {
-            const fallbackPayload = {
-              ...basePayload,
-              stock_qty: Number(formData.stock_qty),
-              purchase_qty_total: Number(formData.purchase_qty_total),
-              safety_stock: Number(formData.safety_stock),
-            }
-            const createFallback = await supabase.from("products").insert(fallbackPayload)
-            if (createFallback.error) throw createFallback.error
-          } else {
-            throw createNew.error
-          }
-        }
-      } else {
-        if (!product?.code) {
-          throw new Error("缺少 product.code，無法更新")
-        }
+      const response = await fetch("/api/offline/products", {
+        method: mode === "create" ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "create"
+            ? payloadNewSchema
+            : {
+                code: formData.code.trim(),
+                payload: payloadNewSchema,
+              }
+        ),
+      })
 
-        const updateNew = await supabase
-          .from("products")
-          .update(payloadNewSchema)
-          .eq("code", formData.code.trim())
-        if (updateNew.error) {
-          if (isBasePriceColumnMissing(updateNew.error)) {
-            const fallbackPayload = {
-              ...basePayload,
-              stock_qty: Number(formData.stock_qty),
-              purchase_qty_total: Number(formData.purchase_qty_total),
-              safety_stock: Number(formData.safety_stock),
-            }
-            const updateFallback = await supabase
-              .from("products")
-              .update(fallbackPayload)
-              .eq("code", formData.code.trim())
-            if (updateFallback.error) throw updateFallback.error
-          } else {
-            throw updateNew.error
-          }
-        }
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || `HTTP ${response.status}`)
       }
 
-      toast({ title: "成功", description: mode === "create" ? "新增成功" : "更新成功" })
+      toast({
+        title: "成功",
+        description: result?.offline ? "已離線儲存，待網路恢復後同步" : mode === "create" ? "新增成功" : "更新成功",
+      })
       setIsOpen(false)
       router.refresh()
     } catch (error: any) {

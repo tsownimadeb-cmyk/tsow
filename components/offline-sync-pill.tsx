@@ -7,7 +7,10 @@ import {
   flushPendingOperations,
   getConflictCount,
   getPendingOperationCount,
+  listConflicts,
   onPendingQueueChanged,
+  removeConflict,
+  requeueConflict,
 } from "@/lib/mobile-offline-queue"
 import { getLastReferenceRefreshAt, refreshReferenceCaches } from "@/lib/mobile-cache-sync"
 import { onMobileCacheChanged } from "@/lib/mobile-cache"
@@ -15,6 +18,7 @@ import { onMobileCacheChanged } from "@/lib/mobile-cache"
 export function OfflineSyncPill() {
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(0)
+  const [conflictItems, setConflictItems] = useState<Array<{ id: string; endpoint: string; reason: string; createdAt: number }>>([])
   const [online, setOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -24,6 +28,14 @@ export function OfflineSyncPill() {
     const refresh = () => {
       setPending(getPendingOperationCount())
       setConflicts(getConflictCount())
+      setConflictItems(
+        listConflicts().map((item) => ({
+          id: item.id,
+          endpoint: item.endpoint,
+          reason: item.reason,
+          createdAt: item.createdAt,
+        }))
+      )
       setOnline(typeof navigator !== "undefined" ? navigator.onLine : true)
       setLastRefreshAt(getLastReferenceRefreshAt())
     }
@@ -67,6 +79,39 @@ export function OfflineSyncPill() {
   const handleClearConflicts = () => {
     clearConflicts()
     setConflicts(0)
+    setConflictItems([])
+  }
+
+  const handleRetryConflict = async (id: string) => {
+    const moved = requeueConflict(id)
+    if (!moved) return
+    setPending(getPendingOperationCount())
+    setConflicts(getConflictCount())
+    setConflictItems(
+      listConflicts().map((item) => ({
+        id: item.id,
+        endpoint: item.endpoint,
+        reason: item.reason,
+        createdAt: item.createdAt,
+      }))
+    )
+
+    if (online) {
+      await handleSync()
+    }
+  }
+
+  const handleDismissConflict = (id: string) => {
+    removeConflict(id)
+    setConflicts(getConflictCount())
+    setConflictItems(
+      listConflicts().map((item) => ({
+        id: item.id,
+        endpoint: item.endpoint,
+        reason: item.reason,
+        createdAt: item.createdAt,
+      }))
+    )
   }
 
   const handleRefreshReferenceCache = async () => {
@@ -103,6 +148,25 @@ export function OfflineSyncPill() {
           清除衝突
         </Button>
       </div>
+      {conflictItems.length > 0 && (
+        <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-white/80 p-2 text-xs">
+          {conflictItems.slice(0, 8).map((item) => (
+            <div key={item.id} className="mb-2 rounded border p-2 last:mb-0">
+              <div className="font-semibold text-rose-700">{item.reason}</div>
+              <div className="text-muted-foreground">{item.endpoint}</div>
+              <div className="text-muted-foreground">{new Date(item.createdAt).toLocaleString("zh-TW")}</div>
+              <div className="mt-1 flex gap-1">
+                <Button size="sm" variant="outline" onClick={() => void handleRetryConflict(item.id)}>
+                  重試
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => handleDismissConflict(item.id)}>
+                  忽略
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

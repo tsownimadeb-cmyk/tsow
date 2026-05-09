@@ -224,6 +224,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
     startTransition(async () => {
       try {
+        // 基礎驗證
         const quantityByCode = new Map<string, number>()
         const amountByCode = new Map<string, number>()
         for (const item of items) {
@@ -245,323 +246,120 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           amountByCode.set(code, (amountByCode.get(code) || 0) + quantity * unitPrice)
         }
 
-        if (mode === "edit") {
-          const purchaseId = String(purchase?.id || "").trim()
-          const orderNo = String(purchase?.order_no || "").trim()
+        // 先嘗試使用離線 API（在線或離線都會試圖使用）
+        const purchaseId = mode === 'edit' ? (purchase?.id || `po-${Date.now()}`) : `po-${Date.now()}`
+        const poNumber = generateOrderNumber()
 
-          if (!purchaseId) {
-            toastApi.error("找不到進貨單 id，無法更新")
-            return
-          }
-          if (!orderNo) {
-            toastApi.error("找不到進貨單號，無法更新")
-            return
-          }
+        // 準備項目數據
+        const purchaseItems = items.map(item => ({
+          id: `item-${Math.random().toString(36).substring(7)}`,
+          product_pno: item.code,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          amount: item.quantity * item.unit_price,
+        }))
 
-          const headerPayload = {
-            supplier_id: formData.supplier_id || null,
-            order_date: formData.order_date,
-            total_amount: totalGoodsAmount,
-            shipping_fee: shippingFee,
-            status: "completed",
-            is_paid: formData.is_paid,
-            notes: formData.notes || null,
-          }
+        const payloadForApi = {
+          id: purchaseId,
+          po_number: poNumber,
+          supplier_id: formData.supplier_id || null,
+          order_date: formData.order_date,
+          delivery_date: formData.order_date, // 簡化：交期=訂購日
+          total_amount: totalGoodsAmount + shippingFee,
+          status: 'completed',
+          notes: formData.notes,
+          items: purchaseItems,
+        }
 
-          const updateWithShipping = await supabase.from("purchase_orders").update(headerPayload).eq("id", purchaseId)
-          if (updateWithShipping.error) {
-            const fallbackPayload = {
-              supplier_id: formData.supplier_id || null,
-              order_date: formData.order_date,
-              total_amount: totalGoodsAmount,
-              status: "completed",
-              is_paid: formData.is_paid,
-              notes: formData.notes || null,
-            }
-            const updateFallback = await supabase.from("purchase_orders").update(fallbackPayload).eq("id", purchaseId)
-            if (updateFallback.error) {
-              toastApi.error(updateFallback.error.message || "無法更新進貨單")
-              return
-            }
-          }
+        // 調用離線 API
+        const apiMethod = mode === 'edit' ? 'PUT' : 'POST'
+        const response = await fetch('/api/offline/purchases', {
+          method: apiMethod,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadForApi),
+        })
 
-          const deleteByOrderNo = await supabase.from("purchase_order_items").delete().eq("order_no", orderNo)
-          if (deleteByOrderNo.error) {
-            const deleteByPurchaseId = await supabase
-              .from("purchase_order_items")
-              .delete()
-              .eq("purchase_order_id", purchaseId)
-            if (deleteByPurchaseId.error) {
-              toastApi.error(deleteByPurchaseId.error.message || "無法更新進貨明細")
-              return
-            }
-          }
+        const responseData = await response.json()
 
-          await insertPurchaseItems(purchaseId, orderNo, items, supabase)
+        if (!response.ok) {
+          toastApi.error(responseData.error || '操作失敗')
+          return
+        }
 
-          const oldQuantityByCode = new Map<string, number>()
-          for (const oldItem of purchase?.items || []) {
-            const code = String(oldItem.code || "").trim()
-            const quantity = Number(oldItem.quantity || 0)
-            if (!code || !Number.isFinite(quantity)) continue
-            oldQuantityByCode.set(code, (oldQuantityByCode.get(code) || 0) + quantity)
-          }
+        // 如果在線模式成功，進行額外的庫存和應付帳款同步
+        if (!responseData.offline && supabase) {
+          try {
+            // 庫存計算邏輯
+            const oldQuantityByCode = mode === 'edit' && purchase?.items
+              ? new Map(purchase.items.map(item => [String(item.code || '').trim(), Number(item.quantity || 0)]))
+              : new Map<string, number>()
 
-          const allCodes = new Set<string>([...Array.from(oldQuantityByCode.keys()), ...Array.from(quantityByCode.keys())])
+            const allCodes = new Set<string>([
+              ...Array.from(oldQuantityByCode.keys()),
+              ...Array.from(quantityByCode.keys())
+            ])
 
-          for (const code of allCodes) {
-            const oldQty = Number(oldQuantityByCode.get(code) || 0)
-            const newQty = Number(quantityByCode.get(code) || 0)
-            const delta = newQty - oldQty
-            const hasEditedPurchaseLine = quantityByCode.has(code)
-            if (delta === 0 && !hasEditedPurchaseLine) continue
+            for (const code of allCodes) {
+              const oldQty = Number(oldQuantityByCode.get(code) || 0)
+              const newQty = Number(quantityByCode.get(code) || 0)
+              const delta = newQty - oldQty
 
-            const { data: product, error: productError } = await supabase
-              .from("products")
-              .select("code,stock_qty,purchase_qty_total,cost")
-              .eq("code", code)
-              .single()
+              if (delta === 0) continue
 
-            if (productError || !product) {
-              throw new Error(productError?.message || `找不到商品 ${code}`)
-            }
+              const { data: product } = await supabase
+                .from("products")
+                .select("code,stock_qty,purchase_qty_total,cost")
+                .eq("code", code)
+                .single()
 
-            const coalescedStockQty = Number(product.stock_qty ?? 0)
-            const coalescedPurchaseQtyTotal = Number(product.purchase_qty_total ?? 0)
-            const coalescedCurrentCost = Number(product.cost ?? 0)
+              if (!product) continue
 
-            const nextStockQty = Math.max(0, coalescedStockQty + delta)
-            const nextPurchaseQtyTotal = Math.max(0, coalescedPurchaseQtyTotal + delta)
+              const coalescedStockQty = Number(product.stock_qty ?? 0)
+              const coalescedPurchaseQtyTotal = Number(product.purchase_qty_total ?? 0)
 
-            const updatePayload: Record<string, number> = {
-              stock_qty: nextStockQty,
-              purchase_qty_total: nextPurchaseQtyTotal,
-            }
+              const nextStockQty = Math.max(0, coalescedStockQty + delta)
+              const nextPurchaseQtyTotal = Math.max(0, coalescedPurchaseQtyTotal + delta)
 
-            if (hasEditedPurchaseLine) {
+              const updatePayload: Record<string, number> = {
+                stock_qty: nextStockQty,
+                purchase_qty_total: nextPurchaseQtyTotal,
+              }
+
               const itemTotalAmount = Number(amountByCode.get(code) ?? 0)
               const allocatedShippingForItem = totalGoodsAmount > 0 ? (itemTotalAmount / totalGoodsAmount) * shippingFee : 0
               const allocatedShippingPerUnit = newQty > 0 ? allocatedShippingForItem / newQty : 0
-              const baseUnitCost = newQty > 0 ? itemTotalAmount / newQty : coalescedCurrentCost
-              const nextCost = baseUnitCost + allocatedShippingPerUnit
-              updatePayload.cost = nextCost
-            } else if (nextPurchaseQtyTotal <= 0) {
-              updatePayload.cost = 0
+              const baseUnitCost = newQty > 0 ? itemTotalAmount / newQty : 0
+              updatePayload.cost = baseUnitCost + allocatedShippingPerUnit
+
+              await supabase
+                .from("products")
+                .update(updatePayload)
+                .eq("code", code)
             }
 
-            const { error: updateInventoryError } = await supabase
-              .from("products")
-              .update(updatePayload)
-              .eq("code", code)
-
-            if (updateInventoryError) {
-              throw new Error(updateInventoryError.message)
-            }
-          }
-
-          await recalculateProductCostsByCodes(supabase, Array.from(allCodes))
-
-          await syncAccountsPayable(
-            purchaseId,
-            formData.supplier_id || null,
-            Number(totalGoodsAmount),
-            formData.order_date,
-            Boolean(formData.is_paid),
-          )
-
-          toast({
-            title: "成功",
-            description: "進貨單更新成功",
-          })
-
-          setIsOpen(false)
-          router.refresh()
-          return
-        }
-
-        const orderNo = generateOrderNumber()
-
-        const { data: order, error: orderError } = await supabase
-          .from("purchase_orders")
-          .insert({
-            order_no: orderNo,
-            supplier_id: formData.supplier_id || null,
-            order_date: formData.order_date,
-            total_amount: totalGoodsAmount,
-            shipping_fee: shippingFee,
-            status: "completed",
-            is_paid: formData.is_paid,
-            notes: formData.notes || null,
-          })
-          .select()
-          .single()
-
-        if (orderError || !order) {
-          const fallbackOrder = await supabase
-            .from("purchase_orders")
-            .insert({
-              order_no: orderNo,
-              supplier_id: formData.supplier_id || null,
-              order_date: formData.order_date,
-              total_amount: totalGoodsAmount,
-              status: "completed",
-              is_paid: formData.is_paid,
-              notes: formData.notes || null,
-            })
-            .select()
-            .single()
-
-          if (!fallbackOrder.error && fallbackOrder.data) {
-            const fallbackCreatedOrder = fallbackOrder.data
-            await insertPurchaseItems(fallbackCreatedOrder.id, orderNo, items, supabase)
-
-            const inventoryItems = Array.from(quantityByCode.entries()).map(([code, quantity]) => ({ code, quantity }))
-
-            await Promise.all(
-              inventoryItems.map(async (item) => {
-                console.log("正在處理單據:", orderNo, "商品:", item.code)
-                console.log("準備更新庫存 - 商品:", item.code, "數量:", item.quantity)
-
-                const { data: currentProduct, error: currentProductError } = await supabase
-                  .from("products")
-                  .select("code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock")
-                  .eq("code", item.code)
-                  .single()
-
-                if (currentProductError || !currentProduct) {
-                  const message = currentProductError?.message || `找不到商品 ${item.code}`
-                  console.error("[PurchaseDialog] 讀取商品失敗:", currentProductError)
-                  throw new Error(message)
-                }
-
-                const coalescedStockQty = Number(currentProduct.stock_qty ?? 0)
-                const coalescedPurchaseQtyTotal = Number(currentProduct.purchase_qty_total ?? 0)
-                const coalescedCurrentCost = Number(currentProduct.cost ?? 0)
-                const itemTotalAmount = Number(amountByCode.get(item.code) ?? 0)
-                const allocatedShippingForItem = totalGoodsAmount > 0 ? (itemTotalAmount / totalGoodsAmount) * shippingFee : 0
-                const allocatedShippingPerUnit = item.quantity > 0 ? allocatedShippingForItem / item.quantity : 0
-                const baseUnitCost = item.quantity > 0 ? itemTotalAmount / item.quantity : coalescedCurrentCost
-                const nextCost = baseUnitCost + allocatedShippingPerUnit
-
-                const { error: updateInventoryError } = await supabase
-                  .from("products")
-                  .update({
-                    stock_qty: coalescedStockQty + item.quantity,
-                    purchase_qty_total: coalescedPurchaseQtyTotal + item.quantity,
-                    cost: nextCost,
-                  })
-                  .eq("code", item.code)
-
-                if (updateInventoryError) {
-                  console.error("[PurchaseDialog] 更新庫存失敗:", updateInventoryError)
-                  throw new Error(`成本更新失敗：${updateInventoryError.message}`)
-                }
-              }),
-            )
-
-            await recalculateProductCostsByCodes(
-              supabase,
-              inventoryItems.map((item) => item.code),
-            )
-
+            // 同步應付帳款
             await syncAccountsPayable(
-              String(fallbackCreatedOrder.id),
-              fallbackCreatedOrder.supplier_id,
-              Number(fallbackCreatedOrder.total_amount),
-              fallbackCreatedOrder.order_date,
+              purchaseId,
+              formData.supplier_id || null,
+              totalGoodsAmount + shippingFee,
+              formData.order_date,
               Boolean(formData.is_paid),
             )
-
-            toast({
-              title: "成功",
-              description: "進貨單建立成功",
-            })
-
-            setIsOpen(false)
-            setFormData({ supplier_id: "", order_date: new Date().toISOString().split("T")[0], notes: "", shipping_fee: 0, is_paid: false })
-            setItems([])
-            router.refresh()
-            return
+          } catch (syncError) {
+            console.error('[進貨] 庫存或應付帳款同步失敗:', syncError)
+            // 不中斷使用者體驗，因為基本操作已成功
           }
-
-          const message = orderError?.message || "無法建立進貨單，請稍後再試"
-          console.error("[PurchaseDialog] 建立進貨單失敗:", orderError)
-          toastApi.error(message)
-          return
         }
-
-        await insertPurchaseItems(order.id, orderNo, items, supabase)
-
-        const inventoryItems = Array.from(quantityByCode.entries()).map(([code, quantity]) => ({ code, quantity }))
-
-        await Promise.all(
-          inventoryItems.map(async (item) => {
-            console.log("正在處理單據:", orderNo, "商品:", item.code)
-            console.log("準備更新庫存 - 商品:", item.code, "數量:", item.quantity)
-
-            const { data: currentProduct, error: currentProductError } = await supabase
-              .from("products")
-              .select("code,name,spec,unit,category,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock")
-              .eq("code", item.code)
-              .single()
-
-            if (currentProductError || !currentProduct) {
-              const message = currentProductError?.message || `找不到商品 ${item.code}`
-              console.error("[PurchaseDialog] 讀取商品失敗:", currentProductError)
-              throw new Error(message)
-            }
-
-            const coalescedStockQty = Number(currentProduct.stock_qty ?? 0)
-            const coalescedPurchaseQtyTotal = Number(currentProduct.purchase_qty_total ?? 0)
-            const coalescedCurrentCost = Number(currentProduct.cost ?? 0)
-            const itemTotalAmount = Number(amountByCode.get(item.code) ?? 0)
-            const allocatedShippingForItem = totalGoodsAmount > 0 ? (itemTotalAmount / totalGoodsAmount) * shippingFee : 0
-            const allocatedShippingPerUnit = item.quantity > 0 ? allocatedShippingForItem / item.quantity : 0
-            const baseUnitCost = item.quantity > 0 ? itemTotalAmount / item.quantity : coalescedCurrentCost
-            const nextCost = baseUnitCost + allocatedShippingPerUnit
-
-            const { error: updateInventoryError } = await supabase
-              .from("products")
-              .update({
-                stock_qty: coalescedStockQty + item.quantity,
-                purchase_qty_total: coalescedPurchaseQtyTotal + item.quantity,
-                cost: nextCost,
-              })
-              .eq("code", item.code)
-
-            if (updateInventoryError) {
-              console.error("[PurchaseDialog] 更新庫存失敗:", updateInventoryError)
-              throw new Error(`成本更新失敗：${updateInventoryError.message}`)
-            }
-          }),
-        )
-
-        await recalculateProductCostsByCodes(
-          supabase,
-          inventoryItems.map((item) => item.code),
-        )
-
-        await syncAccountsPayable(
-          String(order.id),
-          order.supplier_id,
-          Number(order.total_amount),
-          order.order_date,
-          Boolean(formData.is_paid),
-        )
 
         toast({
           title: "成功",
-          description: "進貨單建立成功",
+          description: responseData.offline ? "已儲存至本地，網路恢復後會同步" : "進貨單已更新",
         })
 
         setIsOpen(false)
-        setFormData({ supplier_id: "", order_date: new Date().toISOString().split("T")[0], notes: "", shipping_fee: 0, is_paid: false })
-        setItems([])
         router.refresh()
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "發生未知錯誤"
-        console.error("[PurchaseDialog] 建立流程失敗:", message)
-        toastApi.error(message)
+      } catch (error: any) {
+        toastApi.error(error.message || '操作失敗，請稍後再試')
       }
     })
   }

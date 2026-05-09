@@ -82,6 +82,33 @@ export function getConflictCount() {
   return getConflicts().length
 }
 
+export function listConflicts() {
+  return getConflicts()
+}
+
+export function removeConflict(id: string) {
+  const conflicts = getConflicts().filter((item) => item.id !== id)
+  setConflicts(conflicts)
+}
+
+export function requeueConflict(id: string) {
+  const conflicts = getConflicts()
+  const target = conflicts.find((item) => item.id === id)
+  if (!target) return false
+
+  const queue = getQueue()
+  queue.push({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    endpoint: target.endpoint,
+    method: "PUT",
+    body: target.payload,
+    createdAt: Date.now(),
+  })
+  setQueue(queue)
+  removeConflict(id)
+  return true
+}
+
 export function clearConflicts() {
   setConflicts([])
 }

@@ -14,6 +14,9 @@ export function PwaBootstrap() {
 
     const sync = async () => {
       await flushPendingOperations()
+      await fetch("/api/sync").catch(() => {
+        // Ignore server sync errors when offline.
+      })
       await refreshReferenceCaches()
     }
 

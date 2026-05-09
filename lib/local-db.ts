@@ -82,6 +82,57 @@ export function initLocalDb() {
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS purchases (
+      id TEXT PRIMARY KEY,
+      po_number TEXT UNIQUE,
+      supplier_id TEXT,
+      order_date TEXT,
+      delivery_date TEXT,
+      total_amount REAL DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      notes TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_items (
+      id TEXT PRIMARY KEY,
+      purchase_id TEXT,
+      product_pno TEXT,
+      quantity INTEGER DEFAULT 0,
+      unit_price REAL DEFAULT 0,
+      amount REAL DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
+      FOREIGN KEY (purchase_id) REFERENCES purchases(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sales (
+      id TEXT PRIMARY KEY,
+      so_number TEXT UNIQUE,
+      customer_id TEXT,
+      order_date TEXT,
+      delivery_date TEXT,
+      delivery_method TEXT,
+      total_amount REAL DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      notes TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS sale_items (
+      id TEXT PRIMARY KEY,
+      sale_id TEXT,
+      product_pno TEXT,
+      quantity INTEGER DEFAULT 0,
+      unit_price REAL DEFAULT 0,
+      amount REAL DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
+      FOREIGN KEY (sale_id) REFERENCES sales(id)
+    );
+
     CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY,
       operation TEXT NOT NULL,
@@ -94,9 +145,16 @@ export function initLocalDb() {
       updated_at INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS offline_snapshots (
+      cache_key TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON sync_queue(created_at);
     CREATE INDEX IF NOT EXISTS idx_purchase_returns_synced ON purchase_returns(synced);
     CREATE INDEX IF NOT EXISTS idx_sales_returns_synced ON sales_returns(synced);
+    CREATE INDEX IF NOT EXISTS idx_offline_snapshots_updated_at ON offline_snapshots(updated_at);
   `);
 
   return db;
@@ -152,4 +210,33 @@ export function updateSyncError(queueId: string, error: string) {
     SET retry_count = retry_count + 1, last_error = ?, updated_at = ?
     WHERE id = ?
   `).run(error, Date.now(), queueId);
+}
+
+export function setOfflineSnapshot(cacheKey: string, payload: unknown) {
+  const db = getLocalDb();
+  db.prepare(`
+    INSERT INTO offline_snapshots (cache_key, payload, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(cache_key) DO UPDATE SET
+      payload = excluded.payload,
+      updated_at = excluded.updated_at
+  `).run(cacheKey, JSON.stringify(payload), Date.now());
+}
+
+export function getOfflineSnapshot<T = unknown>(cacheKey: string): { data: T; updatedAt: number } | null {
+  const db = getLocalDb();
+  const row = db
+    .prepare('SELECT payload, updated_at FROM offline_snapshots WHERE cache_key = ?')
+    .get(cacheKey) as { payload: string; updated_at: number } | undefined;
+
+  if (!row) return null;
+
+  try {
+    return {
+      data: JSON.parse(row.payload) as T,
+      updatedAt: Number(row.updated_at) || 0,
+    };
+  } catch {
+    return null;
+  }
 }
