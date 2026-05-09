@@ -6,7 +6,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { fetchSalesRows, normalizeSales } from "@/lib/sales"
-import { getOfflineSnapshot, setOfflineSnapshot } from "@/lib/local-db"
+import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export default async function SalesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -34,7 +35,7 @@ export default async function SalesPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const supabase = await createClient();
+  const localOnly = isLocalOnlyMode();
 
   let isOffline = false;
   let sales = [];
@@ -43,12 +44,24 @@ export default async function SalesPage(props: any) {
   let total = 0;
   let totalPages = 1;
 
-  try {
-    const [salesQueryResult, customersResult, productsResult] = await Promise.all([
-      fetchSalesRows(supabase, from, to, searchText, productSearchText),
-      supabase.from("customers").select("*").order("code"),
-      supabase.from("products").select("*").order("code"),
-    ]);
+  if (localOnly) {
+    isOffline = true;
+    const snapshot = loadDesktopPageSnapshot<any>(DESKTOP_OFFLINE_KEYS.salesPage);
+    if (snapshot?.data) {
+      sales = snapshot.data.sales || [];
+      customers = snapshot.data.customers || [];
+      products = snapshot.data.products || [];
+      total = sales.length;
+      totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    }
+  } else {
+    try {
+      const supabase = await createClient();
+      const [salesQueryResult, customersResult, productsResult] = await Promise.all([
+        fetchSalesRows(supabase, from, to, searchText, productSearchText),
+        supabase.from("customers").select("*").order("code"),
+        supabase.from("products").select("*").order("code"),
+      ]);
 
     const { rows: salesRaw, totalCount, warning: salesWarning } = salesQueryResult;
     customers = customersResult.data || [];
@@ -62,20 +75,21 @@ export default async function SalesPage(props: any) {
     total = totalCount || 0;
     totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-    // 儲存快照
-    setOfflineSnapshot('desktop-sales-page', { sales, customers, products });
-  } catch (error) {
-    console.error("[SalesPage] 線上查詢失敗，嘗試本地快照:", error);
-    isOffline = true;
+      // 儲存快照
+      saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.salesPage, { sales, customers, products });
+    } catch (error) {
+      console.error("[SalesPage] 線上查詢失敗，嘗試本地快照:", error);
+      isOffline = true;
 
-    // 從本地快照讀取
-    const snapshot = getOfflineSnapshot<any>('desktop-sales-page');
-    if (snapshot && snapshot.data) {
-      sales = snapshot.data.sales || [];
-      customers = snapshot.data.customers || [];
-      products = snapshot.data.products || [];
-      total = sales.length;
-      totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      // 從本地快照讀取
+      const snapshot = loadDesktopPageSnapshot<any>(DESKTOP_OFFLINE_KEYS.salesPage);
+      if (snapshot && snapshot.data) {
+        sales = snapshot.data.sales || [];
+        customers = snapshot.data.customers || [];
+        products = snapshot.data.products || [];
+        total = sales.length;
+        totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      }
     }
   }
 

@@ -6,7 +6,8 @@ import { ErrorToast } from "@/components/ui/error-toast"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { fetchPurchasesRows, normalizePurchases } from "@/lib/purchases"
-import { getOfflineSnapshot, setOfflineSnapshot } from "@/lib/local-db"
+import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export default async function PurchasesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -29,7 +30,7 @@ export default async function PurchasesPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const supabase = await createClient();
+  const localOnly = isLocalOnlyMode();
 
   let isOffline = false;
   let purchases = [];
@@ -38,16 +39,28 @@ export default async function PurchasesPage(props: any) {
   let total = 0;
   let totalPages = 1;
 
-  try {
-    const [purchasesQueryResult, suppliersSortedResult, productsResult] = await Promise.all([
-      fetchPurchasesRows(supabase, from, to, searchText),
-      supabase
-        .from("suppliers")
-        .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
-        .order("sort_order", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false }),
-      supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
-    ]);
+  if (localOnly) {
+    isOffline = true;
+    const snapshot = loadDesktopPageSnapshot<any>(DESKTOP_OFFLINE_KEYS.purchasesPage);
+    if (snapshot?.data) {
+      purchases = snapshot.data.purchases || [];
+      suppliers = snapshot.data.suppliers || [];
+      products = snapshot.data.products || [];
+      total = purchases.length;
+      totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    }
+  } else {
+    try {
+      const supabase = await createClient();
+      const [purchasesQueryResult, suppliersSortedResult, productsResult] = await Promise.all([
+        fetchPurchasesRows(supabase, from, to, searchText),
+        supabase
+          .from("suppliers")
+          .select("id,name,sort_order,contact_person,phone,phone2,phone3,email,address,notes,created_at,updated_at")
+          .order("sort_order", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+        supabase.from("products").select("code,name,spec,unit,category,base_price,purchase_price,cost,price,sale_price,stock_qty,purchase_qty_total,safety_stock,created_at,updated_at").order("code"),
+      ]);
 
     const { rows: purchasesRaw, totalCount, warning: purchasesWarning } = purchasesQueryResult;
 
@@ -73,20 +86,21 @@ export default async function PurchasesPage(props: any) {
     total = totalCount || 0;
     totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-    // 儲存快照
-    setOfflineSnapshot('desktop-purchases-page', { purchases, suppliers, products });
-  } catch (error) {
-    console.error("[PurchasesPage] 線上查詢失敗，嘗試本地快照:", error);
-    isOffline = true;
+      // 儲存快照
+      saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.purchasesPage, { purchases, suppliers, products });
+    } catch (error) {
+      console.error("[PurchasesPage] 線上查詢失敗，嘗試本地快照:", error);
+      isOffline = true;
 
-    // 從本地快照讀取
-    const snapshot = getOfflineSnapshot<any>('desktop-purchases-page');
-    if (snapshot && snapshot.data) {
-      purchases = snapshot.data.purchases || [];
-      suppliers = snapshot.data.suppliers || [];
-      products = snapshot.data.products || [];
-      total = purchases.length;
-      totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      // 從本地快照讀取
+      const snapshot = loadDesktopPageSnapshot<any>(DESKTOP_OFFLINE_KEYS.purchasesPage);
+      if (snapshot && snapshot.data) {
+        purchases = snapshot.data.purchases || [];
+        suppliers = snapshot.data.suppliers || [];
+        products = snapshot.data.products || [];
+        total = purchases.length;
+        totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      }
     }
   }
 

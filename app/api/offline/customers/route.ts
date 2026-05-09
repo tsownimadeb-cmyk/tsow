@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeCustomerSnapshot, upsertCustomerSnapshot } from "@/lib/desktop-offline-mutations"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 const CUSTOMER_REFERENCE_TABLES = [
   { table: "sales_orders", columns: ["customer_cno"] },
@@ -59,6 +60,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const payload = body?.payload || body
 
+  if (isLocalOnlyMode()) {
+    upsertCustomerSnapshot(payload)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
+  }
+
   try {
     const supabase = await createClient()
     const mapped = await buildCustomerPayload(supabase, payload)
@@ -89,6 +95,11 @@ export async function PUT(request: NextRequest) {
 
   if (!code) {
     return NextResponse.json({ success: false, message: "缺少客戶編號" }, { status: 400 })
+  }
+
+  if (isLocalOnlyMode()) {
+    upsertCustomerSnapshot({ code: payload?.code || code, ...payload })
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
 
   try {
@@ -158,6 +169,11 @@ export async function DELETE(request: NextRequest) {
   const code = String(searchParams.get("code") || "").trim()
   if (!code) {
     return NextResponse.json({ success: false, message: "缺少客戶編號" }, { status: 400 })
+  }
+
+  if (isLocalOnlyMode()) {
+    removeCustomerSnapshot(code)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
 
   try {

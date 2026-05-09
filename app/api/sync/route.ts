@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPendingChanges } from '@/lib/sync-service';
+import { isLocalOnlyMode } from '@/lib/runtime-mode';
 
 /**
  * 手動觸發同步
  * GET /api/sync
  */
 export async function GET(request: NextRequest) {
+  if (isLocalOnlyMode()) {
+    return NextResponse.json({
+      success: true,
+      synced: 0,
+      failed: 0,
+      localOnly: true,
+    });
+  }
+
   try {
     const result = await syncPendingChanges();
 

@@ -1,6 +1,7 @@
 import { MOBILE_CACHE_KEYS, saveMobileCache } from "@/lib/mobile-cache"
 
 const LAST_REFERENCE_REFRESH_KEY = "ims-mobile-cache-last-refresh"
+const MIN_REFERENCE_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 type RefreshResult = {
   refreshed: number
@@ -23,6 +24,11 @@ function setLastReferenceRefreshAt(timestamp: number) {
 export async function refreshReferenceCaches(): Promise<RefreshResult> {
   if (typeof window === "undefined") return { refreshed: 0, lastRefreshAt: null }
   if (!navigator.onLine) return { refreshed: 0, lastRefreshAt: getLastReferenceRefreshAt() }
+
+  const lastRefreshAt = getLastReferenceRefreshAt()
+  if (lastRefreshAt && Date.now() - lastRefreshAt < MIN_REFERENCE_REFRESH_INTERVAL_MS) {
+    return { refreshed: 0, lastRefreshAt }
+  }
 
   const targets: Array<{ endpoint: string; key: string }> = [
     { endpoint: "/api/mobile-cache/products", key: MOBILE_CACHE_KEYS.productsAll },

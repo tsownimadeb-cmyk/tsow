@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeProductSnapshot, upsertProductSnapshot } from "@/lib/desktop-offline-mutations"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
   const payload = body?.payload || body
+
+  if (isLocalOnlyMode()) {
+    upsertProductSnapshot(payload)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
+  }
 
   try {
     const supabase = await createClient()
@@ -30,6 +36,11 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: false, message: "缺少商品代號" }, { status: 400 })
   }
 
+  if (isLocalOnlyMode()) {
+    upsertProductSnapshot({ code, ...payload })
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
+  }
+
   try {
     const supabase = await createClient()
     const { data, error } = await supabase.from("products").update(payload).eq("code", code).select("*").single()
@@ -49,6 +60,11 @@ export async function DELETE(request: NextRequest) {
   const code = String(searchParams.get("code") || "").trim()
   if (!code) {
     return NextResponse.json({ success: false, message: "缺少商品代號" }, { status: 400 })
+  }
+
+  if (isLocalOnlyMode()) {
+    removeProductSnapshot(code)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
 
   try {

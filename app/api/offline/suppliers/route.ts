@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeSupplierSnapshot, upsertSupplierSnapshot } from "@/lib/desktop-offline-mutations"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
   const payload = body?.payload || body
+
+  if (isLocalOnlyMode()) {
+    upsertSupplierSnapshot(payload)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
+  }
 
   try {
     const supabase = await createClient()
@@ -30,6 +36,11 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: false, message: "缺少供應商 ID" }, { status: 400 })
   }
 
+  if (isLocalOnlyMode()) {
+    upsertSupplierSnapshot({ id, ...payload })
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
+  }
+
   try {
     const supabase = await createClient()
     const { data, error } = await supabase.from("suppliers").update(payload).eq("id", id).select("*").single()
@@ -49,6 +60,11 @@ export async function DELETE(request: NextRequest) {
   const id = String(searchParams.get("id") || "").trim()
   if (!id) {
     return NextResponse.json({ success: false, message: "缺少供應商 ID" }, { status: 400 })
+  }
+
+  if (isLocalOnlyMode()) {
+    removeSupplierSnapshot(id)
+    return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
 
   try {

@@ -6,43 +6,51 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export default async function SuppliersPage() {
   let suppliers: any[] = []
   let loadedFromOffline = false
+  const localOnly = isLocalOnlyMode()
 
-  try {
-    const supabase = await createClient()
+  if (localOnly) {
+    const snapshot = loadDesktopPageSnapshot<{ suppliers: any[] }>(DESKTOP_OFFLINE_KEYS.suppliersPage)
+    suppliers = snapshot?.data?.suppliers || []
+    loadedFromOffline = true
+  } else {
+    try {
+      const supabase = await createClient()
 
-    const sortedResult = await supabase
-      .from("suppliers")
-      .select("*")
-      .order("sort_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false })
-
-    if (sortedResult.error) {
-      const fallbackResult = await supabase
+      const sortedResult = await supabase
         .from("suppliers")
         .select("*")
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false })
-      if (fallbackResult.error) {
-        throw fallbackResult.error
-      }
-      suppliers = fallbackResult.data || []
-    } else {
-      suppliers = sortedResult.data || []
-    }
 
-    saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.suppliersPage, {
-      suppliers,
-    })
-  } catch (error) {
-    const snapshot = loadDesktopPageSnapshot<{ suppliers: any[] }>(DESKTOP_OFFLINE_KEYS.suppliersPage)
-    if (snapshot?.data) {
-      suppliers = snapshot.data.suppliers || []
-      loadedFromOffline = true
-    } else {
-      throw error
+      if (sortedResult.error) {
+        const fallbackResult = await supabase
+          .from("suppliers")
+          .select("*")
+          .order("created_at", { ascending: false })
+        if (fallbackResult.error) {
+          throw fallbackResult.error
+        }
+        suppliers = fallbackResult.data || []
+      } else {
+        suppliers = sortedResult.data || []
+      }
+
+      saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.suppliersPage, {
+        suppliers,
+      })
+    } catch (error) {
+      const snapshot = loadDesktopPageSnapshot<{ suppliers: any[] }>(DESKTOP_OFFLINE_KEYS.suppliersPage)
+      if (snapshot?.data) {
+        suppliers = snapshot.data.suppliers || []
+        loadedFromOffline = true
+      } else {
+        throw error
+      }
     }
   }
 

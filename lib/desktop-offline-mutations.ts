@@ -92,3 +92,27 @@ export function removeSupplierSnapshot(id: string) {
     suppliers,
   })
 }
+
+export function upsertPurchaseSnapshot(purchase: AnyRecord) {
+  const snapshot = loadDesktopPageSnapshot<{ purchases: AnyRecord[]; suppliers?: AnyRecord[]; products?: AnyRecord[] }>(
+    DESKTOP_OFFLINE_KEYS.purchasesPage,
+  )
+  const previous = snapshot?.data?.purchases || []
+  const purchases = upsertByKey(previous, purchase, "id")
+  saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.purchasesPage, {
+    ...(snapshot?.data || {}),
+    purchases,
+  })
+}
+
+export function upsertSaleSnapshot(sale: AnyRecord) {
+  const snapshot = loadDesktopPageSnapshot<{ sales: AnyRecord[]; customers?: AnyRecord[]; products?: AnyRecord[] }>(
+    DESKTOP_OFFLINE_KEYS.salesPage,
+  )
+  const previous = snapshot?.data?.sales || []
+  const sales = upsertByKey(previous, sale, "id")
+  saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.salesPage, {
+    ...(snapshot?.data || {}),
+    sales,
+  })
+}

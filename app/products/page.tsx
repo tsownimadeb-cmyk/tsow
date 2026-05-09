@@ -9,6 +9,7 @@ import { fetchProductsRows, normalizeProducts } from "@/lib/products"
 import { RecalcStockBtn } from "@/components/products/recalc-stock-btn"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export default async function ProductsPage(props: any) {
   const searchParams = await props.searchParams;
@@ -28,35 +29,45 @@ export default async function ProductsPage(props: any) {
   let products: any[] = []
   let total = 0
   let loadedFromOffline = false
+  const localOnly = isLocalOnlyMode()
 
-  try {
-    const supabase = await createClient()
-    const { rows: productsRaw, totalCount, warning: productsWarning } = await fetchProductsRows(supabase, from, to, searchText)
-
-    if (productsWarning) {
-      console.error("[ProductsPage] products 查詢失敗:", productsWarning)
-      throw new Error(productsWarning)
-    }
-
-    products = normalizeProducts(productsRaw || [])
-    total = totalCount || 0
-
-    saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.productsPage, {
-      products,
-      total,
-      page,
-      searchText,
-    })
-  } catch (error) {
+  if (localOnly) {
     const snapshot = loadDesktopPageSnapshot<{ products: any[]; total: number }>(
       DESKTOP_OFFLINE_KEYS.productsPage,
     )
-    if (snapshot?.data) {
-      products = snapshot.data.products || []
-      total = snapshot.data.total || products.length
-      loadedFromOffline = true
-    } else {
-      throw error
+    products = snapshot?.data?.products || []
+    total = snapshot?.data?.total || products.length
+    loadedFromOffline = true
+  } else {
+    try {
+      const supabase = await createClient()
+      const { rows: productsRaw, totalCount, warning: productsWarning } = await fetchProductsRows(supabase, from, to, searchText)
+
+      if (productsWarning) {
+        console.error("[ProductsPage] products 查詢失敗:", productsWarning)
+        throw new Error(productsWarning)
+      }
+
+      products = normalizeProducts(productsRaw || [])
+      total = totalCount || 0
+
+      saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.productsPage, {
+        products,
+        total,
+        page,
+        searchText,
+      })
+    } catch (error) {
+      const snapshot = loadDesktopPageSnapshot<{ products: any[]; total: number }>(
+        DESKTOP_OFFLINE_KEYS.productsPage,
+      )
+      if (snapshot?.data) {
+        products = snapshot.data.products || []
+        total = snapshot.data.total || products.length
+        loadedFromOffline = true
+      } else {
+        throw error
+      }
     }
   }
 

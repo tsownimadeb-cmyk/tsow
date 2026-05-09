@@ -8,6 +8,7 @@ import { Plus } from "lucide-react"
 import { fetchCustomersRows, normalizeCustomers } from "@/lib/customers"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export default async function CustomersPage(props: any) {
   const searchParams = await props.searchParams;
@@ -27,34 +28,44 @@ export default async function CustomersPage(props: any) {
   let customers: any[] = [];
   let total = 0;
   let loadedFromOffline = false;
+  const localOnly = isLocalOnlyMode();
 
-  try {
-    const supabase = await createClient();
-    const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to, searchText);
-    if (customersWarning) {
-      console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
-      throw new Error(customersWarning);
-    }
-
-    customers = normalizeCustomers(customersRaw || []);
-    total = totalCount || 0;
-
-    saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.customersPage, {
-      customers,
-      total,
-      page,
-      searchText,
-    });
-  } catch (error) {
+  if (localOnly) {
     const snapshot = loadDesktopPageSnapshot<{ customers: any[]; total: number }>(
       DESKTOP_OFFLINE_KEYS.customersPage,
     );
-    if (snapshot?.data) {
-      customers = snapshot.data.customers || [];
-      total = snapshot.data.total || customers.length;
-      loadedFromOffline = true;
-    } else {
-      throw error;
+    customers = snapshot?.data?.customers || [];
+    total = snapshot?.data?.total || customers.length;
+    loadedFromOffline = true;
+  } else {
+    try {
+      const supabase = await createClient();
+      const { rows: customersRaw, totalCount, warning: customersWarning } = await fetchCustomersRows(supabase, from, to, searchText);
+      if (customersWarning) {
+        console.error("[CustomersPage] 查詢 customers 失敗:", customersWarning);
+        throw new Error(customersWarning);
+      }
+
+      customers = normalizeCustomers(customersRaw || []);
+      total = totalCount || 0;
+
+      saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.customersPage, {
+        customers,
+        total,
+        page,
+        searchText,
+      });
+    } catch (error) {
+      const snapshot = loadDesktopPageSnapshot<{ customers: any[]; total: number }>(
+        DESKTOP_OFFLINE_KEYS.customersPage,
+      );
+      if (snapshot?.data) {
+        customers = snapshot.data.customers || [];
+        total = snapshot.data.total || customers.length;
+        loadedFromOffline = true;
+      } else {
+        throw error;
+      }
     }
   }
 

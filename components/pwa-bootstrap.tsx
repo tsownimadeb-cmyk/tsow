@@ -3,9 +3,12 @@
 import { useEffect } from "react"
 import { flushPendingOperations } from "@/lib/mobile-offline-queue"
 import { refreshReferenceCaches } from "@/lib/mobile-cache-sync"
+import { isLocalOnlyMode } from "@/lib/runtime-mode"
 
 export function PwaBootstrap() {
   useEffect(() => {
+    const localOnly = isLocalOnlyMode()
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {
         // Keep app usable even if service worker registration fails.
@@ -14,10 +17,13 @@ export function PwaBootstrap() {
 
     const sync = async () => {
       await flushPendingOperations()
-      await fetch("/api/sync").catch(() => {
-        // Ignore server sync errors when offline.
-      })
-      await refreshReferenceCaches()
+
+      if (!localOnly) {
+        await fetch("/api/sync").catch(() => {
+          // Ignore server sync errors when offline.
+        })
+        await refreshReferenceCaches()
+      }
     }
 
     void sync()
@@ -31,7 +37,7 @@ export function PwaBootstrap() {
       if (navigator.onLine) {
         void sync()
       }
-    }, 20000)
+    }, 120000)
 
     return () => {
       window.removeEventListener("online", onOnline)

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { addToSyncQueue, setOfflineSnapshot, getLocalDb } from '@/lib/local-db';
+import { upsertPurchaseSnapshot } from '@/lib/desktop-offline-mutations';
+import { isLocalOnlyMode } from '@/lib/runtime-mode';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -9,6 +11,20 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status = 'draft', notes, items } = body;
+
+    if (isLocalOnlyMode()) {
+      upsertPurchaseSnapshot({
+        id,
+        order_no: po_number,
+        supplier_id,
+        order_date,
+        total_amount: total_amount || 0,
+        status,
+        notes,
+        items,
+      });
+      return NextResponse.json({ success: true, offline: true, localOnly: true, id });
+    }
 
     // 嘗試線上操作
     try {
@@ -114,6 +130,20 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status, notes, items } = body;
+
+    if (isLocalOnlyMode()) {
+      upsertPurchaseSnapshot({
+        id,
+        order_no: po_number,
+        supplier_id,
+        order_date,
+        total_amount: total_amount || 0,
+        status,
+        notes,
+        items,
+      });
+      return NextResponse.json({ success: true, offline: true, localOnly: true, id });
+    }
 
     // 嘗試線上操作
     try {
