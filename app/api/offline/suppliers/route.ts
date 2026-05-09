@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeSupplierSnapshot, upsertSupplierSnapshot } from "@/lib/desktop-offline-mutations"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
   const payload = body?.payload || body
 
-  if (isLocalOnlyMode()) {
+  if (await isLocalOnlyMode()) {
     upsertSupplierSnapshot(payload)
     return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: false, message: "缺少供應商 ID" }, { status: 400 })
   }
 
-  if (isLocalOnlyMode()) {
+  if (await isLocalOnlyMode()) {
     upsertSupplierSnapshot({ id, ...payload })
     return NextResponse.json({ success: true, offline: true, localOnly: true })
   }
@@ -62,7 +62,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, message: "缺少供應商 ID" }, { status: 400 })
   }
 
-  if (isLocalOnlyMode()) {
+  if (await isLocalOnlyMode()) {
     removeSupplierSnapshot(id)
     return NextResponse.json({ success: true, offline: true, localOnly: true })
   }

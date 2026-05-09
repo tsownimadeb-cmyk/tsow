@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { fetchSalesRows, normalizeSales } from "@/lib/sales"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
 export default async function SalesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -35,7 +35,7 @@ export default async function SalesPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const localOnly = isLocalOnlyMode();
+  const localOnly = await isLocalOnlyMode();
 
   let isOffline = false;
   let sales = [];
@@ -43,6 +43,7 @@ export default async function SalesPage(props: any) {
   let products = [];
   let total = 0;
   let totalPages = 1;
+  let missingLocalSnapshot = false;
 
   if (localOnly) {
     isOffline = true;
@@ -53,6 +54,8 @@ export default async function SalesPage(props: any) {
       products = snapshot.data.products || [];
       total = sales.length;
       totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    } else {
+      missingLocalSnapshot = true;
     }
   } else {
     try {
@@ -112,6 +115,11 @@ export default async function SalesPage(props: any) {
       {isOffline && (
         <div className="px-4 py-3 bg-amber-100 border border-amber-300 rounded text-amber-800 text-sm font-medium">
           ⚠️ 目前離線模式，顯示本地快照資料
+        </div>
+      )}
+      {missingLocalSnapshot && (
+        <div className="px-4 py-3 bg-amber-100 border border-amber-300 rounded text-amber-800 text-sm font-medium">
+          ⚠️ 目前是本機加速模式，但尚未建立銷貨快照，所以這裡會是空的。請先關閉本機模式開啟一次，讓系統把資料存進本機快照。
         </div>
       )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -24,6 +24,8 @@ import {
   Upload,
   RotateCcw,
   RotateCw,
+  Cloud,
+  CloudOff,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -32,6 +34,7 @@ import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 import { useBackupDirectory } from "@/hooks/use-backup-directory"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-client"
 
 interface NavItem {
   name: string
@@ -94,6 +97,8 @@ export function Sidebar() {
   const [isExportingBusinessData, setIsExportingBusinessData] = useState(false)
   const [isExportingBusinessCsv, setIsExportingBusinessCsv] = useState(false)
   const [isImportingBusinessData, setIsImportingBusinessData] = useState(false)
+  const [isTogglingRuntimeMode, setIsTogglingRuntimeMode] = useState(false)
+  const [localOnlyMode, setLocalOnlyMode] = useState(false)
   const [dueCheckCount, setDueCheckCount] = useState(0)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
   const { dirName, pickDirectory, saveFileTo, clearDirectory } = useBackupDirectory()
@@ -169,6 +174,8 @@ export function Sidebar() {
   }, [router])
 
   useEffect(() => {
+    setLocalOnlyMode(isLocalOnlyMode())
+
     const timer = window.setInterval(() => {
       void loadDueCheckCount()
     }, 60 * 1000)
@@ -180,6 +187,37 @@ export function Sidebar() {
     await fetch("/api/auth/logout", { method: "POST" })
     router.replace("/login")
     router.refresh()
+  }
+
+  const handleToggleRuntimeMode = async () => {
+    if (isTogglingRuntimeMode) return
+
+    const nextEnabled = !localOnlyMode
+    setIsTogglingRuntimeMode(true)
+    try {
+      const response = await fetch("/api/runtime-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      })
+
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; enabled?: boolean; message?: string }
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "無法切換模式")
+      }
+
+      setLocalOnlyMode(Boolean(data.enabled))
+      router.refresh()
+      toast({
+        title: "模式已切換",
+        description: data.enabled ? "目前為本機加速模式" : "目前為線上同步模式",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "無法切換模式"
+      toast({ title: "切換失敗", description: message, variant: "destructive" })
+    } finally {
+      setIsTogglingRuntimeMode(false)
+    }
   }
 
   const toggleExpanded = (name: string) => {
@@ -519,6 +557,12 @@ export function Sidebar() {
       name: "設置",
       icon: Settings,
       children: [
+      {
+          name: localOnlyMode ? "本機加速：開" : "本機加速：關",
+          icon: localOnlyMode ? CloudOff : Cloud,
+          onClick: handleToggleRuntimeMode,
+          disabled: isTogglingRuntimeMode,
+        },
       {
           name: dirName ? `備份路徑：${dirName}` : "設定備份路徑",
           icon: FolderCog,

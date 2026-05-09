@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { fetchPurchasesRows, normalizePurchases } from "@/lib/purchases"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
 export default async function PurchasesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -30,7 +30,7 @@ export default async function PurchasesPage(props: any) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const localOnly = isLocalOnlyMode();
+  const localOnly = await isLocalOnlyMode();
 
   let isOffline = false;
   let purchases = [];

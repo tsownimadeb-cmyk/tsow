@@ -9,7 +9,7 @@ import { fetchProductsRows, normalizeProducts } from "@/lib/products"
 import { RecalcStockBtn } from "@/components/products/recalc-stock-btn"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
 export default async function ProductsPage(props: any) {
   const searchParams = await props.searchParams;
@@ -29,7 +29,7 @@ export default async function ProductsPage(props: any) {
   let products: any[] = []
   let total = 0
   let loadedFromOffline = false
-  const localOnly = isLocalOnlyMode()
+  const localOnly = await isLocalOnlyMode()
 
   if (localOnly) {
     const snapshot = loadDesktopPageSnapshot<{ products: any[]; total: number }>(

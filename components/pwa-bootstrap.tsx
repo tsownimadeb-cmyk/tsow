@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import { flushPendingOperations } from "@/lib/mobile-offline-queue"
 import { refreshReferenceCaches } from "@/lib/mobile-cache-sync"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-client"
 
 export function PwaBootstrap() {
   useEffect(() => {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { addToSyncQueue, setOfflineSnapshot, getLocalDb } from '@/lib/local-db';
 import { upsertSaleSnapshot } from '@/lib/desktop-offline-mutations';
-import { isLocalOnlyMode } from '@/lib/runtime-mode';
+import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { id, so_number, customer_id, order_date, delivery_date, delivery_method, total_amount, status = 'draft', notes, items } = body;
 
-    if (isLocalOnlyMode()) {
+    if (await isLocalOnlyMode()) {
       upsertSaleSnapshot({
         id,
         order_no: so_number,
@@ -118,7 +118,7 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { id, so_number, customer_id, order_date, delivery_date, delivery_method, total_amount, status, notes, items } = body;
 
-    if (isLocalOnlyMode()) {
+    if (await isLocalOnlyMode()) {
       upsertSaleSnapshot({
         id,
         order_no: so_number,

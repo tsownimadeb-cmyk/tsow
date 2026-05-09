@@ -6,17 +6,19 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
-import { isLocalOnlyMode } from "@/lib/runtime-mode"
+import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
 export default async function SuppliersPage() {
   let suppliers: any[] = []
   let loadedFromOffline = false
-  const localOnly = isLocalOnlyMode()
+  const localOnly = await isLocalOnlyMode()
+  let missingLocalSnapshot = false
 
   if (localOnly) {
     const snapshot = loadDesktopPageSnapshot<{ suppliers: any[] }>(DESKTOP_OFFLINE_KEYS.suppliersPage)
     suppliers = snapshot?.data?.suppliers || []
     loadedFromOffline = true
+    missingLocalSnapshot = !snapshot?.data
   } else {
     try {
       const supabase = await createClient()
@@ -60,6 +62,11 @@ export default async function SuppliersPage() {
       {loadedFromOffline && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           離線模式：目前顯示本機快取資料。
+        </div>
+      )}
+      {missingLocalSnapshot && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          目前是本機加速模式，但尚未建立供應商快照，所以這裡會是空的。請先關閉本機模式開啟一次來建立快照。
         </div>
       )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
