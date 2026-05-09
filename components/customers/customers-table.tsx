@@ -11,6 +11,7 @@ import { Search, Phone, User, MapPin, ChevronDown } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { createClient } from "@/lib/supabase/client"
 import { CustomerDialog } from "@/components/customers/customer-dialog"
+import { loadMobileCache, loadMobileCacheAsync, MOBILE_CACHE_KEYS } from "@/lib/mobile-cache"
 
 const CustomerHistoryTable = React.memo(function CustomerHistoryTable({
   loading,
@@ -179,6 +180,8 @@ export function CustomersTable({
 }) {
   const router = useRouter();
   const [customers, setCustomers] = useState(customersProp);
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineCustomers, setOfflineCustomers] = useState<any[]>([]);
   const [searchText, setSearchText] = useState(initialSearchText);
   const searchInputProps = useImeInput(searchText, setSearchText);
   const debouncedSearch = useDebounce(searchText, 500);
@@ -203,7 +206,31 @@ export function CustomersTable({
   }, [debouncedSearch, initialSearchText, searchText]);
   // 同步搜尋文字至 URL
   useEffect(() => {
+    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    const cached = loadMobileCache<any[]>(MOBILE_CACHE_KEYS.customersAll);
+    if (cached?.data) {
+      setOfflineCustomers(cached.data);
+    }
+
+    void loadMobileCacheAsync<any[]>(MOBILE_CACHE_KEYS.customersAll).then((asyncCached) => {
+      if (asyncCached?.data) {
+        setOfflineCustomers(asyncCached.data);
+      }
+    });
+
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!navigator.onLine) return;
     const params = new URLSearchParams(window.location.search);
     const current = params.get('search') || "";
     if (debouncedSearch === current) return;
@@ -231,8 +258,18 @@ export function CustomersTable({
     return map;
   }, [products]);
 
-  // 服務端已進行過濾到 customers props，直接使用
-  const filteredCustomers = customers;
+  // 離線時改用本機快取做前端搜尋
+  const filteredCustomers = useMemo(() => {
+    const base = !isOnline && offlineCustomers.length > 0 ? offlineCustomers : customers;
+    const keyword = searchText.trim().toLowerCase();
+    if (!keyword) return base;
+
+    return base.filter((c: any) =>
+      [c.name, c.code, c.tel1, c.tel2, c.tel3]
+        .map((v) => String(v ?? "").toLowerCase())
+        .some((v) => v.includes(keyword))
+    );
+  }, [customers, isOnline, offlineCustomers, searchText]);
 
 
   // 查詢客戶所有訂單明細

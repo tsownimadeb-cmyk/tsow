@@ -14,6 +14,7 @@ import { DeleteSupplierDialog } from "./delete-supplier-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Supplier, PurchaseOrder, Product } from "@/lib/types"
 import { GripVertical, Phone, Search, Pencil, Trash2 } from "lucide-react"
+import { loadMobileCache, loadMobileCacheAsync, MOBILE_CACHE_KEYS } from "@/lib/mobile-cache"
 
 interface SuppliersTableProps {
   suppliers: Supplier[]
@@ -28,6 +29,8 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   const [history, setHistory] = useState<Record<string, PurchaseOrder[]>>({})
   const [products, setProducts] = useState<Product[]>([])
   const [orderedSuppliers, setOrderedSuppliers] = useState<Supplier[]>(suppliers)
+  const [isOnline, setIsOnline] = useState(true)
+  const [offlineSuppliers, setOfflineSuppliers] = useState<Supplier[]>([])
   const [isSavingOrder, setIsSavingOrder] = useState(false)
   const { toast } = useToast()
   const isMobile = useIsMobile()
@@ -35,6 +38,35 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   useEffect(() => {
     setOrderedSuppliers(suppliers)
   }, [suppliers])
+
+  useEffect(() => {
+    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true)
+    const cached = loadMobileCache<Supplier[]>(MOBILE_CACHE_KEYS.suppliersAll)
+    if (cached?.data) {
+      setOfflineSuppliers(cached.data)
+      if (suppliers.length === 0) {
+        setOrderedSuppliers(cached.data)
+      }
+    }
+
+    void loadMobileCacheAsync<Supplier[]>(MOBILE_CACHE_KEYS.suppliersAll).then((asyncCached) => {
+      if (asyncCached?.data) {
+        setOfflineSuppliers(asyncCached.data)
+        if (suppliers.length === 0) {
+          setOrderedSuppliers(asyncCached.data)
+        }
+      }
+    })
+
+    const onOnline = () => setIsOnline(true)
+    const onOffline = () => setIsOnline(false)
+    window.addEventListener("online", onOnline)
+    window.addEventListener("offline", onOffline)
+    return () => {
+      window.removeEventListener("online", onOnline)
+      window.removeEventListener("offline", onOffline)
+    }
+  }, [suppliers.length])
 
   const saveOrderToDatabase = useCallback(async (list: Supplier[]) => {
     const supabase = createClient()
@@ -95,13 +127,14 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
   }, [products])
 
   const filteredSuppliers: Supplier[] = useMemo(() => {
+    const base = !isOnline && offlineSuppliers.length > 0 ? offlineSuppliers : orderedSuppliers
     const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return orderedSuppliers
-    return orderedSuppliers.filter((s: Supplier) =>
+    if (!keyword) return base
+    return base.filter((s: Supplier) =>
       s.name.toLowerCase().includes(keyword) ||
       (s.contact_person || "").toLowerCase().includes(keyword)
     )
-  }, [orderedSuppliers, searchText])
+  }, [isOnline, offlineSuppliers, orderedSuppliers, searchText])
 
   // 分段查詢進貨歷史
   const fetchHistory = async (supplierId: string) => {

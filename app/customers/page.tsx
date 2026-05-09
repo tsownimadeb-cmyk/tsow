@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Plus } from "lucide-react"
 import { fetchCustomersRows, normalizeCustomers } from "@/lib/customers"
+import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 
 export default async function CustomersPage(props: any) {
   const searchParams = await props.searchParams;
@@ -40,6 +41,7 @@ export default async function CustomersPage(props: any) {
 
   return (
     <div className="space-y-6">
+      <MobileCacheWriter cacheKey="ims-cache-customers-list" data={{ customers, total, page, searchText }} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">客戶管理</h1>

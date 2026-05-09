@@ -3,6 +3,7 @@
 import type { ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { Sidebar } from "@/components/sidebar"
+import { OfflineSyncPill } from "@/components/offline-sync-pill"
 
 interface AppShellProps {
   children: ReactNode
@@ -20,7 +21,10 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-background p-3 sm:p-6">{children}</main>
+      <main className="flex-1 overflow-y-auto bg-background p-3 sm:p-6">
+        {children}
+        <OfflineSyncPill />
+      </main>
     </div>
   )
 }

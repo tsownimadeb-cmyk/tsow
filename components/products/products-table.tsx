@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { ProductListRow } from "@/lib/products"
+import { loadMobileCache, loadMobileCacheAsync, MOBILE_CACHE_KEYS } from "@/lib/mobile-cache"
 
 // 定義組件接收的資料型態
 interface ProductsTableProps {
@@ -25,6 +26,8 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
   const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
   const [searchText, setSearchText] = useState(initialSearch)
+  const [isOnline, setIsOnline] = useState(true)
+  const [offlineProducts, setOfflineProducts] = useState<ProductListRow[]>([])
   const searchInputProps = useImeInput(searchText, setSearchText)
   const debouncedSearch = useDebounce(searchText, 500)
   const [, startTransition] = useTransition()
@@ -42,7 +45,32 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
   }, [debouncedSearch, initialSearch, searchText])
 
   useEffect(() => {
+    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true)
+    const cached = loadMobileCache<ProductListRow[]>(MOBILE_CACHE_KEYS.productsAll)
+    if (cached?.data) {
+      setOfflineProducts(cached.data)
+    }
+
+    void loadMobileCacheAsync<ProductListRow[]>(MOBILE_CACHE_KEYS.productsAll).then((asyncCached) => {
+      if (asyncCached?.data) {
+        setOfflineProducts(asyncCached.data)
+      }
+    })
+
+    const onOnline = () => setIsOnline(true)
+    const onOffline = () => setIsOnline(false)
+    window.addEventListener("online", onOnline)
+    window.addEventListener("offline", onOffline)
+
+    return () => {
+      window.removeEventListener("online", onOnline)
+      window.removeEventListener("offline", onOffline)
+    }
+  }, [])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!navigator.onLine) return
     const params = new URLSearchParams(window.location.search)
     const current = params.get('search') || ""
     if (debouncedSearch === current) return
@@ -51,8 +79,17 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
     startTransition(() => { router.replace(`/products?${params.toString()}`) })
   }, [debouncedSearch, router])
 
-  // 服務端已進行過濾，直接使用 props
-  const filteredProducts = products
+  // 離線時改用本機快取做前端過濾
+  const filteredProducts = (() => {
+    const base = !isOnline && offlineProducts.length > 0 ? offlineProducts : products
+    const keyword = searchText.trim().toLowerCase()
+    if (!keyword) return base
+    return base.filter((p) =>
+      [p.code, p.name, p.spec, p.category]
+        .map((v) => String(v ?? "").toLowerCase())
+        .some((v) => v.includes(keyword))
+    )
+  })()
 
   const handleDelete = async (record: ProductListRow) => {
     const isConfirmed = window.confirm("確定要刪除此商品嗎？")

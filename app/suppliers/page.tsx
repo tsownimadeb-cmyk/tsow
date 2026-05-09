@@ -4,6 +4,7 @@ import { SupplierDialog } from "@/components/suppliers/supplier-dialog"
 import { SuppliersBatchActions } from "@/components/suppliers/suppliers-batch-actions"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
+import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 
 export default async function SuppliersPage() {
   const supabase = await createClient()
@@ -28,6 +29,7 @@ export default async function SuppliersPage() {
 
   return (
     <div className="space-y-6">
+      <MobileCacheWriter cacheKey="ims-cache-suppliers-list" data={{ suppliers }} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">供應商管理</h1>

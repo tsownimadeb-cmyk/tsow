@@ -20,6 +20,7 @@ import { toast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { loadMobileCache, saveMobileCache } from "@/lib/mobile-cache";
 
 type SalesReturn = {
   id: string;
@@ -43,6 +44,7 @@ type SalesReturnItem = {
 };
 
 export default function SalesReturnsListPage() {
+  const cacheKey = "ims-cache-sales-returns-list";
   const router = useRouter();
   const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -61,6 +63,16 @@ export default function SalesReturnsListPage() {
   useEffect(() => {
     const fetchReturns = async () => {
       setLoading(true);
+      const cached = loadMobileCache<{
+        returns: SalesReturn[];
+        customerNameMap: Record<string, string>;
+      }>(cacheKey);
+      if (cached?.data) {
+        setReturns(cached.data.returns || []);
+        setCustomerNameMap(cached.data.customerNameMap || {});
+        setLoading(false);
+      }
+
       try {
         let query = supabase
           .from("sales_returns")
@@ -98,14 +110,23 @@ export default function SalesReturnsListPage() {
               map[c.code] = c.name;
             }
             setCustomerNameMap(map);
+            saveMobileCache(cacheKey, { returns: data || [], customerNameMap: map });
           }
         }
+
+        if (customerCodes.length === 0) {
+          saveMobileCache(cacheKey, { returns: data || [], customerNameMap: {} });
+        }
       } catch (err: any) {
-        toast({
-          title: "載入失敗",
-          description: err.message || "無法載入銷貨退回列表",
-          variant: "destructive",
-        });
+        if (!cached?.data) {
+          toast({
+            title: "載入失敗",
+            description: err.message || "無法載入銷貨退回列表",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "離線模式", description: "已顯示上次快取資料。" });
+        }
       } finally {
         setLoading(false);
       }
@@ -162,13 +183,26 @@ export default function SalesReturnsListPage() {
         ...prev,
         [returnId]: items,
       }));
+      const cached = loadMobileCache<Record<string, SalesReturnItem[]>>("ims-cache-sales-return-items");
+      saveMobileCache("ims-cache-sales-return-items", {
+        ...(cached?.data || {}),
+        [returnId]: items,
+      });
       setExpandedId(returnId);
     } catch (err: any) {
-      toast({
-        title: "載入明細失敗",
-        description: err.message || "無法載入退回明細",
-        variant: "destructive",
-      });
+      const cached = loadMobileCache<Record<string, SalesReturnItem[]>>("ims-cache-sales-return-items");
+      const fallbackItems = cached?.data?.[returnId];
+      if (fallbackItems) {
+        setItemsMap((prev) => ({ ...prev, [returnId]: fallbackItems }));
+        setExpandedId(returnId);
+        toast({ title: "離線明細", description: "已載入上次快取明細。" });
+      } else {
+        toast({
+          title: "載入明細失敗",
+          description: err.message || "無法載入退回明細",
+          variant: "destructive",
+        });
+      }
     }
   };
 

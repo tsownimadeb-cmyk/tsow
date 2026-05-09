@@ -10,13 +10,44 @@ import { v4 as uuidv4 } from 'uuid';
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { returnId, totalAmount, items } = body;
+    const { returnId, totalAmount, items, expectedUpdatedAt } = body;
 
     if (!returnId || !items || !Array.isArray(items)) {
       return NextResponse.json(
         { success: false, message: '資料不完整' },
         { status: 400 }
       );
+    }
+
+    // 0. 線上版本檢查：避免覆蓋其他裝置最新資料
+    try {
+      if (expectedUpdatedAt) {
+        const supabase = await createClient();
+        const { data: latest, error: latestError } = await supabase
+          .from('sales_returns')
+          .select('updated_at')
+          .eq('id', returnId)
+          .single();
+
+        if (!latestError && latest?.updated_at) {
+          const remoteIso = new Date(latest.updated_at).toISOString();
+          const expectedIso = new Date(expectedUpdatedAt).toISOString();
+          if (remoteIso !== expectedIso) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: '資料已在其他裝置更新，請重新整理後再提交。',
+                code: 'VERSION_CONFLICT',
+                remoteUpdatedAt: remoteIso,
+                expectedUpdatedAt: expectedIso,
+              },
+              { status: 409 }
+            );
+          }
+        }
+      }
+    } catch {
+      // 若無法連線雲端，仍允許先寫本地與離線佇列
     }
 
     // 1️⃣ 先更新本地資料庫（離線可用）
@@ -83,7 +114,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // 2️⃣ 異步同步到遠端 Supabase
-    syncToSupabaseAsync(returnId, totalAmount, items);
+    syncToSupabaseAsync(returnId, totalAmount, items, expectedUpdatedAt);
 
     return NextResponse.json({
       success: true,
@@ -104,11 +135,28 @@ export async function PUT(request: NextRequest) {
 async function syncToSupabaseAsync(
   returnId: string,
   totalAmount: number,
-  items: any[]
+  items: any[],
+  expectedUpdatedAt?: string
 ) {
   setImmediate(async () => {
     try {
       const supabase = await createClient();
+
+      if (expectedUpdatedAt) {
+        const { data: latest, error: latestError } = await supabase
+          .from('sales_returns')
+          .select('updated_at')
+          .eq('id', returnId)
+          .single();
+
+        if (!latestError && latest?.updated_at) {
+          const remoteIso = new Date(latest.updated_at).toISOString();
+          const expectedIso = new Date(expectedUpdatedAt).toISOString();
+          if (remoteIso !== expectedIso) {
+            throw new Error('VERSION_CONFLICT');
+          }
+        }
+      }
 
       // 調用 RPC 函數
       const { error } = await supabase.rpc('update_sales_return', {
@@ -138,7 +186,7 @@ async function syncToSupabaseAsync(
       addToSyncQueue(
         'update',
         'sales_returns',
-        { returnId, totalAmount, items },
+        { returnId, totalAmount, items, expectedUpdatedAt },
         returnId
       );
       console.error('Sync to Supabase failed, queued for retry:', error);

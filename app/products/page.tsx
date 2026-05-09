@@ -7,6 +7,7 @@ import Link from "next/link"
 import { Plus } from "lucide-react"
 import { fetchProductsRows, normalizeProducts } from "@/lib/products"
 import { RecalcStockBtn } from "@/components/products/recalc-stock-btn"
+import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 
 export default async function ProductsPage(props: any) {
   const searchParams = await props.searchParams;
@@ -43,6 +44,7 @@ export default async function ProductsPage(props: any) {
 
   return (
     <div className="space-y-6">
+      <MobileCacheWriter cacheKey="ims-cache-products-list" data={{ products, total, page, searchText }} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">商品管理</h1>

@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { enqueuePendingOperation } from "@/lib/mobile-offline-queue";
 
 type ReturnItem = {
   productId: string;
@@ -138,31 +139,71 @@ export default function EditPurchaseReturnPage() {
     }
 
     setSaving(true);
-    const supabase = createClient();
     try {
       const totalAmount = itemsToReturn.reduce(
         (sum, item) => sum + item.returnQty * item.unitPrice,
         0
       );
 
-      const { error } = await supabase.rpc("update_purchase_return", {
-        p_return_id:    returnId,
-        p_total_amount: totalAmount,
-        p_items: itemsToReturn.map((item) => ({
-          product_id: item.productId,
-          quantity:   item.returnQty,
-          unit_price: item.unitPrice,
-          amount:     item.returnQty * item.unitPrice,
-          reason:     item.reason || null,
+      const payload = {
+        returnId,
+        totalAmount,
+        items: itemsToReturn.map((item) => ({
+          productPno: item.productId,
+          quantity: item.returnQty,
+          unitPrice: item.unitPrice,
+          amount: item.returnQty * item.unitPrice,
+          reason: item.reason || null,
         })),
+      };
+
+      if (!navigator.onLine) {
+        enqueuePendingOperation({
+          endpoint: "/api/purchase-returns/update",
+          method: "PUT",
+          body: payload,
+        });
+
+        toast({ title: "離線已儲存", description: "連線恢復後會自動同步。" });
+        setTimeout(() => router.push("/purchase-returns"), 600);
+        return;
+      }
+
+      const res = await fetch("/api/purchase-returns/update", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      if (error) throw error;
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data?.success) {
+        throw new Error(data?.message || "儲存失敗");
+      }
 
       toast({ title: "儲存成功", description: "進貨退回已更新。" });
       setTimeout(() => router.push("/purchase-returns"), 600);
     } catch (err: any) {
-      toast({ title: "儲存失敗", description: err.message || String(err), variant: "destructive" });
+      enqueuePendingOperation({
+        endpoint: "/api/purchase-returns/update",
+        method: "PUT",
+        body: {
+          returnId,
+          totalAmount: itemsToReturn.reduce((sum, item) => sum + item.returnQty * item.unitPrice, 0),
+          items: itemsToReturn.map((item) => ({
+            productPno: item.productId,
+            quantity: item.returnQty,
+            unitPrice: item.unitPrice,
+            amount: item.returnQty * item.unitPrice,
+            reason: item.reason || null,
+          })),
+        },
+      });
+      toast({ title: "離線已儲存", description: "目前無法連線，稍後會自動同步。" });
+      setTimeout(() => router.push("/purchase-returns"), 600);
     } finally {
       setSaving(false);
     }
