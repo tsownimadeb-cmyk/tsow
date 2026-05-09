@@ -1,0 +1,147 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { getLocalDb, addToSyncQueue } from '@/lib/local-db';
+import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * 更新銷貨退回單（支持離線）
+ * 流程：先更新本地 SQLite → 再同步到遠端 Supabase
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { returnId, totalAmount, items } = body;
+
+    if (!returnId || !items || !Array.isArray(items)) {
+      return NextResponse.json(
+        { success: false, message: '資料不完整' },
+        { status: 400 }
+      );
+    }
+
+    // 1️⃣ 先更新本地資料庫（離線可用）
+    const localDb = getLocalDb();
+
+    localDb.exec('BEGIN TRANSACTION');
+    try {
+      // 還原舊明細的庫存
+      const oldItems = localDb
+        .prepare('SELECT * FROM sales_return_items WHERE sales_return_id = ?')
+        .all(returnId);
+
+      for (const oldItem of oldItems) {
+        localDb.prepare(
+          'UPDATE products SET stock_qty = stock_qty - ?, updated_at = ? WHERE pno = ?'
+        ).run(oldItem.quantity, new Date().toISOString(), oldItem.product_pno);
+      }
+
+      // 刪除舊明細
+      localDb
+        .prepare('DELETE FROM sales_return_items WHERE sales_return_id = ?')
+        .run(returnId);
+
+      // 更新主表金額
+      localDb
+        .prepare(
+          'UPDATE sales_returns SET total_amount = ?, updated_at = ? WHERE id = ?'
+        )
+        .run(totalAmount, new Date().toISOString(), returnId);
+
+      // 插入新明細並更新庫存
+      for (const item of items) {
+        const itemId = item.id || uuidv4();
+        localDb.prepare(
+          `INSERT INTO sales_return_items 
+           (id, sales_return_id, product_pno, quantity, unit_price, reason, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          itemId,
+          returnId,
+          item.productPno,
+          item.quantity,
+          item.unitPrice,
+          item.reason || null,
+          new Date().toISOString(),
+          new Date().toISOString()
+        );
+
+        // 加回庫存
+        localDb.prepare(
+          'UPDATE products SET stock_qty = stock_qty + ?, updated_at = ? WHERE pno = ?'
+        ).run(item.quantity, new Date().toISOString(), item.productPno);
+      }
+
+      // 標記為未同步
+      localDb
+        .prepare('UPDATE sales_returns SET synced = FALSE WHERE id = ?')
+        .run(returnId);
+
+      localDb.exec('COMMIT');
+    } catch (e) {
+      localDb.exec('ROLLBACK');
+      throw e;
+    }
+
+    // 2️⃣ 異步同步到遠端 Supabase
+    syncToSupabaseAsync(returnId, totalAmount, items);
+
+    return NextResponse.json({
+      success: true,
+      message: '已保存到本地，將自動同步到雲端',
+      offline: true,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, message: error.message || '更新失敗' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * 異步同步到 Supabase（不阻塞用戶操作）
+ */
+async function syncToSupabaseAsync(
+  returnId: string,
+  totalAmount: number,
+  items: any[]
+) {
+  setImmediate(async () => {
+    try {
+      const supabase = await createClient();
+
+      // 調用 RPC 函數
+      const { error } = await supabase.rpc('update_sales_return', {
+        p_return_id: returnId,
+        p_total_amount: totalAmount,
+        p_items: JSON.stringify(
+          items.map((item) => ({
+            product_code: item.productPno,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            reason: item.reason || null,
+          }))
+        ),
+      });
+
+      if (error) throw error;
+
+      // 標記為已同步
+      const localDb = getLocalDb();
+      localDb
+        .prepare(
+          'UPDATE sales_returns SET synced = TRUE, sync_timestamp = ? WHERE id = ?'
+        )
+        .run(Date.now(), returnId);
+    } catch (error: any) {
+      // 添加到同步隊列，稍後重試
+      addToSyncQueue(
+        'update',
+        'sales_returns',
+        { returnId, totalAmount, items },
+        returnId
+      );
+      console.error('Sync to Supabase failed, queued for retry:', error);
+    }
+  });
+}
