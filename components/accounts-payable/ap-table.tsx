@@ -474,9 +474,76 @@ export function APTable({ records }: APTableProps) {
                               <TableCell>{order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                               <TableCell>{order.products}</TableCell>
                               <TableCell className="text-right">{formatCurrencyOneDecimal(order.amountDue)}</TableCell>
-                              <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
+                              <TableCell className="text-right flex items-center gap-2 justify-end">
+                                {formatCurrencyOneDecimal(order.outstanding)}
+                                {order.outstanding > 0 && (
+                                  <Button size="sm" variant="outline" onClick={() => handleSingleSettle(order)}>
+                                    沖帳
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
                           ))}
+                            // 單筆沖帳
+                            const handleSingleSettle = (order: {
+                              id: string
+                              purchaseOrderId: string | null
+                              amountDue: number
+                              paidAmount: number
+                              outstanding: number
+                              orderDate: string | null
+                              notes: string | null
+                            }) => {
+                              if (!order.id || !order.purchaseOrderId || order.outstanding <= 0) return
+                              setProcessingSupplierKey(order.id)
+                              startTransition(async () => {
+                                try {
+                                  const supabase = createClient()
+                                  const now = new Date().toISOString()
+                                  // 更新 accounts_payable
+                                  const { error: updateError } = await supabase
+                                    .from("accounts_payable")
+                                    .update({
+                                      paid_amount: order.amountDue,
+                                      status: "paid",
+                                      paid_at: now,
+                                      total_amount: order.amountDue,
+                                    })
+                                    .eq("id", order.id)
+                                  if (updateError) {
+                                    toast({
+                                      title: "錯誤",
+                                      description: updateError.message || "無法沖帳",
+                                      variant: "destructive",
+                                    })
+                                    return
+                                  }
+                                  // 更新 purchase_orders 狀態
+                                  const { error: poError } = await supabase
+                                    .from("purchase_orders")
+                                    .update({ is_paid: true })
+                                    .eq("id", order.purchaseOrderId)
+                                  if (poError) {
+                                    toast({
+                                      title: "錯誤",
+                                      description: poError.message || "無法同步進貨單狀態",
+                                      variant: "destructive",
+                                    })
+                                    return
+                                  }
+                                  toast({ title: "成功", description: "已完成單筆沖帳" })
+                                  router.refresh()
+                                } catch (error) {
+                                  toast({
+                                    title: "錯誤",
+                                    description: error instanceof Error ? error.message : "單筆沖帳失敗",
+                                    variant: "destructive",
+                                  })
+                                } finally {
+                                  setProcessingSupplierKey(null)
+                                }
+                              })
+                            }
                           <TableRow className="bg-muted/40">
                             <TableCell colSpan={3} className="text-right font-semibold">總金額</TableCell>
                             <TableCell className="text-right font-semibold">
