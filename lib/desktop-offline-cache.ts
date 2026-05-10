@@ -19,9 +19,18 @@ export function saveDesktopPageSnapshot<T>(key: string, data: T) {
   }
 
   lastSnapshotSavedAt.set(key, now)
-  setOfflineSnapshot(key, data)
+  try {
+    setOfflineSnapshot(key, data)
+  } catch {
+    // Ignore local snapshot persistence failures in non-desktop environments.
+  }
 }
 
 export function loadDesktopPageSnapshot<T>(key: string): { data: T; updatedAt: number } | null {
-  return getOfflineSnapshot<T>(key)
+  try {
+    return getOfflineSnapshot<T>(key)
+  } catch {
+    // If local DB is unavailable, treat as no snapshot.
+    return null
+  }
 }
