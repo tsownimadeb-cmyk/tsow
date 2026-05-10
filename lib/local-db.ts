@@ -1,19 +1,43 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 
 let db: Database.Database | null = null;
 
-export function initLocalDb() {
-  // 使用 OS 臨時目錄或應用資料目錄
-  const dataDir = path.join(os.homedir(), '.inventory-system');
-  const dbPath = path.join(dataDir, 'local.db');
+function getCandidateDataDirs() {
+  const configuredDir = process.env.IMS_DATA_DIR?.trim();
+  const homeDir = os.homedir();
+  const appDataDir = process.env.LOCALAPPDATA || process.env.APPDATA;
 
-  // 確保目錄存在
-  const fs = require('fs');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  return [
+    configuredDir,
+    appDataDir ? path.join(appDataDir, 'InventorySystem') : undefined,
+    homeDir ? path.join(homeDir, '.inventory-system') : undefined,
+    path.join(os.tmpdir(), 'inventory-system'),
+    path.join(process.cwd(), '.inventory-system'),
+  ].filter((dir): dir is string => Boolean(dir));
+}
+
+function resolveWritableDataDir() {
+  const errors: string[] = [];
+
+  for (const candidate of getCandidateDataDirs()) {
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      return candidate;
+    } catch (error: any) {
+      errors.push(`${candidate}: ${error?.message || 'unknown error'}`);
+    }
   }
+
+  throw new Error(`Cannot create local data directory. Tried: ${errors.join(' | ')}`);
+}
+
+export function initLocalDb() {
+  // 依序嘗試可寫入的資料目錄，避免特定環境 homedir 不可用。
+  const dataDir = resolveWritableDataDir();
+  const dbPath = path.join(dataDir, 'local.db');
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');

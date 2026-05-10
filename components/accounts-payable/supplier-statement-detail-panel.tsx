@@ -286,6 +286,62 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
     })
   }
 
+  const handleSingleSettle = (order: OrderRow) => {
+    if (!selectedSupplier) return
+    if (order.outstanding <= 0) {
+      toast({ title: "提示", description: "此單據已無未付款金額" })
+      return
+    }
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const now = new Date().toISOString()
+
+        if (order.id.startsWith("virtual-")) {
+          const { error } = await supabase.from("accounts_payable").insert({
+            purchase_order_id: order.purchase_order_id,
+            supplier_id: selectedSupplierId,
+            amount_due: order.amount_due,
+            total_amount: order.amount_due,
+            paid_amount: order.amount_due,
+            due_date: order.order_date,
+            status: "paid",
+            paid_at: now,
+          })
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from("accounts_payable")
+            .update({
+              paid_amount: order.amount_due,
+              status: "paid",
+              total_amount: order.amount_due,
+              paid_at: now,
+            })
+            .eq("id", order.id)
+          if (error) throw error
+        }
+
+        const { error: purchaseOrderError } = await supabase
+          .from("purchase_orders")
+          .update({ is_paid: true })
+          .eq("id", order.purchase_order_id)
+
+        if (purchaseOrderError) throw purchaseOrderError
+
+        toast({ title: "成功", description: `已完成單據 ${order.order_no} 沖帳` })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: getErrorMessage(error),
+          variant: "destructive",
+        })
+      }
+    })
+  }
+
   const handlePayByCheck = () => {
     if (!selectedSupplier) return
 
@@ -496,6 +552,7 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
                 <TableHead className="text-right">數量</TableHead>
                 <TableHead className="text-right">單筆金額</TableHead>
                 <TableHead className="text-right">未付金額</TableHead>
+                <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -532,11 +589,21 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
                     </TableCell>
                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.amount_due)}</TableCell>
                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending || order.outstanding <= 0}
+                        onClick={() => handleSingleSettle(order)}
+                      >
+                        沖帳
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 )
               })}
               <TableRow className="bg-muted/40">
-                <TableCell colSpan={4} className="text-right font-semibold">
+                <TableCell colSpan={5} className="text-right font-semibold">
                   總金額
                 </TableCell>
                 <TableCell className="text-right font-semibold">
@@ -545,6 +612,7 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
                 <TableCell className="text-right font-semibold text-destructive">
                   {formatCurrencyOneDecimal(totalOutstanding)}
                 </TableCell>
+                <TableCell />
               </TableRow>
             </TableBody>
           </Table>

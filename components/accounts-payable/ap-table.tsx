@@ -221,6 +221,69 @@ export function APTable({ records }: APTableProps) {
     })
   }
 
+  const handleSingleSettle = (order: {
+    id: string
+    purchaseOrderId: string | null
+    amountDue: number
+    outstanding: number
+    orderDate: string | null
+  }) => {
+    if (!order.purchaseOrderId || order.outstanding <= 0) return
+
+    setProcessingSupplierKey(order.id)
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+        const now = new Date().toISOString()
+
+        if (order.id.startsWith("virtual-")) {
+          const { error: insertError } = await supabase.from("accounts_payable").insert({
+            purchase_order_id: order.purchaseOrderId,
+            amount_due: order.amountDue,
+            total_amount: order.amountDue,
+            paid_amount: order.amountDue,
+            due_date: order.orderDate,
+            status: "paid",
+            paid_at: now,
+          })
+
+          if (insertError) {
+            throw new Error(insertError.message || "無法建立應付帳款資料")
+          }
+        } else {
+          const { error: updateError } = await supabase
+            .from("accounts_payable")
+            .update({ paid_amount: order.amountDue, status: "paid", total_amount: order.amountDue, paid_at: now })
+            .eq("id", order.id)
+
+          if (updateError) {
+            throw new Error(updateError.message || "無法更新應付帳款資料")
+          }
+        }
+
+        const { error: purchaseUpdateError } = await supabase
+          .from("purchase_orders")
+          .update({ is_paid: true })
+          .eq("id", order.purchaseOrderId)
+
+        if (purchaseUpdateError) {
+          throw new Error(purchaseUpdateError.message || "無法更新進貨付款狀態")
+        }
+
+        toast({ title: "成功", description: "已完成單筆沖帳" })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "單筆沖帳失敗",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingSupplierKey(null)
+      }
+    })
+  }
+
   const handlePayByCheck = (summary: (typeof supplierSummaries)[number]) => {
     const supplierKey = `${summary.supplierId}-${summary.supplierName}`
     setProcessingSupplierKey(supplierKey)
@@ -484,66 +547,6 @@ export function APTable({ records }: APTableProps) {
                               </TableCell>
                             </TableRow>
                           ))}
-                            // 單筆沖帳
-                            const handleSingleSettle = (order: {
-                              id: string
-                              purchaseOrderId: string | null
-                              amountDue: number
-                              paidAmount: number
-                              outstanding: number
-                              orderDate: string | null
-                              notes: string | null
-                            }) => {
-                              if (!order.id || !order.purchaseOrderId || order.outstanding <= 0) return
-                              setProcessingSupplierKey(order.id)
-                              startTransition(async () => {
-                                try {
-                                  const supabase = createClient()
-                                  const now = new Date().toISOString()
-                                  // 更新 accounts_payable
-                                  const { error: updateError } = await supabase
-                                    .from("accounts_payable")
-                                    .update({
-                                      paid_amount: order.amountDue,
-                                      status: "paid",
-                                      paid_at: now,
-                                      total_amount: order.amountDue,
-                                    })
-                                    .eq("id", order.id)
-                                  if (updateError) {
-                                    toast({
-                                      title: "錯誤",
-                                      description: updateError.message || "無法沖帳",
-                                      variant: "destructive",
-                                    })
-                                    return
-                                  }
-                                  // 更新 purchase_orders 狀態
-                                  const { error: poError } = await supabase
-                                    .from("purchase_orders")
-                                    .update({ is_paid: true })
-                                    .eq("id", order.purchaseOrderId)
-                                  if (poError) {
-                                    toast({
-                                      title: "錯誤",
-                                      description: poError.message || "無法同步進貨單狀態",
-                                      variant: "destructive",
-                                    })
-                                    return
-                                  }
-                                  toast({ title: "成功", description: "已完成單筆沖帳" })
-                                  router.refresh()
-                                } catch (error) {
-                                  toast({
-                                    title: "錯誤",
-                                    description: error instanceof Error ? error.message : "單筆沖帳失敗",
-                                    variant: "destructive",
-                                  })
-                                } finally {
-                                  setProcessingSupplierKey(null)
-                                }
-                              })
-                            }
                           <TableRow className="bg-muted/40">
                             <TableCell colSpan={3} className="text-right font-semibold">總金額</TableCell>
                             <TableCell className="text-right font-semibold">
