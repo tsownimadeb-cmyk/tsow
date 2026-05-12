@@ -63,7 +63,6 @@ export async function POST(req: NextRequest) {
           unit_price: item.unit_price || 0,
           subtotal: item.amount || 0,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         }));
 
         const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);
@@ -180,7 +179,6 @@ export async function PUT(req: NextRequest) {
           unit_price: item.unit_price || 0,
           subtotal: item.amount || 0,
           created_at: item.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         }));
 
         const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);

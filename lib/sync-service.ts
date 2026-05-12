@@ -248,7 +248,6 @@ async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
         unit_price: item.unit_price,
         subtotal: item.amount,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }));
 
       const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);
@@ -288,7 +287,6 @@ async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
         unit_price: item.unit_price,
         subtotal: item.amount,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }));
 
       const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);
@@ -328,7 +326,6 @@ async function syncSalesCrud(supabase: any, operation: string, data: any) {
         unit_price: item.unit_price,
         subtotal: item.amount,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }));
 
       const { error: itemsError } = await supabase.from('sales_order_items').insert(itemsPayload);
@@ -368,7 +365,6 @@ async function syncSalesCrud(supabase: any, operation: string, data: any) {
         unit_price: item.unit_price,
         subtotal: item.amount,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }));
 
       const { error: itemsError } = await supabase.from('sales_order_items').insert(itemsPayload);
