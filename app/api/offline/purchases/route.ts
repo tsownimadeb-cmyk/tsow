@@ -68,58 +68,51 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, offline: false, id });
     } catch (onlineError: any) {
-      // 網路失敗：存到本機隊列
-      const db = getLocalDb();
-      const queueId = addToSyncQueue('create', 'purchases', {
-        id,
-        po_number,
-        supplier_id,
-        order_date,
-        delivery_date,
-        total_amount,
-        status,
-        notes,
-        items,
-      });
-
-      // 同時寫入本機快照（離線模式可以讀到）
-      const localPurchase = {
-        id,
-        po_number,
-        supplier_id,
-        order_date,
-        delivery_date,
-        total_amount,
-        status,
-        notes,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // 若有細項，也寫到本機
-      if (items && items.length > 0) {
-        db.prepare(`
-          INSERT INTO purchase_items (id, purchase_id, product_pno, quantity, unit_price, amount, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          `item-${Math.random().toString(36).substring(7)}`,
+      // 線上失敗後才嘗試本機佇列；若本機 DB 不可用，回傳線上錯誤，避免 native binding 錯誤外露。
+      try {
+        const db = getLocalDb();
+        const queueId = addToSyncQueue('create', 'purchases', {
           id,
-          items[0].product_pno,
-          items[0].quantity,
-          items[0].unit_price,
-          items[0].amount,
-          new Date().toISOString(),
-          new Date().toISOString()
+          po_number,
+          supplier_id,
+          order_date,
+          delivery_date,
+          total_amount,
+          status,
+          notes,
+          items,
+        });
+
+        // 若有細項，也寫到本機
+        if (items && items.length > 0) {
+          db.prepare(`
+            INSERT INTO purchase_items (id, purchase_id, product_pno, quantity, unit_price, amount, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            `item-${Math.random().toString(36).substring(7)}`,
+            id,
+            items[0].product_pno,
+            items[0].quantity,
+            items[0].unit_price,
+            items[0].amount,
+            new Date().toISOString(),
+            new Date().toISOString()
+          );
+        }
+
+        return NextResponse.json({
+          success: true,
+          offline: true,
+          queueId,
+          message: 'Saved locally, will sync when online',
+          id,
+        });
+      } catch {
+        return NextResponse.json(
+          { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
+          { status: 502 }
         );
       }
-
-      return NextResponse.json({
-        success: true,
-        offline: true,
-        queueId,
-        message: 'Saved locally, will sync when online',
-        id,
-      });
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -189,24 +182,31 @@ export async function PUT(req: NextRequest) {
 
       return NextResponse.json({ success: true, offline: false });
     } catch (onlineError: any) {
-      // 網路失敗：存到本機隊列
-      addToSyncQueue('update', 'purchases', {
-        id,
-        po_number,
-        supplier_id,
-        order_date,
-        delivery_date,
-        total_amount,
-        status,
-        notes,
-        items,
-      });
+      // 線上失敗後才嘗試本機佇列；若本機 DB 不可用，回傳線上錯誤。
+      try {
+        addToSyncQueue('update', 'purchases', {
+          id,
+          po_number,
+          supplier_id,
+          order_date,
+          delivery_date,
+          total_amount,
+          status,
+          notes,
+          items,
+        });
 
-      return NextResponse.json({
-        success: true,
-        offline: true,
-        message: 'Saved locally, will sync when online',
-      });
+        return NextResponse.json({
+          success: true,
+          offline: true,
+          message: 'Saved locally, will sync when online',
+        });
+      } catch {
+        return NextResponse.json(
+          { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
+          { status: 502 }
+        );
+      }
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

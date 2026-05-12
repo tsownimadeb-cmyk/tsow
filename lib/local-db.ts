@@ -1,9 +1,37 @@
-import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-let db: Database.Database | null = null;
+type SqliteStatement = {
+  run: (...args: any[]) => unknown;
+  all: (...args: any[]) => unknown;
+  get: (...args: any[]) => unknown;
+};
+
+type SqliteDb = {
+  pragma: (source: string) => unknown;
+  exec: (source: string) => unknown;
+  prepare: (source: string) => SqliteStatement;
+  close: () => void;
+};
+
+type SqliteCtor = new (filename: string) => SqliteDb;
+
+let db: SqliteDb | null = null;
+let sqliteCtor: SqliteCtor | null = null;
+
+function getSqliteCtor() {
+  if (sqliteCtor) return sqliteCtor;
+
+  try {
+    const dynamicRequire = eval('require') as NodeRequire;
+    sqliteCtor = dynamicRequire('better-sqlite3') as SqliteCtor;
+    return sqliteCtor;
+  } catch (error: any) {
+    const detail = error?.message || 'unknown error';
+    throw new Error(`Local SQLite engine is unavailable in this runtime: ${detail}`);
+  }
+}
 
 function getCandidateDataDirs() {
   const configuredDir = process.env.IMS_DATA_DIR?.trim();
@@ -39,7 +67,8 @@ export function initLocalDb() {
   const dataDir = resolveWritableDataDir();
   const dbPath = path.join(dataDir, 'local.db');
 
-  db = new Database(dbPath);
+  const Sqlite = getSqliteCtor();
+  db = new Sqlite(dbPath);
   db.pragma('journal_mode = WAL');
 
   // 初始化表
