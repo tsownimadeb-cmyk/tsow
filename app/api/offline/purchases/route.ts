@@ -31,12 +31,11 @@ export async function POST(req: NextRequest) {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
       // 1. 建立主表
-      const { error: purchaseError } = await supabase.from('purchases').insert({
+      const { error: purchaseError } = await supabase.from('purchase_orders').insert({
         id,
-        po_number,
+        order_no: po_number,
         supplier_id,
         order_date,
-        delivery_date,
         total_amount: total_amount || 0,
         status,
         notes,
@@ -50,16 +49,17 @@ export async function POST(req: NextRequest) {
       if (items && items.length > 0) {
         const itemsPayload = items.map((item: any) => ({
           id: item.id || `item-${Math.random().toString(36).substring(7)}`,
-          purchase_id: id,
-          product_pno: item.product_pno,
+          purchase_order_id: id,
+          order_no: po_number,
+          code: item.product_pno,
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
-          amount: item.amount || 0,
+          subtotal: item.amount || 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }));
 
-        const { error: itemsError } = await supabase.from('purchase_items').insert(itemsPayload);
+        const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);
         if (itemsError) throw itemsError;
       }
 
@@ -143,12 +143,11 @@ export async function PUT(req: NextRequest) {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
       const { error: updateError } = await supabase
-        .from('purchases')
+        .from('purchase_orders')
         .update({
-          po_number,
+          order_no: po_number,
           supplier_id,
           order_date,
-          delivery_date,
           total_amount: total_amount || 0,
           status,
           notes,
@@ -160,20 +159,21 @@ export async function PUT(req: NextRequest) {
 
       // 2. 更新細項（刪除舊的、插入新的）
       if (items && items.length > 0) {
-        await supabase.from('purchase_items').delete().eq('purchase_id', id);
+        await supabase.from('purchase_order_items').delete().eq('purchase_order_id', id);
 
         const itemsPayload = items.map((item: any) => ({
           id: item.id || `item-${Math.random().toString(36).substring(7)}`,
-          purchase_id: id,
-          product_pno: item.product_pno,
+          purchase_order_id: id,
+          order_no: po_number,
+          code: item.product_pno,
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
-          amount: item.amount || 0,
+          subtotal: item.amount || 0,
           created_at: item.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }));
 
-        const { error: itemsError } = await supabase.from('purchase_items').insert(itemsPayload);
+        const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsPayload);
         if (itemsError) throw itemsError;
       }
 
