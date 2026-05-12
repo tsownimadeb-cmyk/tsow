@@ -227,60 +227,86 @@ export function closeLocalDb() {
 
 // 輔助函數：添加到同步隊列
 export function addToSyncQueue(operation: string, entity: string, data: any, entityId?: string) {
-  const db = getLocalDb();
-  const id = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  try {
+    const db = getLocalDb();
+    const id = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
-  db.prepare(`
-    INSERT INTO sync_queue (id, operation, entity, entity_id, data, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, operation, entity, entityId || null, JSON.stringify(data), Date.now(), Date.now());
+    db.prepare(`
+      INSERT INTO sync_queue (id, operation, entity, entity_id, data, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, operation, entity, entityId || null, JSON.stringify(data), Date.now(), Date.now());
 
-  return id;
+    return id;
+  } catch {
+    return null;
+  }
 }
 
 // 輔助函數：取得待同步隊列
 export function getPendingSyncQueue() {
-  const db = getLocalDb();
-  return db.prepare(`
-    SELECT * FROM sync_queue 
-    WHERE retry_count < 3
-    ORDER BY created_at ASC
-    LIMIT 100
-  `).all();
+  try {
+    const db = getLocalDb();
+    return db.prepare(`
+      SELECT * FROM sync_queue 
+      WHERE retry_count < 3
+      ORDER BY created_at ASC
+      LIMIT 100
+    `).all();
+  } catch {
+    return [];
+  }
 }
 
 // 輔助函數：標記同步完成
 export function markSyncComplete(queueId: string) {
-  const db = getLocalDb();
-  db.prepare('DELETE FROM sync_queue WHERE id = ?').run(queueId);
+  try {
+    const db = getLocalDb();
+    db.prepare('DELETE FROM sync_queue WHERE id = ?').run(queueId);
+  } catch {
+    // ignore in runtimes without local sqlite
+  }
 }
 
 // 輔助函數：更新同步錯誤
 export function updateSyncError(queueId: string, error: string) {
-  const db = getLocalDb();
-  db.prepare(`
-    UPDATE sync_queue 
-    SET retry_count = retry_count + 1, last_error = ?, updated_at = ?
-    WHERE id = ?
-  `).run(error, Date.now(), queueId);
+  try {
+    const db = getLocalDb();
+    db.prepare(`
+      UPDATE sync_queue 
+      SET retry_count = retry_count + 1, last_error = ?, updated_at = ?
+      WHERE id = ?
+    `).run(error, Date.now(), queueId);
+  } catch {
+    // ignore in runtimes without local sqlite
+  }
 }
 
 export function setOfflineSnapshot(cacheKey: string, payload: unknown) {
-  const db = getLocalDb();
-  db.prepare(`
-    INSERT INTO offline_snapshots (cache_key, payload, updated_at)
-    VALUES (?, ?, ?)
-    ON CONFLICT(cache_key) DO UPDATE SET
-      payload = excluded.payload,
-      updated_at = excluded.updated_at
-  `).run(cacheKey, JSON.stringify(payload), Date.now());
+  try {
+    const db = getLocalDb();
+    db.prepare(`
+      INSERT INTO offline_snapshots (cache_key, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        payload = excluded.payload,
+        updated_at = excluded.updated_at
+    `).run(cacheKey, JSON.stringify(payload), Date.now());
+  } catch {
+    // ignore in runtimes without local sqlite
+  }
 }
 
 export function getOfflineSnapshot<T = unknown>(cacheKey: string): { data: T; updatedAt: number } | null {
-  const db = getLocalDb();
-  const row = db
-    .prepare('SELECT payload, updated_at FROM offline_snapshots WHERE cache_key = ?')
-    .get(cacheKey) as { payload: string; updated_at: number } | undefined;
+  let row: { payload: string; updated_at: number } | undefined;
+
+  try {
+    const db = getLocalDb();
+    row = db
+      .prepare('SELECT payload, updated_at FROM offline_snapshots WHERE cache_key = ?')
+      .get(cacheKey) as { payload: string; updated_at: number } | undefined;
+  } catch {
+    return null;
+  }
 
   if (!row) return null;
 
