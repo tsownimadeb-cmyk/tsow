@@ -3,18 +3,25 @@ import { createClient } from '@supabase/supabase-js';
 import { addToSyncQueue, setOfflineSnapshot, getLocalDb } from '@/lib/local-db';
 import { upsertPurchaseSnapshot } from '@/lib/desktop-offline-mutations';
 import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
+import { randomUUID } from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+function isUuid(value: unknown) {
+  if (typeof value !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status = 'draft', notes, items } = body;
+    const normalizedId = isUuid(id) ? id : randomUUID();
 
     if (await isLocalOnlyMode()) {
       upsertPurchaseSnapshot({
-        id,
+        id: normalizedId,
         order_no: po_number,
         supplier_id,
         order_date,
@@ -23,7 +30,7 @@ export async function POST(req: NextRequest) {
         notes,
         items,
       });
-      return NextResponse.json({ success: true, offline: true, localOnly: true, id });
+      return NextResponse.json({ success: true, offline: true, localOnly: true, id: normalizedId });
     }
 
     // 嘗試線上操作
@@ -32,7 +39,7 @@ export async function POST(req: NextRequest) {
 
       // 1. 建立主表
       const { error: purchaseError } = await supabase.from('purchase_orders').insert({
-        id,
+        id: normalizedId,
         order_no: po_number,
         supplier_id,
         order_date,
@@ -48,8 +55,8 @@ export async function POST(req: NextRequest) {
       // 2. 建立細項
       if (items && items.length > 0) {
         const itemsPayload = items.map((item: any) => ({
-          id: item.id || `item-${Math.random().toString(36).substring(7)}`,
-          purchase_order_id: id,
+          id: isUuid(item.id) ? item.id : randomUUID(),
+          purchase_order_id: normalizedId,
           order_no: po_number,
           code: item.product_pno,
           quantity: item.quantity || 0,
@@ -66,13 +73,13 @@ export async function POST(req: NextRequest) {
       // 3. 更新本機快照
       setOfflineSnapshot('desktop-purchases-page', null);
 
-      return NextResponse.json({ success: true, offline: false, id });
+      return NextResponse.json({ success: true, offline: false, id: normalizedId });
     } catch (onlineError: any) {
       // 線上失敗後才嘗試本機佇列；若本機 DB 不可用，回傳線上錯誤，避免 native binding 錯誤外露。
       try {
         const db = getLocalDb();
         const queueId = addToSyncQueue('create', 'purchases', {
-          id,
+          id: normalizedId,
           po_number,
           supplier_id,
           order_date,
@@ -90,7 +97,7 @@ export async function POST(req: NextRequest) {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             `item-${Math.random().toString(36).substring(7)}`,
-            id,
+            normalizedId,
             items[0].product_pno,
             items[0].quantity,
             items[0].unit_price,
@@ -105,7 +112,7 @@ export async function POST(req: NextRequest) {
           offline: true,
           queueId,
           message: 'Saved locally, will sync when online',
-          id,
+          id: normalizedId,
         });
       } catch {
         return NextResponse.json(
@@ -123,6 +130,9 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status, notes, items } = body;
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'Invalid purchase id' }, { status: 400 });
+    }
 
     if (await isLocalOnlyMode()) {
       upsertPurchaseSnapshot({
@@ -162,7 +172,7 @@ export async function PUT(req: NextRequest) {
         await supabase.from('purchase_order_items').delete().eq('purchase_order_id', id);
 
         const itemsPayload = items.map((item: any) => ({
-          id: item.id || `item-${Math.random().toString(36).substring(7)}`,
+          id: isUuid(item.id) ? item.id : randomUUID(),
           purchase_order_id: id,
           order_no: po_number,
           code: item.product_pno,

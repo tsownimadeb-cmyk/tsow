@@ -107,6 +107,18 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
     return `${prefix}${dateStr}${random}`
   }
 
+  const generateUuid = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+      const random = Math.random() * 16 | 0
+      const value = char === "x" ? random : (random & 0x3) | 0x8
+      return value.toString(16)
+    })
+  }
+
   const addItem = () => {
     setItems([...items, { code: "", quantity: 1, unit_price: 0 }])
   }
@@ -247,12 +259,12 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
         }
 
         // 先嘗試使用離線 API（在線或離線都會試圖使用）
-        const purchaseId = mode === 'edit' ? (purchase?.id || `po-${Date.now()}`) : `po-${Date.now()}`
+        const purchaseId = mode === 'edit' ? (purchase?.id || generateUuid()) : generateUuid()
         const poNumber = generateOrderNumber()
 
         // 準備項目數據
         const purchaseItems = items.map(item => ({
-          id: `item-${Math.random().toString(36).substring(7)}`,
+          id: generateUuid(),
           product_pno: item.code,
           quantity: item.quantity,
           unit_price: item.unit_price,
