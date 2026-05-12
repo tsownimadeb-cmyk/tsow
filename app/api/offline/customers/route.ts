@@ -82,7 +82,14 @@ export async function POST(request: NextRequest) {
     upsertCustomerSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("create", "customers", payload, payload?.code)
+    const queueId = addToSyncQueue("create", "customers", payload, payload?.code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     upsertCustomerSnapshot(payload)
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }
@@ -158,7 +165,14 @@ export async function PUT(request: NextRequest) {
     upsertCustomerSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("update", "customers", { code, targetCode: code, payload }, code)
+    const queueId = addToSyncQueue("update", "customers", { code, targetCode: code, payload }, code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     upsertCustomerSnapshot({ code: payload?.code || code, ...payload })
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }
@@ -184,7 +198,14 @@ export async function DELETE(request: NextRequest) {
     removeCustomerSnapshot(code)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("delete", "customers", { code }, code)
+    const queueId = addToSyncQueue("delete", "customers", { code }, code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上刪除失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     removeCustomerSnapshot(code)
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }

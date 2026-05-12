@@ -75,35 +75,33 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, offline: false, id: normalizedId });
     } catch (onlineError: any) {
-      // 線上失敗後才嘗試本機佇列；若本機 DB 不可用，回傳線上錯誤。
-      try {
-        getLocalDb();
-        const queueId = addToSyncQueue('create', 'sales', {
-          id: normalizedId,
-          so_number,
-          customer_id,
-          order_date,
-          delivery_date,
-          delivery_method,
-          total_amount,
-          status,
-          notes,
-          items,
-        });
+      const queueId = addToSyncQueue('create', 'sales', {
+        id: normalizedId,
+        so_number,
+        customer_id,
+        order_date,
+        delivery_date,
+        delivery_method,
+        total_amount,
+        status,
+        notes,
+        items,
+      });
 
-        return NextResponse.json({
-          success: true,
-          offline: true,
-          queueId,
-          message: 'Saved locally, will sync when online',
-          id: normalizedId,
-        });
-      } catch {
+      if (!queueId) {
         return NextResponse.json(
           { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
           { status: 502 }
         );
       }
+
+      return NextResponse.json({
+        success: true,
+        offline: true,
+        queueId,
+        message: 'Saved locally, will sync when online',
+        id: normalizedId,
+      });
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -176,32 +174,31 @@ export async function PUT(req: NextRequest) {
 
       return NextResponse.json({ success: true, offline: false });
     } catch (onlineError: any) {
-      // 線上失敗後才嘗試本機佇列；若本機 DB 不可用，回傳線上錯誤。
-      try {
-        addToSyncQueue('update', 'sales', {
-          id,
-          so_number,
-          customer_id,
-          order_date,
-          delivery_date,
-          delivery_method,
-          total_amount,
-          status,
-          notes,
-          items,
-        });
+      const queueId = addToSyncQueue('update', 'sales', {
+        id,
+        so_number,
+        customer_id,
+        order_date,
+        delivery_date,
+        delivery_method,
+        total_amount,
+        status,
+        notes,
+        items,
+      });
 
-        return NextResponse.json({
-          success: true,
-          offline: true,
-          message: 'Saved locally, will sync when online',
-        });
-      } catch {
+      if (!queueId) {
         return NextResponse.json(
           { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
           { status: 502 }
         );
       }
+
+      return NextResponse.json({
+        success: true,
+        offline: true,
+        message: 'Saved locally, will sync when online',
+      });
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

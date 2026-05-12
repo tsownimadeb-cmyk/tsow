@@ -3,6 +3,26 @@ import { createClient } from '@/lib/supabase/server';
 import { getLocalDb, addToSyncQueue } from '@/lib/local-db';
 import { v4 as uuidv4 } from 'uuid';
 
+async function syncSalesReturnNow(returnId: string, totalAmount: number, items: any[]) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('update_sales_return', {
+    p_return_id: returnId,
+    p_total_amount: totalAmount,
+    p_items: JSON.stringify(
+      items.map((item) => ({
+        product_code: item.productPno,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        reason: item.reason || null,
+      }))
+    ),
+  });
+
+  if (error) {
+    throw new Error(error.message || '同步雲端失敗');
+  }
+}
+
 /**
  * 更新銷貨退回單（支持離線）
  * 流程：先更新本地 SQLite → 再同步到遠端 Supabase
@@ -50,8 +70,18 @@ export async function PUT(request: NextRequest) {
       // 若無法連線雲端，仍允許先寫本地與離線佇列
     }
 
-    // 1️⃣ 先更新本地資料庫（離線可用）
-    const localDb = getLocalDb();
+    // 1️⃣ 先更新本地資料庫（離線可用）；若本機 DB 不可用則直接寫雲端。
+    let localDb: ReturnType<typeof getLocalDb>;
+    try {
+      localDb = getLocalDb();
+    } catch {
+      await syncSalesReturnNow(returnId, totalAmount, items);
+      return NextResponse.json({
+        success: true,
+        message: '已同步到雲端',
+        offline: false,
+      });
+    }
 
     localDb.exec('BEGIN TRANSACTION');
     try {

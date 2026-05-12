@@ -1,10 +1,13 @@
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@supabase/supabase-js';
 import {
   getLocalDb,
   getPendingSyncQueue,
   markSyncComplete,
   updateSyncError,
 } from './local-db';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 /**
  * 同步待機隊列中的所有未同步項目
@@ -20,7 +23,11 @@ export async function syncPendingChanges() {
   let synced = 0;
   let failed = 0;
 
-  const supabase = createClient();
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   for (const item of queue) {
     try {

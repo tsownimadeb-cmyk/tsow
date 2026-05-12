@@ -21,7 +21,14 @@ export async function POST(request: NextRequest) {
     upsertProductSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("create", "products", payload, payload?.code)
+    const queueId = addToSyncQueue("create", "products", payload, payload?.code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     upsertProductSnapshot(payload)
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }
@@ -49,7 +56,14 @@ export async function PUT(request: NextRequest) {
     upsertProductSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("update", "products", { code, payload }, code)
+    const queueId = addToSyncQueue("update", "products", { code, payload }, code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     upsertProductSnapshot({ code, ...payload })
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }
@@ -75,7 +89,14 @@ export async function DELETE(request: NextRequest) {
     removeProductSnapshot(code)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    addToSyncQueue("delete", "products", { code }, code)
+    const queueId = addToSyncQueue("delete", "products", { code }, code)
+    if (!queueId) {
+      return NextResponse.json(
+        { success: false, message: error?.message || "線上刪除失敗，且本機離線儲存不可用" },
+        { status: 502 }
+      )
+    }
+
     removeProductSnapshot(code)
     return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
   }
