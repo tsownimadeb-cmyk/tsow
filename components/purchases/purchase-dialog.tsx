@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -22,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Supplier, Product, PurchaseOrder } from "@/lib/types"
@@ -44,6 +45,7 @@ interface OrderItem {
 
 export function PurchaseDialog({ suppliers, products, mode, purchase, children, open, onOpenChange }: PurchaseDialogProps) {
   const router = useRouter()
+  const isMobile = useIsMobile()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [internalOpen, setInternalOpen] = useState(false)
@@ -73,6 +75,16 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
   const [formData, setFormData] = useState(getInitialFormData)
   const [items, setItems] = useState<OrderItem[]>(getInitialItems)
+  const productByCode = useMemo(() => {
+    return new Map(products.map((product) => [product.code, product]))
+  }, [products])
+  const productSelectOptions = useMemo(() => {
+    return products.map((product) => (
+      <SelectItem key={product.code} value={product.code}>
+        {product.code} - {product.name}
+      </SelectItem>
+    ))
+  }, [products])
 
   useEffect(() => {
     if (mode === "edit") {
@@ -120,30 +132,30 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
   }
 
   const addItem = () => {
-    setItems([...items, { code: "", quantity: 1, unit_price: 0 }])
+    setItems((prevItems) => [...prevItems, { code: "", quantity: 1, unit_price: 0 }])
   }
 
   const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index))
+    setItems((prevItems) => prevItems.filter((_, i) => i !== index))
   }
 
   const updateItem = (index: number, field: keyof OrderItem, value: string | number) => {
-    const newItems = [...items]
-    if (field === "code") {
-        console.log('[進貨單DEBUG] products:', products)
-      const product = products.find((p) => p.code === value)
-        console.log('[進貨單DEBUG] 選到商品:', product)
-      newItems[index] = {
-        ...newItems[index],
-        code: value as string,
-        unit_price: product && typeof product.base_price === 'number' && product.base_price > 0
-          ? Number(product.base_price)
-          : 0,
+    setItems((prevItems) => {
+      const newItems = [...prevItems]
+      if (field === "code") {
+        const product = productByCode.get(String(value))
+        newItems[index] = {
+          ...newItems[index],
+          code: value as string,
+          unit_price: product && typeof product.base_price === "number" && product.base_price > 0
+            ? Number(product.base_price)
+            : 0,
+        }
+      } else {
+        newItems[index] = { ...newItems[index], [field]: value }
       }
-    } else {
-      newItems[index] = { ...newItems[index], [field]: value }
-    }
-    setItems(newItems)
+      return newItems
+    })
   }
 
   const totalGoodsAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
@@ -447,139 +459,127 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
               </Button>
             </div>
 
-            {/* 桌面版 table */}
-            <div className="rounded-lg border overflow-x-auto hidden sm:block">
-              <Table className="min-w-[600px] text-sm">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>商品</TableHead>
-                    <TableHead className="w-24">數量</TableHead>
-                    <TableHead className="w-32">單價</TableHead>
-                    <TableHead className="w-32 text-right">小計</TableHead>
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
-                        尚無項目，請點擊「新增項目」
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
+            {isMobile ? (
+              <div className="flex flex-col gap-2">
+                {items.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-4 border rounded bg-white">尚無項目，請點擊「新增項目」</div>
+                ) : (
+                  items.map((item, index) => (
+                    <div key={index} className="border rounded bg-white p-2 flex flex-col gap-1 relative">
+                      <button type="button" className="absolute top-2 right-2 text-muted-foreground" onClick={() => removeItem(index)}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="w-16 text-xs text-muted-foreground">商品</span>
+                        <div className="flex-1">
                           <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
-                            <SelectTrigger>
+                            <SelectTrigger className="w-full">
                               <SelectValue placeholder="選擇商品" />
                             </SelectTrigger>
-                            <SelectContent>
-                              {products.map((product) => (
-                                <SelectItem key={product.code} value={product.code}>
-                                  {product.code} - {product.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
+                            <SelectContent>{productSelectOptions}</SelectContent>
                           </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            type="number"
-                            inputMode="numeric"
-                            min="1"
-                            value={item.quantity}
-                            onFocus={(e) => e.target.select()}
-                            onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={item.unit_price}
-                            onFocus={(e) => e.target.select()}
-                            onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrencyOneDecimal(item.quantity * item.unit_price)}
-                        </TableCell>
-                        <TableCell>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => removeItem(index)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* 手機版卡片式明細 */}
-            <div className="sm:hidden flex flex-col gap-2">
-              {items.length === 0 ? (
-                <div className="text-center text-muted-foreground py-4 border rounded bg-white">尚無項目，請點擊「新增項目」</div>
-              ) : (
-                items.map((item, index) => (
-                  <div key={index} className="border rounded bg-white p-2 flex flex-col gap-1 relative">
-                    <button type="button" className="absolute top-2 right-2 text-muted-foreground" onClick={() => removeItem(index)}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <span className="w-16 text-xs text-muted-foreground">商品</span>
-                      <div className="flex-1">
-                        <Select value={item.code} onValueChange={(v) => updateItem(index, 'code', v)}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="選擇商品" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem key={product.code} value={product.code}>
-                                {product.code} - {product.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-16 text-xs text-muted-foreground">數量</span>
+                        <Input
+                          className="flex-1"
+                          type="number"
+                          inputMode="numeric"
+                          min="1"
+                          value={item.quantity}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-16 text-xs text-muted-foreground">單價</span>
+                        <Input
+                          className="flex-1"
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          value={item.unit_price}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-16 text-xs text-muted-foreground">小計</span>
+                        <span className="flex-1 text-right font-semibold">{formatCurrencyOneDecimal(item.quantity * item.unit_price)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-16 text-xs text-muted-foreground">數量</span>
-                      <Input
-                        className="flex-1"
-                        type="number"
-                        inputMode="numeric"
-                        min="1"
-                        value={item.quantity}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateItem(index, 'quantity', Number.parseInt(e.target.value) || 1)}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-16 text-xs text-muted-foreground">單價</span>
-                      <Input
-                        className="flex-1"
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={item.unit_price}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateItem(index, 'unit_price', Number.parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-16 text-xs text-muted-foreground">小計</span>
-                      <span className="flex-1 text-right font-semibold">{formatCurrencyOneDecimal(item.quantity * item.unit_price)}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border overflow-x-auto">
+                <Table className="min-w-[600px] text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>商品</TableHead>
+                      <TableHead className="w-24">數量</TableHead>
+                      <TableHead className="w-32">單價</TableHead>
+                      <TableHead className="w-32 text-right">小計</TableHead>
+                      <TableHead className="w-12"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+                          尚無項目，請點擊「新增項目」
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      items.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="選擇商品" />
+                              </SelectTrigger>
+                              <SelectContent>{productSelectOptions}</SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              type="number"
+                              inputMode="numeric"
+                              min="1"
+                              value={item.quantity}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => updateItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={item.unit_price}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => updateItem(index, "unit_price", Number.parseFloat(e.target.value) || 0)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrencyOneDecimal(item.quantity * item.unit_price)}
+                          </TableCell>
+                          <TableCell>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => removeItem(index)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
 
             <div className="space-y-1 text-right">
               <div className="text-sm text-muted-foreground">商品總額（供應商貨款）：{formatCurrencyOneDecimal(totalGoodsAmount)}</div>
