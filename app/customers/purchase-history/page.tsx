@@ -35,6 +35,7 @@ type ProductRow = {
   code: string
   name: string | null
   cost: number | null
+  base_price: number | null
 }
 
 type AccountsReceivableRow = {
@@ -55,6 +56,18 @@ type CustomerLifetimeValueRow = {
   totalGrossProfit: number
   totalUncollectedAmount: number
 }
+
+type SummarySortKey =
+  | "customerName"
+  | "firstOrderDate"
+  | "lastOrderDate"
+  | "orderCount"
+  | "totalSalesAmount"
+  | "averageOrderAmount"
+  | "totalGrossProfit"
+  | "totalUncollectedAmount"
+
+type SummarySortDir = "asc" | "desc"
 
 const toSafeNumber = (value: unknown) => {
   const parsed = Number(value ?? 0)
@@ -88,6 +101,10 @@ interface CustomerPurchaseHistoryPageProps {
         customerCode?: string
         startDate?: string
         endDate?: string
+        showSummary?: string
+        page?: string
+        summarySortBy?: string
+        summarySortDir?: string
       }
     | Promise<{
         customer?: string
@@ -95,6 +112,10 @@ interface CustomerPurchaseHistoryPageProps {
         customerCode?: string
         startDate?: string
         endDate?: string
+        showSummary?: string
+        page?: string
+        summarySortBy?: string
+        summarySortDir?: string
       }>
 }
 
@@ -110,6 +131,22 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   const showSummary = normalizeText((resolvedSearchParams as { showSummary?: string } | undefined)?.showSummary) === "1"
   const rawPage = Number(normalizeText((resolvedSearchParams as { page?: string } | undefined)?.page))
   const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1
+  const requestedSummarySortBy = normalizeText((resolvedSearchParams as { summarySortBy?: string } | undefined)?.summarySortBy)
+  const requestedSummarySortDir = normalizeText((resolvedSearchParams as { summarySortDir?: string } | undefined)?.summarySortDir).toLowerCase()
+  const allowedSummarySortKeys: SummarySortKey[] = [
+    "customerName",
+    "firstOrderDate",
+    "lastOrderDate",
+    "orderCount",
+    "totalSalesAmount",
+    "averageOrderAmount",
+    "totalGrossProfit",
+    "totalUncollectedAmount",
+  ]
+  const summarySortBy: SummarySortKey = allowedSummarySortKeys.includes(requestedSummarySortBy as SummarySortKey)
+    ? (requestedSummarySortBy as SummarySortKey)
+    : "totalGrossProfit"
+  const summarySortDir: SummarySortDir = requestedSummarySortDir === "asc" ? "asc" : "desc"
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
@@ -176,6 +213,9 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
 
   const salesItems: SalesItemRow[] = []
   const receivables: AccountsReceivableRow[] = []
+  let summarySalesOrders: SalesOrderRow[] = []
+  const summarySalesItems: SalesItemRow[] = []
+  const summaryReceivables: AccountsReceivableRow[] = []
 
   if (salesOrderIds.length) {
     const idChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
@@ -258,7 +298,125 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     })
   }
 
-  const productCodes = Array.from(new Set(salesItems.map((item) => normalizeCode(item.code)).filter(Boolean)))
+  if (showSummary) {
+    let summaryOrdersQuery = supabase
+      .from("sales_orders")
+      .select("id,order_no,customer_cno,order_date,total_amount,is_paid")
+
+    if (selectedCustomerCode) {
+      summaryOrdersQuery = summaryOrdersQuery.eq("customer_cno", selectedCustomerCode)
+    } else if (customerKeyword) {
+      if (matchedCustomerCodes.length > 0) {
+        summaryOrdersQuery = summaryOrdersQuery.in("customer_cno", matchedCustomerCodes)
+      } else {
+        summaryOrdersQuery = summaryOrdersQuery.eq("customer_cno", "__NO_MATCH__")
+      }
+    }
+
+    const { data: summaryOrdersData, error: summaryOrdersError } = await summaryOrdersQuery
+
+    if (summaryOrdersError) {
+      const errorMessage = summaryOrdersError.message || "讀取終身價值資料失敗"
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">客戶購買履歷</h1>
+            <p className="text-muted-foreground">讀取資料失敗</p>
+          </div>
+          <Card>
+            <CardContent className="py-6 text-sm text-destructive">{errorMessage}</CardContent>
+          </Card>
+        </div>
+      )
+    }
+
+    summarySalesOrders = (summaryOrdersData || []) as SalesOrderRow[]
+    const summaryOrderIds = summarySalesOrders.map((row) => normalizeText(row.id)).filter(Boolean)
+
+    if (summaryOrderIds.length) {
+      const summaryIdChunks = chunkArray(summaryOrderIds, CHUNK_SIZE)
+
+      const [summaryItemsResults, summaryReceivableResults] = await Promise.all([
+        Promise.allSettled(
+          summaryIdChunks.map((idChunk) =>
+            supabase
+              .from("sales_order_items")
+              .select("sales_order_id,code,quantity,unit_price,subtotal")
+              .in("sales_order_id", idChunk),
+          ),
+        ),
+        Promise.allSettled(
+          summaryIdChunks.map((idChunk) =>
+            supabase
+              .from("accounts_receivable")
+              .select("sales_order_id,status,amount_due,paid_amount")
+              .in("sales_order_id", idChunk),
+          ),
+        ),
+      ])
+
+      summaryItemsResults.forEach((result, index) => {
+        const idChunk = summaryIdChunks[index] || []
+        if (result.status === "rejected") {
+          console.error("Error fetching summary sales_order_items chunk", {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+            reason: String(result.reason),
+          })
+          return
+        }
+
+        const { data: chunkItems, error: chunkItemsError } = result.value
+        if (chunkItemsError) {
+          console.error("Error fetching summary sales_order_items chunk", {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+            message: chunkItemsError.message,
+            details: chunkItemsError.details,
+            hint: chunkItemsError.hint,
+            code: chunkItemsError.code,
+          })
+          return
+        }
+
+        if (chunkItems?.length) {
+          summarySalesItems.push(...(chunkItems as SalesItemRow[]))
+        }
+      })
+
+      summaryReceivableResults.forEach((result, index) => {
+        const idChunk = summaryIdChunks[index] || []
+        if (result.status === "rejected") {
+          console.error("Error fetching summary accounts_receivable chunk", {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+            reason: String(result.reason),
+          })
+          return
+        }
+
+        const { data: chunkReceivables, error: chunkArError } = result.value
+        if (chunkArError) {
+          console.error("Error fetching summary accounts_receivable chunk", {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
+            message: chunkArError.message,
+            details: chunkArError.details,
+            hint: chunkArError.hint,
+            code: chunkArError.code,
+          })
+          return
+        }
+
+        if (chunkReceivables?.length) {
+          summaryReceivables.push(...(chunkReceivables as AccountsReceivableRow[]))
+        }
+      })
+    }
+  }
+
+  const allSalesItems = showSummary ? [...salesItems, ...summarySalesItems] : salesItems
+  const productCodes = Array.from(new Set(allSalesItems.map((item) => normalizeCode(item.code)).filter(Boolean)))
   const products: ProductRow[] = []
   if (productCodes.length) {
     const codeChunks = chunkArray(productCodes, CHUNK_SIZE)
@@ -266,7 +424,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
       codeChunks.map((codeChunk) =>
         supabase
           .from("products")
-          .select("code,name,cost")
+          .select("code,name,base_price,cost")
           .in("code", codeChunk),
       ),
     )
@@ -302,7 +460,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
   }
   const customerNameMap = new Map(customers.map((customer) => [normalizeText(customer.code), normalizeText(customer.name) || normalizeText(customer.code)]))
   const productMap = new Map(
-    products.map((product) => [normalizeCode(product.code), { name: normalizeText(product.name) || normalizeText(product.code), cost: toSafeNumber(product.cost) }]),
+    products.map((product) => [normalizeCode(product.code), { name: normalizeText(product.name) || normalizeText(product.code), cost: toSafeNumber(product.base_price ?? product.cost) }]),
   )
   const orderItemsMap = new Map<string, SalesItemRow[]>()
   const receivableByOrderId = new Map<string, AccountsReceivableRow>()
@@ -334,6 +492,53 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     grossProfitByOrderId.set(salesOrderId, totalGrossProfit)
   }
 
+  const summaryOrderItemsMap = new Map<string, SalesItemRow[]>()
+  const summaryReceivableByOrderId = new Map<string, AccountsReceivableRow>()
+
+  for (const item of summarySalesItems) {
+    const salesOrderId = normalizeText(item.sales_order_id)
+    if (!salesOrderId) continue
+    const current = summaryOrderItemsMap.get(salesOrderId) || []
+    current.push(item)
+    summaryOrderItemsMap.set(salesOrderId, current)
+  }
+
+  for (const receivable of summaryReceivables) {
+    const salesOrderId = normalizeText(receivable.sales_order_id)
+    if (!salesOrderId || summaryReceivableByOrderId.has(salesOrderId)) continue
+    summaryReceivableByOrderId.set(salesOrderId, receivable)
+  }
+
+  const summaryGrossProfitByOrderId = new Map<string, number>()
+  const itemGrossProfitDetails = new Map<string, Array<{ code: string; quantity: number; subtotal: number; cost: number; itemProfit: number }>>()
+  
+  for (const [salesOrderId, items] of summaryOrderItemsMap) {
+    let totalGrossProfit = 0
+    const details: Array<{ code: string; quantity: number; subtotal: number; cost: number; itemProfit: number }> = []
+    
+    for (const item of items) {
+      const code = normalizeCode(item.code)
+      const quantity = toSafeNumber(item.quantity)
+      const subtotal = toSafeNumber(item.subtotal)
+      const itemCost = toSafeNumber(productMap.get(code)?.cost)
+      const itemProfit = subtotal - quantity * itemCost
+      
+      totalGrossProfit += itemProfit
+      details.push({ code, quantity, subtotal, cost: itemCost, itemProfit })
+      
+      // 記錄異常：成本為 0 或過高的商品
+      if (itemCost === 0) {
+        console.warn(`[毛利計算] 商品 ${code} 缺少成本資料，訂單ID: ${salesOrderId}，小計: ${subtotal}`)
+      }
+      if (itemCost > subtotal && quantity > 0) {
+        console.warn(`[毛利計算] 商品 ${code} 成本異常高，訂單ID: ${salesOrderId}，成本: ${itemCost}，小計: ${subtotal}`)
+      }
+    }
+    
+    summaryGrossProfitByOrderId.set(salesOrderId, totalGrossProfit)
+    itemGrossProfitDetails.set(salesOrderId, details)
+  }
+
   let customerSummaryRows: CustomerLifetimeValueRow[] = []
   if (showSummary) {
     const summaryByCustomerCode = new Map<string, CustomerLifetimeValueRow>()
@@ -358,7 +563,7 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
       })
     }
 
-    for (const order of salesOrders) {
+    for (const order of summarySalesOrders) {
       const customerCode = normalizeText(order.customer_cno)
       if (!customerCode) continue
 
@@ -384,9 +589,9 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
       const orderId = normalizeText(order.id)
       summary.orderCount += 1
       summary.totalSalesAmount += toSafeNumber(order.total_amount)
-      summary.totalGrossProfit += toSafeNumber(grossProfitByOrderId.get(orderId))
+      summary.totalGrossProfit += toSafeNumber(summaryGrossProfitByOrderId.get(orderId))
 
-      const receivable = receivableByOrderId.get(orderId)
+      const receivable = summaryReceivableByOrderId.get(orderId)
       if (receivable) {
         const uncollected = Math.max(0, toSafeNumber(receivable.amount_due) - toSafeNumber(receivable.paid_amount))
         summary.totalUncollectedAmount += uncollected
@@ -402,7 +607,38 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
         ...row,
         averageOrderAmount: row.orderCount > 0 ? row.totalSalesAmount / row.orderCount : 0,
       }))
-      .sort((left, right) => right.totalGrossProfit - left.totalGrossProfit)
+      .sort((left, right) => {
+        const textCompare = (a: string | null, b: string | null) => {
+          const av = normalizeText(a)
+          const bv = normalizeText(b)
+          return summarySortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av)
+        }
+
+        const numberCompare = (a: number, b: number) => {
+          return summarySortDir === "asc" ? a - b : b - a
+        }
+
+        switch (summarySortBy) {
+          case "customerName":
+            return textCompare(left.customerName, right.customerName)
+          case "firstOrderDate":
+            return textCompare(left.firstOrderDate, right.firstOrderDate)
+          case "lastOrderDate":
+            return textCompare(left.lastOrderDate, right.lastOrderDate)
+          case "orderCount":
+            return numberCompare(left.orderCount, right.orderCount)
+          case "totalSalesAmount":
+            return numberCompare(left.totalSalesAmount, right.totalSalesAmount)
+          case "averageOrderAmount":
+            return numberCompare(left.averageOrderAmount, right.averageOrderAmount)
+          case "totalGrossProfit":
+            return numberCompare(left.totalGrossProfit, right.totalGrossProfit)
+          case "totalUncollectedAmount":
+            return numberCompare(left.totalUncollectedAmount, right.totalUncollectedAmount)
+          default:
+            return numberCompare(left.totalGrossProfit, right.totalGrossProfit)
+        }
+      })
   }
 
   const timelineRows = salesOrders
@@ -452,7 +688,11 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     if (selectedCustomerCode) params.set("customerCode", selectedCustomerCode)
     if (startDate) params.set("startDate", startDate)
     if (endDate) params.set("endDate", endDate)
-    if (showSummary) params.set("showSummary", "1")
+    if (showSummary) {
+      params.set("showSummary", "1")
+      params.set("summarySortBy", summarySortBy)
+      params.set("summarySortDir", summarySortDir)
+    }
     params.set("page", String(targetPage))
     return `/customers/purchase-history?${params.toString()}`
   }
@@ -465,7 +705,31 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
     if (endDate) params.set("endDate", endDate)
     params.set("showSummary", "1")
     params.set("page", String(page))
+    params.set("summarySortBy", summarySortBy)
+    params.set("summarySortDir", summarySortDir)
     return `/customers/purchase-history?${params.toString()}`
+  }
+
+  const getSummarySortUrl = (targetSortBy: SummarySortKey) => {
+    const params = new URLSearchParams()
+    if (customerKeyword) params.set("customerKeyword", customerKeyword)
+    if (selectedCustomerCode) params.set("customerCode", selectedCustomerCode)
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    params.set("showSummary", "1")
+    params.set("page", String(page))
+
+    const nextSortDir: SummarySortDir =
+      summarySortBy === targetSortBy ? (summarySortDir === "desc" ? "asc" : "desc") : "desc"
+
+    params.set("summarySortBy", targetSortBy)
+    params.set("summarySortDir", nextSortDir)
+    return `/customers/purchase-history?${params.toString()}`
+  }
+
+  const sortIndicator = (targetSortBy: SummarySortKey) => {
+    if (summarySortBy !== targetSortBy) return ""
+    return summarySortDir === "desc" ? " ↓" : " ↑"
   }
 
   return (
@@ -487,6 +751,8 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
         <CardContent>
           <form className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_180px_180px_auto_auto_auto]" method="get" action="/customers/purchase-history">
             {showSummary && <input type="hidden" name="showSummary" value="1" />}
+            {showSummary && <input type="hidden" name="summarySortBy" value={summarySortBy} />}
+            {showSummary && <input type="hidden" name="summarySortDir" value={summarySortDir} />}
             <CustomerKeywordAutocomplete
               name="customerKeyword"
               selectedCodeName="customerCode"
@@ -624,14 +890,46 @@ export default async function CustomerPurchaseHistoryPage({ searchParams }: Cust
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>客戶</TableHead>
-                      <TableHead>首購日</TableHead>
-                      <TableHead>末購日</TableHead>
-                      <TableHead className="text-right">總訂單數</TableHead>
-                      <TableHead className="text-right">總營業額</TableHead>
-                      <TableHead className="text-right">平均客單</TableHead>
-                      <TableHead className="text-right">毛利</TableHead>
-                      <TableHead className="text-right">未收款金額</TableHead>
+                      <TableHead>
+                        <Link href={getSummarySortUrl("customerName")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "customerName" ? "font-bold text-foreground" : ""}`}>
+                          客戶{sortIndicator("customerName")}
+                        </Link>
+                      </TableHead>
+                      <TableHead>
+                        <Link href={getSummarySortUrl("firstOrderDate")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "firstOrderDate" ? "font-bold text-foreground" : ""}`}>
+                          首購日{sortIndicator("firstOrderDate")}
+                        </Link>
+                      </TableHead>
+                      <TableHead>
+                        <Link href={getSummarySortUrl("lastOrderDate")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "lastOrderDate" ? "font-bold text-foreground" : ""}`}>
+                          末購日{sortIndicator("lastOrderDate")}
+                        </Link>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Link href={getSummarySortUrl("orderCount")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "orderCount" ? "font-bold text-foreground" : ""}`}>
+                          總訂單數{sortIndicator("orderCount")}
+                        </Link>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Link href={getSummarySortUrl("totalSalesAmount")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "totalSalesAmount" ? "font-bold text-foreground" : ""}`}>
+                          總營業額{sortIndicator("totalSalesAmount")}
+                        </Link>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Link href={getSummarySortUrl("averageOrderAmount")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "averageOrderAmount" ? "font-bold text-foreground" : ""}`}>
+                          平均客單{sortIndicator("averageOrderAmount")}
+                        </Link>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Link href={getSummarySortUrl("totalGrossProfit")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "totalGrossProfit" ? "font-bold text-foreground" : ""}`}>
+                          毛利{sortIndicator("totalGrossProfit")}
+                        </Link>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Link href={getSummarySortUrl("totalUncollectedAmount")} className={`inline-flex items-center hover:text-foreground ${summarySortBy === "totalUncollectedAmount" ? "font-bold text-foreground" : ""}`}>
+                          未收款金額{sortIndicator("totalUncollectedAmount")}
+                        </Link>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

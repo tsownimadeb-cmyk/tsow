@@ -17,10 +17,15 @@ import { loadMobileCache, loadMobileCacheAsync, MOBILE_CACHE_KEYS } from "@/lib/
 interface ProductsTableProps {
   products: ProductListRow[]
   initialSearch?: string
+  sortBy?: "code" | "name" | "spec" | "category" | "purchase_qty_total" | "stock_qty" | "price" | "cost"
+  sortDir?: "asc" | "desc"
 }
 
+type ProductListSortKey = "code" | "name" | "spec" | "category" | "purchase_qty_total" | "stock_qty" | "price" | "cost"
+type ProductListSortDir = "asc" | "desc"
+
 // 採用具名導出，確保在 page.tsx 引用時不會出錯
-export function ProductsTable({ products, initialSearch = "" }: ProductsTableProps) {
+export function ProductsTable({ products, initialSearch = "", sortBy = "code", sortDir = "asc" }: ProductsTableProps) {
   const { toast } = useToast()
   const router = useRouter()
   const [deletingCode, setDeletingCode] = useState<string | null>(null)
@@ -154,11 +159,31 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
 
       {/* 桌面版標題列 */}
       <div className="hidden md:grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
-        <div className="col-span-2">編號</div>
-        <div className="col-span-3">商品名稱</div>
-        <div className="col-span-3">規格 / 單位</div>
-        <div className="col-span-2 text-right">進貨總量</div>
-        <div className="col-span-2 text-right">目前庫存</div>
+        <div className="col-span-2">
+          <a href={`?search=${searchText ? encodeURIComponent(searchText) : ""}&sortBy=code&sortDir=${sortBy === "code" && sortDir === "asc" ? "desc" : "asc"}`} className={`hover:text-gray-700 ${sortBy === "code" ? "font-bold text-gray-900" : ""}`}>
+            編號 {sortBy === "code" && (sortDir === "asc" ? "↑" : "↓")}
+          </a>
+        </div>
+        <div className="col-span-3">
+          <a href={`?search=${searchText ? encodeURIComponent(searchText) : ""}&sortBy=name&sortDir=${sortBy === "name" && sortDir === "asc" ? "desc" : "asc"}`} className={`hover:text-gray-700 ${sortBy === "name" ? "font-bold text-gray-900" : ""}`}>
+            商品名稱 {sortBy === "name" && (sortDir === "asc" ? "↑" : "↓")}
+          </a>
+        </div>
+        <div className="col-span-3">
+          <a href={`?search=${searchText ? encodeURIComponent(searchText) : ""}&sortBy=spec&sortDir=${sortBy === "spec" && sortDir === "asc" ? "desc" : "asc"}`} className={`hover:text-gray-700 ${sortBy === "spec" ? "font-bold text-gray-900" : ""}`}>
+            規格 / 單位 {sortBy === "spec" && (sortDir === "asc" ? "↑" : "↓")}
+          </a>
+        </div>
+        <div className="col-span-2 text-right">
+          <a href={`?search=${searchText ? encodeURIComponent(searchText) : ""}&sortBy=purchase_qty_total&sortDir=${sortBy === "purchase_qty_total" && sortDir === "asc" ? "desc" : "asc"}`} className={`hover:text-gray-700 ${sortBy === "purchase_qty_total" ? "font-bold text-gray-900" : ""}`}>
+            進貨總量 {sortBy === "purchase_qty_total" && (sortDir === "asc" ? "↑" : "↓")}
+          </a>
+        </div>
+        <div className="col-span-2 text-right">
+          <a href={`?search=${searchText ? encodeURIComponent(searchText) : ""}&sortBy=stock_qty&sortDir=${sortBy === "stock_qty" && sortDir === "asc" ? "desc" : "asc"}`} className={`hover:text-gray-700 ${sortBy === "stock_qty" ? "font-bold text-gray-900" : ""}`}>
+            目前庫存 {sortBy === "stock_qty" && (sortDir === "asc" ? "↑" : "↓")}
+          </a>
+        </div>
       </div>
 
       {filteredProducts.length === 0 ? (

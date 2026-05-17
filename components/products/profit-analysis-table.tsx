@@ -26,7 +26,14 @@ const formatAmount = (value: number | string | null | undefined) => {
   })
 }
 
-const formatCurrency = (value: number | string | null | undefined) => `$${formatAmount(value)}`
+const formatCurrency = (value: number | string | null | undefined) => {
+  const amount = Number(value ?? 0)
+  const safeAmount = Number.isFinite(amount) ? amount : 0
+  return `$${safeAmount.toLocaleString("zh-TW", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`
+}
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`
 
 const getMarginTheme = (margin: number) => {

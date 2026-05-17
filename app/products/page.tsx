@@ -11,17 +11,34 @@ import { MobileCacheWriter } from "@/components/mobile-cache-writer"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
 import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 
+type ProductListSortKey = "code" | "name" | "spec" | "category" | "purchase_qty_total" | "stock_qty" | "price" | "cost"
+type ProductListSortDir = "asc" | "desc"
+
 export default async function ProductsPage(props: any) {
   const searchParams = await props.searchParams;
   const PAGE_SIZE = 20;
   let page = 1;
   let searchText = "";
+  let sortBy: ProductListSortKey = "code";
+  let sortDir: ProductListSortDir = "asc";
+
   if (searchParams && typeof searchParams === 'object') {
     const rawPage = searchParams.page;
     const p = Number(Array.isArray(rawPage) ? rawPage[0] : rawPage);
     if (!isNaN(p) && p > 0) page = p;
     const rawSearch = searchParams.search;
     if (rawSearch) searchText = Array.isArray(rawSearch) ? rawSearch[0] : rawSearch;
+    
+    const allowedSortKeys: ProductListSortKey[] = ["code", "name", "spec", "category", "purchase_qty_total", "stock_qty", "price", "cost"];
+    const rawSortBy = searchParams.sortBy ? (Array.isArray(searchParams.sortBy) ? searchParams.sortBy[0] : searchParams.sortBy) : "";
+    if (allowedSortKeys.includes(rawSortBy as ProductListSortKey)) {
+      sortBy = rawSortBy as ProductListSortKey;
+    }
+    
+    const rawSortDir = searchParams.sortDir ? (Array.isArray(searchParams.sortDir) ? searchParams.sortDir[0] : searchParams.sortDir).toLowerCase() : "";
+    if (rawSortDir === "desc") {
+      sortDir = "desc";
+    }
   }
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
@@ -51,11 +68,29 @@ export default async function ProductsPage(props: any) {
       products = normalizeProducts(productsRaw || [])
       total = totalCount || 0
 
+      // 在頁面層級進行排序
+      products.sort((a, b) => {
+        const aVal = a[sortBy] ?? "";
+        const bVal = b[sortBy] ?? "";
+        
+        if (sortBy === "purchase_qty_total" || sortBy === "stock_qty" || sortBy === "price" || sortBy === "cost") {
+          const aNum = Number(aVal);
+          const bNum = Number(bVal);
+          return sortDir === "desc" ? bNum - aNum : aNum - bNum;
+        }
+        
+        const aStr = String(aVal).toLowerCase();
+        const bStr = String(bVal).toLowerCase();
+        return sortDir === "desc" ? bStr.localeCompare(aStr) : aStr.localeCompare(bStr);
+      });
+
       saveDesktopPageSnapshot(DESKTOP_OFFLINE_KEYS.productsPage, {
         products,
         total,
         page,
         searchText,
+        sortBy,
+        sortDir,
       })
     } catch (error) {
       const snapshot = loadDesktopPageSnapshot<{ products: any[]; total: number }>(
@@ -76,6 +111,8 @@ export default async function ProductsPage(props: any) {
   function getPageUrl(targetPage: number) {
     const params = new URLSearchParams();
     if (searchText) params.set('search', searchText);
+    params.set('sortBy', sortBy);
+    params.set('sortDir', sortDir);
     params.set('page', String(targetPage));
     return `/products?${params.toString()}`;
   }
@@ -107,7 +144,7 @@ export default async function ProductsPage(props: any) {
         </div>
       </div>
 
-      <ProductsTable products={products} initialSearch={searchText} />
+      <ProductsTable products={products} initialSearch={searchText} sortBy={sortBy} sortDir={sortDir} />
 
       {/* 分頁控制 */}
       <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-sm">
