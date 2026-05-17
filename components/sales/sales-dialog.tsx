@@ -739,7 +739,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   <div className="text-center text-muted-foreground py-4 border rounded bg-white">尚無項目，請點擊「新增項目」</div>
                 ) : (
                   items.map((item, index) => (
-                    <div key={index} className="border rounded bg-white p-2 flex flex-col gap-1 relative">
+                    <div key={index} className="border rounded bg-white p-2 pt-8 flex flex-col gap-1 relative">
+                      <span className="absolute top-2 left-2 inline-flex h-5 min-w-5 items-center justify-center rounded bg-muted px-1 text-xs font-semibold text-foreground">
+                        {index + 1}
+                      </span>
                       <button type="button" className="absolute top-2 right-2 text-muted-foreground" onClick={() => removeItem(index)}>
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -792,6 +795,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 <Table className="min-w-[600px] text-sm">
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12 text-center">#</TableHead>
                       <TableHead>商品</TableHead>
                       <TableHead className="w-20">數量</TableHead>
                       <TableHead className="w-24">單價</TableHead>
@@ -802,13 +806,14 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   <TableBody>
                     {items.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
                           尚無項目，請點擊「新增項目」
                         </TableCell>
                       </TableRow>
                     ) : (
                       items.map((item, index) => (
                         <TableRow key={index}>
+                          <TableCell className="text-center font-semibold text-muted-foreground">{index + 1}</TableCell>
                           <TableCell>
                             <Select value={item.code} onValueChange={(v) => updateItem(index, "code", v)}>
                               <SelectTrigger className="w-full">
