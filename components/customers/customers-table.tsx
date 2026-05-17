@@ -184,9 +184,9 @@ export function CustomersTable({
   const [offlineCustomers, setOfflineCustomers] = useState<any[]>([]);
   const [searchText, setSearchText] = useState(initialSearchText);
   const searchInputProps = useImeInput(searchText, setSearchText);
-  const debouncedSearch = useDebounce(searchText, 500);
+  const debouncedSearch = useDebounce(searchText, 250);
   const lastInitialSearchRef = useRef(initialSearchText);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   useIsMobile();
   const [showHistory, setShowHistory] = useState<{ [code: string]: boolean }>({});
   // 每個客戶的訂單明細資料
@@ -271,6 +271,8 @@ export function CustomersTable({
     );
   }, [customers, isOnline, offlineCustomers, searchText]);
 
+  const isSearching = searchText !== debouncedSearch || isPending;
+
 
   // 查詢客戶所有訂單明細
   const handleToggleHistory = useCallback(async (code: string) => {
@@ -354,8 +356,11 @@ export function CustomersTable({
           </button>
         )}
       </div>
+      {isSearching && (
+        <div className="text-xs text-gray-500">搜尋中...</div>
+      )}
       {filteredCustomers.length === 0 ? (
-        <div className="px-6 py-10 text-center text-sm text-gray-400">查無資料</div>
+        <div className="px-6 py-10 text-center text-sm text-gray-400">{isSearching ? "搜尋中..." : "查無資料"}</div>
       ) : (
         <Accordion type="single" collapsible className="w-full">
           {filteredCustomers.map((c: any) => (

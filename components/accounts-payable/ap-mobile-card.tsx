@@ -9,12 +9,23 @@ interface APSupplierMobileCardProps {
   onExport: () => void;
   onBatchSettle: () => void;
   onPayByCheck: () => void;
+  onRestoreOrder?: (order: {
+    id: string;
+    purchaseOrderId: string | null;
+    supplierId: string | null;
+    orderNumber: string;
+    orderDate: string | null;
+    amountDue: number;
+  }) => void;
+  isRestoring?: (orderId: string) => boolean;
   orders: Array<{
     id: string;
+    purchaseOrderId: string | null;
     orderNumber: string;
     orderDate: string | null;
     products: string;
     amountDue: number;
+    paidAmount: number;
     outstanding: number;
   }>;
 }
@@ -28,6 +39,8 @@ export function APSupplierMobileCard({
   onExport,
   onBatchSettle,
   onPayByCheck,
+  onRestoreOrder,
+  isRestoring,
   orders,
 }: APSupplierMobileCardProps) {
   return (
@@ -60,6 +73,22 @@ export function APSupplierMobileCard({
               <span>單筆金額 ${order.amountDue.toLocaleString("zh-TW")}</span>
               <span className="text-destructive">未付 ${order.outstanding.toLocaleString("zh-TW")}</span>
             </div>
+            {order.outstanding <= 0 && order.paidAmount > 0 && onRestoreOrder && (
+              <button
+                className="text-xs px-2 py-1 rounded border bg-muted hover:bg-gray-200 mt-1 self-end"
+                disabled={isRestoring?.(order.id)}
+                onClick={() => onRestoreOrder({
+                  id: order.id,
+                  purchaseOrderId: order.purchaseOrderId,
+                  supplierId: supplierId === "未指定" ? null : supplierId,
+                  orderNumber: order.orderNumber,
+                  orderDate: order.orderDate,
+                  amountDue: order.amountDue,
+                })}
+              >
+                {isRestoring?.(order.id) ? "處理中..." : "恢復未付"}
+              </button>
+            )}
           </div>
         ))}
       </div>

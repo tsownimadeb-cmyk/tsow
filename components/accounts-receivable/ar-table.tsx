@@ -73,7 +73,7 @@ export function ARTable({
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const searchInputProps = useImeInput(search, setSearch)
-  const debouncedSearch = useDebounce(search, 300)
+  const debouncedSearch = useDebounce(search, 200)
   const lastInitialSearchRef = useRef(initialSearch)
   const pendingSearchRef = useRef<string | null>(null)
   const [isPrivacyMode, setIsPrivacyMode] = useState(true)
@@ -188,7 +188,7 @@ export function ARTable({
   const normalizeCustomerKey = (value: unknown) => String(value ?? "").trim().toUpperCase()
 
   const filteredRecords = useMemo(() => {
-    const keyword = normalizeSearchValue(debouncedSearch)
+    const keyword = normalizeSearchValue(search)
     if (!keyword) return records
 
     return records.filter((record) => {
@@ -211,7 +211,9 @@ export function ARTable({
 
       return searchTargets.some((value) => normalizeSearchValue(value).includes(keyword))
     })
-  }, [debouncedSearch, records])
+  }, [records, search])
+
+  const isSearching = search !== debouncedSearch || isPending
 
   const localTotalAmount = filteredRecords.reduce((sum, record) => sum + record.amount_due, 0)
   const localPaidAmount = filteredRecords.reduce((sum, record) => sum + record.paid_amount, 0)
@@ -1621,6 +1623,9 @@ export function ARTable({
           </Button>
         </div>
       </div>
+      {isSearching && (
+        <div className="text-xs text-gray-500">搜尋中...</div>
+      )}
 
       {/* 統計方塊：手機直排、桌面橫排，字體縮小 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
@@ -1641,7 +1646,9 @@ export function ARTable({
       <div className="rounded-lg border">
         {customerSummaries.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
-            {search
+            {isSearching
+              ? "搜尋中..."
+              : search
               ? "找不到符合的客戶歸戶資料"
               : showAllCustomers
                 ? "尚無客戶歸戶資料"

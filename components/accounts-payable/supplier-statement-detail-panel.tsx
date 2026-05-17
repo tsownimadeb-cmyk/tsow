@@ -273,6 +273,21 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
           }
         }
 
+        // 立即更新本地狀態
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            unpaidOrders.some((unpaid) => unpaid.purchase_order_id === o.purchase_order_id)
+              ? {
+                  ...o,
+                  paid_amount: o.amount_due,
+                  outstanding: 0,
+                  is_paid: true,
+                  status: "paid",
+                }
+              : o,
+          ),
+        )
+
         toast({ title: "成功", description: `已完成 ${selectedSupplier.name} 的一鍵沖帳` })
         router.refresh()
         setSelectedSupplierId("")
@@ -330,7 +345,87 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
 
         if (purchaseOrderError) throw purchaseOrderError
 
+        // 立即更新本地狀態
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            o.purchase_order_id === order.purchase_order_id
+              ? {
+                  ...o,
+                  paid_amount: o.amount_due,
+                  outstanding: 0,
+                  is_paid: true,
+                  status: "paid",
+                }
+              : o,
+          ),
+        )
+
         toast({ title: "成功", description: `已完成單據 ${order.order_no} 沖帳` })
+        router.refresh()
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: getErrorMessage(error),
+          variant: "destructive",
+        })
+      }
+    })
+  }
+
+  const handleRestoreOrder = (order: OrderRow) => {
+    if (!selectedSupplier) return
+
+    startTransition(async () => {
+      try {
+        const supabase = createClient()
+
+        const { error: purchaseUpdateError } = await supabase
+          .from("purchase_orders")
+          .update({ is_paid: false, status: "pending" })
+          .eq("id", order.purchase_order_id)
+
+        if (purchaseUpdateError) throw purchaseUpdateError
+
+        if (order.id.startsWith("virtual-")) {
+          const { error } = await supabase.from("accounts_payable").insert({
+            purchase_order_id: order.purchase_order_id,
+            supplier_id: selectedSupplierId,
+            amount_due: order.amount_due,
+            total_amount: order.amount_due,
+            paid_amount: 0,
+            due_date: order.order_date,
+            status: "unpaid",
+            notes: order.notes,
+          })
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from("accounts_payable")
+            .update({
+              paid_amount: 0,
+              status: "unpaid",
+              paid_at: null,
+            })
+            .eq("id", order.id)
+          if (error) throw error
+        }
+
+        // 立即更新本地狀態
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            o.purchase_order_id === order.purchase_order_id
+              ? {
+                  ...o,
+                  paid_amount: 0,
+                  outstanding: o.amount_due,
+                  is_paid: false,
+                  status: "unpaid",
+                }
+              : o,
+          ),
+        )
+
+        toast({ title: "成功", description: `單號 ${order.order_no} 已恢復為未付款` })
         router.refresh()
       } catch (error) {
         toast({
@@ -590,14 +685,27 @@ export function SupplierStatementDetailPanel({ suppliers }: SupplierStatementDet
                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.amount_due)}</TableCell>
                     <TableCell className="text-right">{formatCurrencyOneDecimal(order.outstanding)}</TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={isPending || order.outstanding <= 0}
-                        onClick={() => handleSingleSettle(order)}
-                      >
-                        沖帳
-                      </Button>
+                      {order.outstanding > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isPending}
+                          onClick={() => handleSingleSettle(order)}
+                        >
+                          沖帳
+                        </Button>
+                      ) : (
+                        order.paid_amount > 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isPending}
+                            onClick={() => handleRestoreOrder(order)}
+                          >
+                            恢復未付
+                          </Button>
+                        )
+                      )}
                     </TableCell>
                   </TableRow>
                 )

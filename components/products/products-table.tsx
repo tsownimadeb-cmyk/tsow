@@ -28,8 +28,8 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
   const [isOnline, setIsOnline] = useState(true)
   const [offlineProducts, setOfflineProducts] = useState<ProductListRow[]>([])
   const searchInputProps = useImeInput(searchText, setSearchText)
-  const debouncedSearch = useDebounce(searchText, 500)
-  const [, startTransition] = useTransition()
+  const debouncedSearch = useDebounce(searchText, 250)
+  const [isPending, startTransition] = useTransition()
   const lastInitialSearchRef = useRef(initialSearch)
 
   useEffect(() => {
@@ -89,6 +89,7 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
         .some((v) => v.includes(keyword))
     )
   })()
+  const isSearching = searchText !== debouncedSearch || isPending
 
   const handleDelete = async (record: ProductListRow) => {
     const isConfirmed = window.confirm("確定要刪除此商品嗎？")
@@ -147,6 +148,9 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
           </button>
         )}
       </div>
+      {isSearching && (
+        <div className="px-3 sm:px-6 py-2 text-xs text-gray-500">搜尋中...</div>
+      )}
 
       {/* 桌面版標題列 */}
       <div className="hidden md:grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
@@ -159,7 +163,11 @@ export function ProductsTable({ products, initialSearch = "" }: ProductsTablePro
 
       {filteredProducts.length === 0 ? (
         <div className="px-6 py-10 text-center text-sm text-gray-400">
-          {products.length === 0 ? "目前資料庫沒有商品，請手動新增。" : "查無符合的商品，請調整搜尋條件。"}
+          {isSearching
+            ? "搜尋中..."
+            : products.length === 0
+              ? "目前資料庫沒有商品，請手動新增。"
+              : "查無符合的商品，請調整搜尋條件。"}
         </div>
       ) : (
         <>

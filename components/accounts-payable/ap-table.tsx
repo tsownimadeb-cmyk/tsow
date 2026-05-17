@@ -54,11 +54,151 @@ export function APTable({ records }: APTableProps) {
     return formatCurrencyOneDecimal(value)
   }
 
+  const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+
   const buildCheckLinkedNote = (existingNotes: string | null | undefined) => {
     const timestamp = new Date().toISOString()
     const entry = `${AP_CHECK_LINKED_TAG}${timestamp}`
     const base = (existingNotes || "").trim()
     return base ? `${base}\n${entry}` : entry
+  }
+
+  const upsertPayableByPurchaseOrder = async (payload: {
+    purchaseOrderId: string
+    supplierId: string | null
+    amountDue: number
+    paidAmount: number
+    paidAt: string | null
+    dueDate: string | null
+    status: "unpaid" | "partially_paid" | "paid"
+    notes?: string | null
+  }) => {
+    const supabase = createClient()
+    const writePayload: Record<string, unknown> = {
+      supplier_id: payload.supplierId,
+      amount_due: payload.amountDue,
+      total_amount: payload.amountDue,
+      paid_amount: payload.paidAmount,
+      paid_at: payload.paidAt,
+      due_date: payload.dueDate,
+      status: payload.status,
+    }
+
+    if (payload.notes !== undefined) {
+      writePayload.notes = payload.notes
+    }
+
+    const { data: existingRows, error: selectError } = await supabase
+      .from("accounts_payable")
+      .select("id")
+      .eq("purchase_order_id", payload.purchaseOrderId)
+      .limit(1)
+
+    if (selectError) {
+      throw new Error(selectError.message || "無法查詢應付帳款資料")
+    }
+
+    if (existingRows && existingRows.length > 0) {
+      const { error: updateError } = await supabase
+        .from("accounts_payable")
+        .update(writePayload)
+        .eq("purchase_order_id", payload.purchaseOrderId)
+
+      if (updateError) {
+        throw new Error(updateError.message || "無法更新應付帳款資料")
+      }
+
+      return String(existingRows[0]?.id || "") || null
+    }
+
+    const { data: insertedRows, error: insertError } = await supabase
+      .from("accounts_payable")
+      .insert({
+        purchase_order_id: payload.purchaseOrderId,
+        ...writePayload,
+      })
+      .select("id")
+      .limit(1)
+
+    if (insertError) {
+      throw new Error(insertError.message || "無法建立應付帳款資料")
+    }
+
+    return insertedRows && insertedRows.length > 0 ? String(insertedRows[0]?.id || "") || null : null
+  }
+
+  const restoreSingleOrder = async (order: {
+    id: string
+    purchaseOrderId: string | null
+    supplierId: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+  }) => {
+    if (!order.purchaseOrderId) {
+      toast({
+        title: "錯誤",
+        description: "缺少進貨單據關聯，無法恢復未付",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const supabase = createClient()
+    const { error: purchaseUpdateError } = await supabase
+      .from("purchase_orders")
+      .update({ is_paid: false, status: "pending" })
+      .eq("id", order.purchaseOrderId)
+
+    if (purchaseUpdateError) {
+      toast({
+        title: "錯誤",
+        description: purchaseUpdateError.message || "無法更新進貨狀態",
+        variant: "destructive",
+      })
+      return
+    }
+
+    await upsertPayableByPurchaseOrder({
+      purchaseOrderId: order.purchaseOrderId,
+      supplierId: order.supplierId,
+      amountDue: order.amountDue,
+      paidAmount: 0,
+      paidAt: null,
+      dueDate: order.orderDate,
+      status: "unpaid",
+      notes: null,
+    })
+
+    toast({
+      title: "成功",
+      description: `單號 ${order.orderNumber} 已恢復為未付款`,
+    })
+    router.refresh()
+  }
+
+  const handleRestoreOrder = (order: {
+    id: string
+    purchaseOrderId: string | null
+    supplierId: string | null
+    orderNumber: string
+    orderDate: string | null
+    amountDue: number
+  }) => {
+    setProcessingOrderId(order.id)
+    startTransition(async () => {
+      try {
+        await restoreSingleOrder(order)
+      } catch (error) {
+        toast({
+          title: "錯誤",
+          description: error instanceof Error ? error.message : "發生未知錯誤",
+          variant: "destructive",
+        })
+      } finally {
+        setProcessingOrderId(null)
+      }
+    })
   }
 
   const supplierSummaryMap = filteredRecords.reduce((map, record) => {
@@ -544,6 +684,23 @@ export function APTable({ records }: APTableProps) {
                                     沖帳
                                   </Button>
                                 )}
+                                {order.outstanding <= 0 && order.paidAmount > 0 && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRestoreOrder({
+                                      id: order.id,
+                                      purchaseOrderId: order.purchaseOrderId,
+                                      supplierId: summary.supplierId === "未指定" ? null : summary.supplierId,
+                                      orderNumber: order.orderNumber,
+                                      orderDate: order.orderDate,
+                                      amountDue: order.amountDue,
+                                    })}
+                                    disabled={processingOrderId === order.id && isPending}
+                                  >
+                                    恢復未付
+                                  </Button>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -584,6 +741,8 @@ export function APTable({ records }: APTableProps) {
               onExport={() => handleExportStatement(summary)}
               onBatchSettle={() => handleBatchSettle(summary)}
               onPayByCheck={() => handlePayByCheck(summary)}
+              onRestoreOrder={handleRestoreOrder}
+              isRestoring={(orderId) => processingOrderId === orderId && isPending}
               orders={summary.orders}
             />
           ))

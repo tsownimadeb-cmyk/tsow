@@ -91,7 +91,7 @@ export function PurchasesTable({ purchases, suppliers, products, initialSearch =
   const { toast } = useToast()
   const [search, setSearch] = useState(initialSearch)
   const searchInputProps = useImeInput(search, setSearch)
-  const debouncedSearch = useDebounce(search, 500)
+  const debouncedSearch = useDebounce(search, 250)
   const [isPending, startTransition] = useTransition()
   const lastInitialSearchRef = useRef(initialSearch)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
@@ -132,6 +132,7 @@ export function PurchasesTable({ purchases, suppliers, products, initialSearch =
 
   // 不再前端 filter，直接顯示 props 傳入的 purchases
   const filteredPurchases = purchases
+  const isSearching = search !== debouncedSearch || isPending
 
   // 手機版展開明細的狀態
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -367,11 +368,14 @@ export function PurchasesTable({ purchases, suppliers, products, initialSearch =
           )}
         </div>
       </div>
+      {isSearching && (
+        <div className="text-xs text-gray-500">搜尋中...</div>
+      )}
 
       {/* 桌面版表格（md 以上顯示） */}
       <div className="rounded-lg border hidden md:block">
         {filteredPurchases.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">{search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
+          <div className="text-center text-muted-foreground py-8">{isSearching ? "搜尋中..." : search ? "找不到符合的進貨單" : "尚無進貨單資料"}</div>
         ) : (
           <Accordion type="single" collapsible className="w-full">
             {filteredPurchases.map((purchase) => {
