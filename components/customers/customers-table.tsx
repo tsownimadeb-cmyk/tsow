@@ -265,7 +265,7 @@ export function CustomersTable({
     if (!keyword) return base;
 
     return base.filter((c: any) =>
-      [c.name, c.code, c.tel1, c.tel2, c.tel3]
+      [c.name, c.code, c.tel1, c.tel2, c.tel3, c.tel11, c.tel12, c.fax]
         .map((v) => String(v ?? "").toLowerCase())
         .some((v) => v.includes(keyword))
     );
@@ -339,7 +339,7 @@ export function CustomersTable({
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="搜尋名稱或編號..."
+          placeholder="搜尋名稱、編號或電話..."
           {...searchInputProps}
           className="pl-10 pr-8"
         />

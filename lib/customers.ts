@@ -16,7 +16,9 @@ export async function fetchCustomersRows(
     .range(from, to)
 
   if (searchText && searchText.trim() !== "") {
-    query = query.or(`name.ilike.%${searchText}%,code.ilike.%${searchText}%`)
+    query = query.or(
+      `name.ilike.%${searchText}%,code.ilike.%${searchText}%,tel1.ilike.%${searchText}%,tel11.ilike.%${searchText}%,tel12.ilike.%${searchText}%`
+    )
   }
   const result: PostgrestSingleResponse<any> = await query
 
@@ -28,5 +30,9 @@ export async function fetchCustomersRows(
 }
 
 export function normalizeCustomers(rows: any[]): any[] {
-  return rows.map((row) => ({ ...row }))
+  return rows.map((row) => ({
+    ...row,
+    tel2: row.tel2 || row.tel11 || null,
+    tel3: row.tel3 || row.fax || row.tel12 || null,
+  }))
 }
