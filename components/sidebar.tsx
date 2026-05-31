@@ -80,6 +80,7 @@ const PREFETCH_PATHS = [
   "/products/profit-analysis",
   "/purchases",
   "/sales",
+  "/inventory-audit",
   "/customers",
   "/suppliers",
   "/accounts-receivable",
@@ -520,6 +521,7 @@ export function Sidebar() {
       icon: ShoppingCart,
       children: [
         { name: "新建銷貨", href: "/sales?create=true", icon: Plus },
+        { name: "庫存盤點", href: "/inventory-audit", icon: Archive },
         // 新增銷貨退回子項目
         { name: "銷貨退回", href: "/sales-returns", icon: RotateCw },
         { name: "銷貨分析", href: "/sales/analysis", icon: ChartColumn },
