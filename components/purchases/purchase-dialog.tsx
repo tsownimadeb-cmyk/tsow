@@ -289,7 +289,8 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           supplier_id: formData.supplier_id || null,
           order_date: formData.order_date,
           delivery_date: formData.order_date, // 簡化：交期=訂購日
-          total_amount: totalGoodsAmount + shippingFee,
+          total_amount: totalGoodsAmount,
+          shipping_fee: shippingFee,
           status: 'completed',
           notes: formData.notes,
           items: purchaseItems,
@@ -365,7 +366,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
             await syncAccountsPayable(
               purchaseId,
               formData.supplier_id || null,
-              totalGoodsAmount + shippingFee,
+              totalGoodsAmount,
               formData.order_date,
               Boolean(formData.is_paid),
             )

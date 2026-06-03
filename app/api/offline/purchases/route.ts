@@ -16,7 +16,7 @@ function isUuid(value: unknown) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status = 'draft', notes, items } = body;
+    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status = 'draft', notes, items } = body;
     const normalizedId = isUuid(id) ? id : randomUUID();
 
     if (await isLocalOnlyMode()) {
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
         supplier_id,
         order_date,
         total_amount: total_amount || 0,
+        shipping_fee: shipping_fee || 0,
         status,
         notes,
         created_at: new Date().toISOString(),
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status, notes, items } = body;
     if (!isUuid(id)) {
       return NextResponse.json({ error: 'Invalid purchase id' }, { status: 400 });
     }
@@ -139,6 +140,7 @@ export async function PUT(req: NextRequest) {
           supplier_id,
           order_date,
           total_amount: total_amount || 0,
+          shipping_fee: shipping_fee || 0,
           status,
           notes,
           updated_at: new Date().toISOString(),
