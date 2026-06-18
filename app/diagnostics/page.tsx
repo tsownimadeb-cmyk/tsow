@@ -5,7 +5,6 @@ export default async function DiagnosticsPage() {
   const supabase = await createClient()
   const localDb = getLocalDb()
 
-  let categoriesTest = { success: false, count: 0, error: null as string | null }
   let suppliersTest = { success: false, count: 0, error: null as string | null }
   let customersTest = { success: false, count: 0, error: null as string | null }
   let productsTest = { success: false, count: 0, error: null as string | null }
@@ -14,18 +13,7 @@ export default async function DiagnosticsPage() {
   let localSnapshotCount = 0
   let localDbError: string | null = null
 
-  // 測試 categories 表
-  try {
-    const { data, error } = await supabase.from("categories").select("*").limit(1)
-    if (error) {
-      categoriesTest.error = error.message
-    } else {
-      categoriesTest.success = true
-      categoriesTest.count = data?.length || 0
-    }
-  } catch (err) {
-    categoriesTest.error = err instanceof Error ? err.message : "未知錯誤"
-  }
+
 
   // 測試 suppliers 表
   try {
@@ -86,13 +74,7 @@ export default async function DiagnosticsPage() {
       <h1 className="text-3xl font-bold">資料庫診斷</h1>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="p-4 rounded border">
-          <h2 className="font-semibold mb-2">Categories 表</h2>
-          <p className={categoriesTest.success ? "text-green-600" : "text-red-600"}>
-            {categoriesTest.success ? `✓ 成功 (${categoriesTest.count} 筆)` : `✗ 失敗`}
-          </p>
-          {categoriesTest.error && <p className="text-sm text-red-600 mt-1">{categoriesTest.error}</p>}
-        </div>
+        {/* Categories table removed - Supabase does not have categories table in production */}
 
         <div className="p-4 rounded border">
           <h2 className="font-semibold mb-2">Suppliers 表</h2>

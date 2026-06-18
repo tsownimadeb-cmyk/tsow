@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeCustomerSnapshot, upsertCustomerSnapshot } from "@/lib/desktop-offline-mutations"
 import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
+import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
 
 const CUSTOMER_REFERENCE_TABLES = [
   { table: "sales_orders", columns: ["customer_cno"] },
@@ -57,6 +58,13 @@ async function buildCustomerPayload(supabase: any, input: Record<string, any>) {
 }
 
 export async function POST(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const body = await request.json()
   const payload = body?.payload || body
 
@@ -96,6 +104,13 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const body = await request.json()
   const code = String(body?.targetCode || body?.code || body?.payload?.code || "").trim().toUpperCase()
   const payload = body?.payload || body
@@ -179,6 +194,13 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const code = String(searchParams.get("code") || "").trim()
   if (!code) {

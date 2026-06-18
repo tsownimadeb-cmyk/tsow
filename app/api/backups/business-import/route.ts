@@ -8,7 +8,6 @@ export const runtime = "nodejs"
 
 type ImportPayload = {
   tables?: {
-    categories?: Record<string, unknown>[]
     suppliers?: Record<string, unknown>[]
     sales_orders?: Record<string, unknown>[]
     sales_order_items?: Record<string, unknown>[]
@@ -27,7 +26,6 @@ type ImportPayload = {
 }
 
 type SourceTables = {
-  categories: Record<string, unknown>[]
   suppliers: Record<string, unknown>[]
   sales_orders: Record<string, unknown>[]
   sales_order_items: Record<string, unknown>[]
@@ -179,7 +177,6 @@ async function parseSourceTablesFromFile(file: File): Promise<SourceTables> {
     }
 
     return {
-      categories: await readCsvEntry("categories.csv"),
       suppliers: await readCsvEntry("suppliers.csv"),
       customers: await readCsvEntry("customers.csv"),
       products: await readCsvEntry("products.csv"),
@@ -211,8 +208,7 @@ async function parseSourceTablesFromFile(file: File): Promise<SourceTables> {
 
   const tables = payload.tables || {}
   return {
-    categories: Array.isArray(tables.categories) ? tables.categories : [],
-    suppliers: Array.isArray(tables.suppliers) ? tables.suppliers : [],
+  suppliers: Array.isArray(tables.suppliers) ? tables.suppliers : [],
     sales_orders: Array.isArray(tables.sales_orders) ? tables.sales_orders : [],
     sales_order_items: Array.isArray(tables.sales_order_items) ? tables.sales_order_items : [],
     purchase_orders: Array.isArray(tables.purchase_orders) ? tables.purchase_orders : [],
@@ -280,7 +276,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message }, { status: 400 })
     }
 
-    const sourceCategories = sourceTables.categories
     const sourceSuppliers = sourceTables.suppliers
     const sourceCustomers = sourceTables.customers
     const sourceProducts = sourceTables.products
@@ -296,18 +291,7 @@ export async function POST(request: NextRequest) {
     const sourceAccountsPayable = sourceTables.accounts_payable
     const sourceArReceipts = sourceTables.ar_receipts
 
-    const categories = sourceCategories
-      .map((row) => ({
-        id: asNullableString(row.id),
-        name: asNullableString(row.name),
-        description: asNullableString(row.description),
-      }))
-      .filter((row) => row.id && row.name)
-      .map((row) => ({
-        id: row.id!,
-        name: row.name!,
-        description: row.description,
-      }))
+    // categories table intentionally ignored (production Supabase has no categories table)
 
     const suppliers = sourceSuppliers
       .map((row) => ({
@@ -516,7 +500,6 @@ export async function POST(request: NextRequest) {
 
     if (previewOnly) {
       const summary = toSummary({
-        categories: categories.length,
         suppliers: suppliers.length,
         customers: customers.length,
         products: products.length,
@@ -543,12 +526,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    if (categories.length > 0) {
-      const categoriesResult = await resilientUpsert(supabase, "categories", categories as Record<string, unknown>[], "id")
-      if (!categoriesResult.success) {
-        return NextResponse.json({ success: false, message: `匯入 categories 失敗: ${categoriesResult.error}` }, { status: 500 })
-      }
-    }
+    // skip categories import
 
     if (suppliers.length > 0) {
       const suppliersResult = await resilientUpsert(supabase, "suppliers", suppliers as Record<string, unknown>[], "id")
@@ -870,7 +848,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       summary: toSummary({
-        categories: categories.length,
         suppliers: suppliers.length,
         customers: customers.length,
         products: products.length,

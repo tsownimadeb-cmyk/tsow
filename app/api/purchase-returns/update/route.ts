@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getLocalDb, addToSyncQueue, markSyncComplete, updateSyncError } from '@/lib/local-db';
+import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
 import { v4 as uuidv4 } from 'uuid';
 
 async function syncPurchaseReturnNow(returnId: string, totalAmount: number, items: any[]) {
@@ -29,6 +30,13 @@ async function syncPurchaseReturnNow(returnId: string, totalAmount: number, item
  * 流程：先更新本地 SQLite → 再同步到遠端 Supabase
  */
 export async function PUT(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   try {
     const body = await request.json();
     const { returnId, totalAmount, items, expectedUpdatedAt } = body;

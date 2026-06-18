@@ -1,8 +1,15 @@
+import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
+import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
 
 // 重新計算所有商品庫存
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
   try {
     const supabase = await createClient()
 

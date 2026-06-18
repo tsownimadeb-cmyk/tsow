@@ -3,8 +3,16 @@ import { createClient } from "@/lib/supabase/server"
 import { addToSyncQueue } from "@/lib/local-db"
 import { removeSupplierSnapshot, upsertSupplierSnapshot } from "@/lib/desktop-offline-mutations"
 import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
+import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
 
 export async function POST(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const body = await request.json()
   const payload = body?.payload || body
 
@@ -35,6 +43,13 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const body = await request.json()
   const id = String(body?.id || body?.payload?.id || "").trim()
   const payload = body?.payload || body
@@ -70,6 +85,13 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const cookieValue = request.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const id = String(searchParams.get("id") || "").trim()
   if (!id) {

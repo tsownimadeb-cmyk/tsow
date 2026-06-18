@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { addToSyncQueue, setOfflineSnapshot, getLocalDb } from '@/lib/local-db';
 import { upsertPurchaseSnapshot } from '@/lib/desktop-offline-mutations';
 import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
+import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
 import { randomUUID } from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -14,6 +15,13 @@ function isUuid(value: unknown) {
 }
 
 export async function POST(req: NextRequest) {
+  const cookieValue = req.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status = 'draft', notes, items } = body;
@@ -108,6 +116,13 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const cookieValue = req.cookies.get(AUTH_COOKIE_NAME)?.value
+  const isAuthenticated = await verifyAuthToken(cookieValue)
+
+  if (!isAuthenticated) {
+    return NextResponse.json({ success: false, message: "未授權" }, { status: 401 })
+  }
+
   try {
     const body = await req.json();
     const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status, notes, items } = body;

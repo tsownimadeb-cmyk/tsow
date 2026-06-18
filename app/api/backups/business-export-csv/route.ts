@@ -80,7 +80,6 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
 
     const tableQueries = await Promise.all([
-      queryTable(supabase, "categories", [{ column: "name", ascending: true }]),
       queryTable(supabase, "suppliers", [{ column: "name", ascending: true }]),
       queryTable(supabase, "customers", [{ column: "code", ascending: true }]),
       queryTable(supabase, "products", [{ column: "code", ascending: true }]),

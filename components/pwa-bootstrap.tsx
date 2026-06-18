@@ -19,10 +19,20 @@ export function PwaBootstrap() {
       await flushPendingOperations()
 
       if (!localOnly) {
-        await fetch("/api/sync").catch(() => {
-          // Ignore server sync errors when offline.
-        })
-        await refreshReferenceCaches()
+        try {
+          const statusRes = await fetch('/api/auth/status', { credentials: 'same-origin' }).catch(() => null)
+          const status = statusRes ? await statusRes.json().catch(() => null) : null
+
+          if (status && status.authenticated === true) {
+            await fetch("/api/sync", { credentials: 'same-origin' }).catch(() => {
+              // Ignore server sync errors when offline.
+            })
+            await refreshReferenceCaches()
+          }
+          // If not authenticated, skip server sync and mobile-cache refresh to avoid exposing data before login.
+        } catch {
+          // ignore any errors and do not perform server sync
+        }
       }
     }
 
