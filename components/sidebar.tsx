@@ -328,39 +328,28 @@ export function Sidebar() {
     }
   }
 
+  const triggerNativeDownload = (url: string) => {
+    const separator = url.includes("?") ? "&" : "?"
+    const downloadUrl = `${url}${separator}t=${Date.now()}`
+    const link = document.createElement("a")
+    link.href = downloadUrl
+    link.rel = "noopener"
+    link.style.display = "none"
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
   const handleExportBusinessData = async () => {
     if (isExportingBusinessData) return
 
     setIsExportingBusinessData(true)
     try {
-      const response = await fetch("/api/backups/business-export", { method: "GET" })
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { message?: string }
-        throw new Error(data.message || "匯出失敗")
-      }
-
-      const blob = await response.blob()
-      const contentDisposition = response.headers.get("content-disposition") || ""
-      const matched = contentDisposition.match(/filename=\"?([^\";]+)\"?/) 
-      const fileName = matched?.[1] || `business-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`
-      const saved = await saveFileTo(blob, fileName)
-      if (saved) {
-        toast({ title: "匯出完成", description: `已儲存至 ${dirName ?? ""}/${fileName}` })
-        return
-      }
-      const downloadUrl = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = downloadUrl
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(downloadUrl)
+      triggerNativeDownload("/api/backups/business-export")
 
       toast({
-        title: "匯出完成",
-        description: `已下載 ${fileName}`,
+        title: "已交給瀏覽器下載",
+        description: "請按 Ctrl + J 檢查 business-backup-*.json",
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "匯出失敗"
@@ -370,7 +359,7 @@ export function Sidebar() {
         variant: "destructive",
       })
     } finally {
-      setIsExportingBusinessData(false)
+      window.setTimeout(() => setIsExportingBusinessData(false), 1000)
     }
   }
 
@@ -379,34 +368,11 @@ export function Sidebar() {
 
     setIsExportingBusinessCsv(true)
     try {
-      const response = await fetch("/api/backups/business-export-csv", { method: "GET" })
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { message?: string }
-        throw new Error(data.message || "匯出失敗")
-      }
-
-      const blob = await response.blob()
-      const contentDisposition = response.headers.get("content-disposition") || ""
-      const matched = contentDisposition.match(/filename=\"?([^\";]+)\"?/) 
-      const fileName = matched?.[1] || `business-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.zip`
-      const saved = await saveFileTo(blob, fileName)
-      if (saved) {
-        toast({ title: "匯出完成", description: `已儲存至 ${dirName ?? ""}/${fileName}` })
-        return
-      }
-      const downloadUrl = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = downloadUrl
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(downloadUrl)
+      triggerNativeDownload("/api/backups/business-export-csv")
 
       toast({
-        title: "匯出完成",
-        description: `已下載 ${fileName}`,
+        title: "已交給瀏覽器下載",
+        description: "請按 Ctrl + J 檢查 business-backup-*.zip",
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "匯出失敗"
@@ -416,7 +382,7 @@ export function Sidebar() {
         variant: "destructive",
       })
     } finally {
-      setIsExportingBusinessCsv(false)
+      window.setTimeout(() => setIsExportingBusinessCsv(false), 1000)
     }
   }
 
