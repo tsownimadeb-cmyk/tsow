@@ -376,8 +376,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">銷貨成本 (COGS)</p>
+                              <p className="text-xs text-slate-500">最新成本小計</p>
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
+                              <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">實收現金毛利</p>
@@ -420,7 +421,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             const cashGrossMargin = Number(product.cash_gross_margin || 0)
             const latestPurchasePrice = Number(product.latest_purchase_price || 0)
             const fifoAvgCost = Number(product.sales_qty_total || 0) > 0
-              ? Number(product.cogs_total || 0) / Number(product.sales_qty_total)
+              ? Number(product.fifo_cogs_total || 0) / Number(product.sales_qty_total)
               : latestPurchasePrice
             const isCostRising = latestPurchasePrice > 0 && fifoAvgCost > 0 && latestPurchasePrice > fifoAvgCost * 1.1
             const salesAmount = Number(product.sales_amount_total || 0)
@@ -518,8 +519,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">銷貨成本 (COGS)</p>
+                        <p className="text-xs text-slate-500">最新成本小計</p>
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
+                        <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">實收現金毛利</p>

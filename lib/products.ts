@@ -24,6 +24,7 @@ export type ProductListRowWithProfit = ProductListRow & {
   sales_qty_total: number
   sales_amount_total: number
   cogs_total: number
+  fifo_cogs_total: number
   gross_profit: number
   gross_margin: number
   cash_received_total: number

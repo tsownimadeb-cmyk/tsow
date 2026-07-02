@@ -90,8 +90,9 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
     const salesQtyTotal = toNumber(summary?.sales_qty_total)
     const salesAmountTotal = toNumber(summary?.sales_amount_total)
     const cashReceivedTotal = toNumber(summary?.cash_received_total)
-    const cogsTotal = toNumber(summary?.fifo_cogs_total)
+    const fifoCogsTotal = toNumber(summary?.fifo_cogs_total)
     const latestPurchasePrice = toNumber(summary?.latest_purchase_price)
+    const cogsTotal = latestPurchasePrice > 0 ? latestPurchasePrice * salesQtyTotal : fifoCogsTotal
     const grossProfit = salesAmountTotal - cogsTotal
     const grossMargin = salesAmountTotal > 0 ? grossProfit / salesAmountTotal : 0
     const cashCollectionRatio = salesAmountTotal > 0 ? Math.min(1, Math.max(0, cashReceivedTotal / salesAmountTotal)) : 0
@@ -104,6 +105,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
       sales_qty_total: salesQtyTotal,
       sales_amount_total: salesAmountTotal,
       cogs_total: cogsTotal,
+      fifo_cogs_total: fifoCogsTotal,
       gross_profit: grossProfit,
       gross_margin: grossMargin,
       cash_received_total: cashReceivedTotal,
