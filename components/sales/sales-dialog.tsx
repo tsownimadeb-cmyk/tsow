@@ -53,6 +53,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [internalOpen, setInternalOpen] = useState(false)
+  const [customerNameSearch, setCustomerNameSearch] = useState("")
 
   const isControlled = open !== undefined
   const isOpen = isControlled ? open : internalOpen
@@ -123,10 +124,31 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const customerByCode = useMemo(() => {
     return new Map(customers.map((customer) => [customer.code, customer]))
   }, [customers])
+  const selectedCustomer = useMemo(() => {
+    if (!formData.customer_cno || formData.customer_cno === WALK_IN_CUSTOMER_VALUE || formData.customer_cno === STOCK_ADJUSTMENT_CUSTOMER_VALUE) {
+      return null
+    }
+    return customerByCode.get(formData.customer_cno) || null
+  }, [customerByCode, formData.customer_cno])
   const customerSelectValue =
     formData.customer_cno === WALK_IN_CUSTOMER_VALUE || formData.customer_cno === STOCK_ADJUSTMENT_CUSTOMER_VALUE
       ? ""
       : formData.customer_cno
+  const filteredCustomers = useMemo(() => {
+    const keyword = customerNameSearch.trim().toLowerCase()
+    if (!keyword) return customers
+
+    return customers.filter((customer) => {
+      const name = String(customer.name || "").toLowerCase()
+      return name.includes(keyword)
+    })
+  }, [customers, customerNameSearch])
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCustomerNameSearch("")
+    }
+  }, [isOpen])
 
   useEffect(() => {
     if (mode === "edit") {
@@ -663,21 +685,39 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             {/* 客戶選擇器 */}
             <div className="flex-1">
               <Label htmlFor="customer" className="mb-1 block text-sm font-medium">客戶</Label>
-              <Select
-                value={customerSelectValue}
-                onValueChange={(value) => setFormData({ ...formData, customer_cno: value })}
-              >
-                <SelectTrigger id="customer" className="h-10">
-                  <SelectValue placeholder="選擇客戶" />
-                </SelectTrigger>
-                <SelectContent>
-                  {customers.map((customer) => (
-                    <SelectItem key={customer.code} value={customer.code}>
-                      {customer.code} - {customer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <Input
+                  id="customer-name-search"
+                  type="text"
+                  placeholder="搜尋客戶名稱"
+                  value={customerNameSearch}
+                  onChange={(e) => setCustomerNameSearch(e.target.value)}
+                />
+                <Select
+                  value={customerSelectValue}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, customer_cno: value })
+                    setCustomerNameSearch("")
+                  }}
+                >
+                  <SelectTrigger id="customer" className="h-10">
+                    <SelectValue placeholder="搜尋 / 選擇客戶" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredCustomers.length === 0 ? (
+                      <SelectItem value="__NO_MATCH__" disabled>
+                        找不到符合的客戶
+                      </SelectItem>
+                    ) : (
+                      filteredCustomers.map((customer) => (
+                        <SelectItem key={customer.code} value={customer.code}>
+                          {`${customer.code} - ${customer.name}`}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {/* 散客按鈕 */}
             <div className="flex flex-col items-end justify-end">
@@ -686,7 +726,10 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 type="button"
                 className="h-10"
                 variant={formData.customer_cno === WALK_IN_CUSTOMER_VALUE ? "default" : "outline"}
-                onClick={() => setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })}
+                onClick={() => {
+                  setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })
+                  setCustomerNameSearch("")
+                }}
               >
                 散客
               </Button>
