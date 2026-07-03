@@ -57,6 +57,55 @@ function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   return chunks
 }
 
+// Generic paginated fetch helper using Supabase .range(from,to)
+async function fetchAllRows(
+  supabase: any,
+  table: string,
+  selectText: string,
+  opts?: { inColumn?: string; inValues?: any[]; pageSize?: number; orderBy?: { column: string; ascending?: boolean } },
+) {
+  const pageSize = opts?.pageSize ?? 1000
+  const results: any[] = []
+  const inColumn = opts?.inColumn
+  const inValues = opts?.inValues
+
+  // If caller provided an IN filter but it's empty, return empty
+  if (inColumn && Array.isArray(inValues) && inValues.length === 0) return results
+
+  // If we have IN values, we still need to split into chunks to avoid long IN lists
+  if (inColumn && Array.isArray(inValues)) {
+    const inChunks = chunkArray(inValues, IN_FILTER_CHUNK_SIZE)
+    for (const chunk of inChunks) {
+      let from = 0
+      while (true) {
+        let query = supabase.from(table).select(selectText)
+        query = query.in(inColumn, chunk)
+        if (opts?.orderBy) query = query.order(opts.orderBy.column, { ascending: !!opts.orderBy.ascending })
+        const res = await query.range(from, from + pageSize - 1)
+        if (res.error) throw new Error(res.error.message || `Query ${table} failed`)
+        results.push(...(res.data || []))
+        if (!res.data || res.data.length < pageSize) break
+        from += pageSize
+      }
+    }
+    return results
+  }
+
+  // No IN filter: fetch pages until less than pageSize
+  let from = 0
+  while (true) {
+    let query = supabase.from(table).select(selectText)
+    if (opts?.orderBy) query = query.order(opts.orderBy.column, { ascending: !!opts.orderBy.ascending })
+    const res = await query.range(from, from + pageSize - 1)
+    if (res.error) throw new Error(res.error.message || `Query ${table} failed`)
+    results.push(...(res.data || []))
+    if (!res.data || res.data.length < pageSize) break
+    from += pageSize
+  }
+
+  return results
+}
+
 export function normalizeProducts(rows: any[]): ProductListRow[] {
   return rows.map((row) => ({
     code: String(row.code ?? ""),
@@ -222,37 +271,37 @@ export async function fetchProductProfitAnalysisByCode(
 
   type PurchaseItemRow = { purchase_order_id: string; code: string; quantity: number; subtotal: number; unit_price: number }
   const purchaseItems: PurchaseItemRow[] = []
-  const purchaseItemChunkResults = await Promise.all(
-    chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase
-        .from("purchase_order_items")
-        .select("purchase_order_id,code,quantity,subtotal,unit_price")
-        .in("code", chunk)
-        .limit(50000),
-    ),
-  )
-  for (const result of purchaseItemChunkResults) {
-    if (result.error) {
-      warningMessages.push("讀取進貨明細失敗：" + result.error.message)
-      continue
-    }
-    purchaseItems.push(...(result.data || []))
+  try {
+    const promised = chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "purchase_order_items", "purchase_order_id,code,quantity,subtotal,unit_price", {
+        inColumn: "code",
+        inValues: chunk,
+        pageSize: 1000,
+        orderBy: { column: "purchase_order_id", ascending: true },
+      }),
+    )
+    const results = await Promise.all(promised)
+    for (const rows of results) purchaseItems.push(...(rows || []))
+  } catch (err: any) {
+    warningMessages.push("讀取進貨明細失敗：" + (err?.message || String(err)))
   }
 
   const purchaseOrderIds = Array.from(new Set(purchaseItems.map((r) => String(r.purchase_order_id || "")).filter(Boolean)))
-  type PurchaseOrderRow = { id: string; order_date: string; shipping_fee: number }
+  type PurchaseOrderRow = { id: string; order_date: string; shipping_fee: number; total_amount?: number }
   const purchaseOrders: PurchaseOrderRow[] = []
-  const purchaseOrderChunkResults = await Promise.all(
-    chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase.from("purchase_orders").select("id,order_date,shipping_fee").in("id", chunk).limit(50000),
-    ),
-  )
-  for (const result of purchaseOrderChunkResults) {
-    if (result.error) {
-      warningMessages.push("讀取進貨單失敗：" + result.error.message)
-      continue
-    }
-    purchaseOrders.push(...(result.data || []))
+  try {
+    const promisedOrders = chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "purchase_orders", "id,order_date,shipping_fee,total_amount", {
+        inColumn: "id",
+        inValues: chunk,
+        pageSize: 1000,
+        orderBy: { column: "order_date", ascending: true },
+      }),
+    )
+    const orderResults = await Promise.all(promisedOrders)
+    for (const rows of orderResults) purchaseOrders.push(...(rows || []))
+  } catch (err: any) {
+    warningMessages.push("讀取進貨單失敗：" + (err?.message || String(err)))
   }
 
   const purchaseOrderMap = new Map(purchaseOrders.map((o) => [String(o.id), o]))
@@ -282,7 +331,10 @@ export async function fetchProductProfitAnalysisByCode(
     const goodsAmt = sub > 0 ? sub : qty * up
     const goodsTotal = toNumber(goodsTotalByOrderId.get(orderId))
     const shippingFee = toNumber(order.shipping_fee)
-    const allocatedShipping = goodsTotal > 0 ? (goodsAmt / goodsTotal) * shippingFee : 0
+    const orderTotalAmount = toNumber((order as any).total_amount)
+    const fallbackGoodsTotal = goodsTotal
+    const allocationBase = orderTotalAmount > 0 ? orderTotalAmount : fallbackGoodsTotal
+    const allocatedShipping = allocationBase > 0 ? (goodsAmt / allocationBase) * shippingFee : 0
     const landedUnitCost = qty > 0 ? (goodsAmt + allocatedShipping) / qty : 0
     const batches = fifoBatchesByCode.get(code) ?? []
     batches.push({ orderedAt: String(order.order_date || ""), remainingQty: qty, landedUnitCost })
@@ -307,41 +359,43 @@ export async function fetchProductProfitAnalysisByCode(
 
   type SalesItemRow = { sales_order_id: string; code: string; quantity: number; subtotal: number; unit_price: number }
   const allSalesItems: SalesItemRow[] = []
-  const salesItemChunkResults = await Promise.all(
-    chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase
-        .from("sales_order_items")
-        .select("sales_order_id,code,quantity,subtotal,unit_price")
-        .in("code", chunk)
-        .limit(50000),
-    ),
-  )
-  for (const result of salesItemChunkResults) {
-    if (result.error) {
-      return {
-        summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
-        warning: result.error.message || "讀取銷貨明細失敗",
-      }
+  try {
+    const promised = chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "sales_order_items", "sales_order_id,code,quantity,subtotal,unit_price", {
+        inColumn: "code",
+        inValues: chunk,
+        pageSize: 1000,
+        orderBy: { column: "sales_order_id", ascending: true },
+      }),
+    )
+    const results = await Promise.all(promised)
+    for (const rows of results) allSalesItems.push(...(rows || []))
+  } catch (err: any) {
+    return {
+      summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
+      warning: err?.message || "讀取銷貨明細失敗",
     }
-    allSalesItems.push(...(result.data || []))
   }
 
   const allSalesOrderIds = Array.from(new Set(allSalesItems.map((r) => String(r.sales_order_id || "")).filter(Boolean)))
   type SalesOrderRow = { id: string; order_date: string; status: string; total_amount: number }
   const allSalesOrders: SalesOrderRow[] = []
-  const salesOrderChunkResults = await Promise.all(
-    chunkArray(allSalesOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase.from("sales_orders").select("id,order_date,status,total_amount").in("id", chunk).limit(50000),
-    ),
-  )
-  for (const result of salesOrderChunkResults) {
-    if (result.error) {
-      return {
-        summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
-        warning: result.error.message || "讀取銷貨單失敗",
-      }
+  try {
+    const promisedOrders = chunkArray(allSalesOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "sales_orders", "id,order_date,status,total_amount", {
+        inColumn: "id",
+        inValues: chunk,
+        pageSize: 1000,
+        orderBy: { column: "order_date", ascending: true },
+      }),
+    )
+    const orderResults = await Promise.all(promisedOrders)
+    for (const rows of orderResults) allSalesOrders.push(...(rows || []))
+  } catch (err: any) {
+    return {
+      summaryByCode: new Map<string, ProductProfitAnalysisSummary>(),
+      warning: err?.message || "讀取銷貨單失敗",
     }
-    allSalesOrders.push(...(result.data || []))
   }
 
   const salesOrderMap = new Map(allSalesOrders.map((o) => [String(o.id), o]))
@@ -401,17 +455,19 @@ export async function fetchProductProfitAnalysisByCode(
 
   const periodOrderIds = Array.from(trackedByOrderAndCode.keys())
   const receivableRows: { sales_order_id: string; paid_amount: number }[] = []
-  const receivableChunkResults = await Promise.all(
-    chunkArray(periodOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      supabase.from("accounts_receivable").select("sales_order_id,paid_amount").in("sales_order_id", chunk),
-    ),
-  )
-  for (const result of receivableChunkResults) {
-    if (result.error) {
-      warningMessages.push(result.error.message || "讀取 accounts_receivable 失敗")
-      continue
-    }
-    receivableRows.push(...(result.data || []))
+  try {
+    const promised = chunkArray(periodOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "accounts_receivable", "sales_order_id,paid_amount", {
+        inColumn: "sales_order_id",
+        inValues: chunk,
+        pageSize: 1000,
+        orderBy: { column: "sales_order_id", ascending: true },
+      }),
+    )
+    const results = await Promise.all(promised)
+    for (const rows of results) receivableRows.push(...(rows || []))
+  } catch (err: any) {
+    warningMessages.push(err?.message || "讀取 accounts_receivable 失敗")
   }
 
   const paidAmountByOrder = new Map<string, number>()

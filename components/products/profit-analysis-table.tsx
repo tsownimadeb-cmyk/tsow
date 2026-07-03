@@ -376,7 +376,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
-                              <p className="text-xs text-slate-500">最新成本小計</p>
+                              <p className="text-xs text-slate-500">銷貨成本（FIFO）</p>
                               <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
                               <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
                             </div>
@@ -519,7 +519,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(salesAmount)}</p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-xs text-slate-500">最新成本小計</p>
+                        <p className="text-xs text-slate-500">銷貨成本（FIFO）</p>
                         <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
                         <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
                       </div>
