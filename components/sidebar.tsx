@@ -155,23 +155,25 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    const schedule =
-      typeof window !== "undefined" && "requestIdleCallback" in window
-        ? window.requestIdleCallback.bind(window)
-        : ((cb: IdleRequestCallback) => window.setTimeout(cb, 150))
-
-    const cancel =
-      typeof window !== "undefined" && "cancelIdleCallback" in window
-        ? window.cancelIdleCallback.bind(window)
-        : window.clearTimeout
-
-    const handle = schedule(() => {
+    const browserWindow = window as unknown as Pick<Window, "setTimeout" | "clearTimeout"> & {
+      requestIdleCallback?: (callback: IdleRequestCallback) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    const requestIdle = browserWindow.requestIdleCallback?.bind(window)
+    const cancelIdle = browserWindow.cancelIdleCallback?.bind(window)
+    const prefetch = () => {
       PREFETCH_PATHS.forEach((href) => {
         void router.prefetch(href)
       })
-    })
+    }
 
-    return () => cancel(handle as number)
+    if (requestIdle && cancelIdle) {
+      const handle = requestIdle(prefetch)
+      return () => cancelIdle(handle)
+    }
+
+    const handle = browserWindow.setTimeout(prefetch, 150)
+    return () => browserWindow.clearTimeout(handle)
   }, [router])
 
   useEffect(() => {

@@ -4,6 +4,11 @@ import { getLocalDb, addToSyncQueue, markSyncComplete, updateSyncError } from '@
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
 import { v4 as uuidv4 } from 'uuid';
 
+interface LocalPurchaseReturnItemRow {
+  quantity: number;
+  product_pno: string;
+}
+
 async function syncPurchaseReturnNow(returnId: string, totalAmount: number, items: any[]) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('update_purchase_return', {
@@ -97,7 +102,7 @@ export async function PUT(request: NextRequest) {
       // 還原舊明細的庫存
       const oldItems = localDb
         .prepare('SELECT * FROM purchase_return_items WHERE purchase_return_id = ?')
-        .all(returnId);
+        .all(returnId) as LocalPurchaseReturnItemRow[];
 
       for (const oldItem of oldItems) {
         localDb.prepare(

@@ -1,8 +1,17 @@
 const AUTH_COOKIE_NAME = "site_auth"
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 天（2592000 秒）
-const AUTH_PAYLOAD = "site-auth:v1"
+const AUTH_TOKEN_VERSION = 2
+const MAX_CLOCK_SKEW_SECONDS = 5 * 60
 
 const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
+interface AuthPayload {
+  version: number
+  issuedAt: number
+  expiresAt: number
+  nonce: string
+}
 
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes)
@@ -21,7 +30,26 @@ const timingSafeEqual = (a: string, b: string) => {
 
 const getSitePassword = () => process.env.SITE_PASSWORD || ""
 
-const getSecret = () => `site-auth-secret:${getSitePassword()}`
+const getSecret = () => process.env.SITE_AUTH_SECRET || `site-auth-secret:${getSitePassword()}`
+
+const encodePayload = (payload: AuthPayload) => {
+  const bytes = encoder.encode(JSON.stringify(payload))
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
+}
+
+const decodePayload = (encoded: string): AuthPayload | null => {
+  try {
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    return JSON.parse(decoder.decode(bytes)) as AuthPayload
+  } catch {
+    return null
+  }
+}
 
 async function signPayload(payload: string) {
   const key = await crypto.subtle.importKey(
@@ -37,18 +65,38 @@ async function signPayload(payload: string) {
 }
 
 export async function createAuthToken() {
-  const signature = await signPayload(AUTH_PAYLOAD)
-  return `${AUTH_PAYLOAD}.${signature}`
+  const issuedAt = Math.floor(Date.now() / 1000)
+  const payload = encodePayload({
+    version: AUTH_TOKEN_VERSION,
+    issuedAt,
+    expiresAt: issuedAt + AUTH_COOKIE_MAX_AGE,
+    nonce: crypto.randomUUID(),
+  })
+  const signature = await signPayload(payload)
+  return `${payload}.${signature}`
 }
 
 export async function verifyAuthToken(token: string | undefined | null) {
   if (!token) return false
-  const [payload, signature] = token.split(".")
+  const parts = token.split(".")
+  if (parts.length !== 2) return false
+  const [payload, signature] = parts
   if (!payload || !signature) return false
-  if (payload !== AUTH_PAYLOAD) return false
 
   const expected = await signPayload(payload)
-  return timingSafeEqual(signature, expected)
+  if (!timingSafeEqual(signature, expected)) return false
+
+  const decoded = decodePayload(payload)
+  if (!decoded || decoded.version !== AUTH_TOKEN_VERSION) return false
+  if (!Number.isInteger(decoded.issuedAt) || !Number.isInteger(decoded.expiresAt)) return false
+  if (typeof decoded.nonce !== "string" || !decoded.nonce) return false
+
+  const now = Math.floor(Date.now() / 1000)
+  if (decoded.issuedAt > now + MAX_CLOCK_SKEW_SECONDS) return false
+  if (decoded.expiresAt <= now || decoded.expiresAt <= decoded.issuedAt) return false
+  if (decoded.expiresAt - decoded.issuedAt > AUTH_COOKIE_MAX_AGE) return false
+
+  return true
 }
 
 export function isPasswordCorrect(password: string) {

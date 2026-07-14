@@ -14,7 +14,7 @@ type SortDir = "asc" | "desc"
 
 interface ProfitAnalysisTableProps {
   products: ProductListRowWithProfit[]
-  suppliers: Supplier[]
+  suppliers: Array<Pick<Supplier, "id" | "name">>
 }
 
 const formatAmount = (value: number | string | null | undefined) => {

@@ -396,7 +396,7 @@ export default async function SalesAnalysisPage({ searchParams }: SalesAnalysisP
               if (index === 0) highlight = "gold"
               else if (index === 1) highlight = "silver"
               else if (index === 2) highlight = "bronze"
-              let subInfo = `貢獻占比 ${formatAmountOneDecimal(row.contributionRatio * 100)}%`
+              const subInfo = `貢獻占比 ${formatAmountOneDecimal(row.contributionRatio * 100)}%`
               return (
                 <RankMobileCard
                   key={`cumulative-m-${row.customerCode}`}

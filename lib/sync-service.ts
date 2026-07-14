@@ -5,15 +5,28 @@ import {
   markSyncComplete,
   updateSyncError,
 } from './local-db';
+import {
+  isMissingAtomicOrderRpc,
+  PURCHASE_ORDER_ATOMIC_RPC,
+  SALES_ORDER_ATOMIC_RPC,
+} from './order-atomic-rpc';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+interface SyncQueueItem {
+  id: string;
+  operation: string;
+  entity: string;
+  entity_id: string | null;
+  data: string;
+}
 
 /**
  * 同步待機隊列中的所有未同步項目
  */
 export async function syncPendingChanges() {
-  const queue = getPendingSyncQueue();
+  const queue = getPendingSyncQueue() as SyncQueueItem[];
 
   if (queue.length === 0) {
     console.log('No pending sync items');
@@ -227,8 +240,32 @@ async function syncSupplierCrud(supabase: any, operation: string, data: any) {
 }
 
 async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
+  if (operation === 'create' || operation === 'update') {
+    const { error: atomicError } = await supabase.rpc(PURCHASE_ORDER_ATOMIC_RPC, {
+      p_order_id: data?.id,
+      p_order_no: data?.po_number,
+      p_supplier_id: data?.supplier_id || null,
+      p_order_date: data?.order_date,
+      p_total_amount: Number(data?.total_amount || 0),
+      p_shipping_fee: Number(data?.shipping_fee || 0),
+      p_status: data?.status || 'completed',
+      p_is_paid: Boolean(data?.is_paid),
+      p_notes: data?.notes || null,
+      p_items: (data?.items || []).map((item: any) => ({
+        code: item.product_pno ?? item.code,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      })),
+    });
+
+    if (!atomicError) return;
+    if (!isMissingAtomicOrderRpc(atomicError, PURCHASE_ORDER_ATOMIC_RPC)) {
+      throw new Error(atomicError.message || '進貨單同步失敗');
+    }
+  }
+
   if (operation === 'create') {
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status, notes, items } = data;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status, is_paid, notes, items } = data;
 
     // 建立進貨單主表
     const { error: purchaseError } = await supabase.from('purchase_orders').insert({
@@ -237,7 +274,9 @@ async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
       supplier_id,
       order_date,
       total_amount,
+      shipping_fee: Number(shipping_fee || 0),
       status,
+      is_paid: Boolean(is_paid),
       notes,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -265,16 +304,19 @@ async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
   }
 
   if (operation === 'update') {
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, status, notes, items } = data;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status, is_paid, notes, items } = data;
 
     // 更新主表
     const { error: updateError } = await supabase
       .from('purchase_orders')
       .update({
         supplier_id,
+        order_no: po_number,
         order_date,
         total_amount,
+        shipping_fee: Number(shipping_fee || 0),
         status,
+        is_paid: Boolean(is_paid),
         notes,
         updated_at: new Date().toISOString(),
       })
@@ -305,8 +347,31 @@ async function syncPurchaseCrud(supabase: any, operation: string, data: any) {
 }
 
 async function syncSalesCrud(supabase: any, operation: string, data: any) {
+  if (operation === 'create' || operation === 'update') {
+    const { error: atomicError } = await supabase.rpc(SALES_ORDER_ATOMIC_RPC, {
+      p_order_id: data?.id,
+      p_order_no: data?.so_number,
+      p_customer_cno: data?.customer_id || null,
+      p_delivery_method: data?.delivery_method || 'self_delivery',
+      p_order_date: data?.order_date,
+      p_status: data?.status || 'completed',
+      p_is_paid: Boolean(data?.is_paid),
+      p_notes: data?.notes || null,
+      p_items: (data?.items || []).map((item: any) => ({
+        code: item.product_pno ?? item.code,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      })),
+    });
+
+    if (!atomicError) return;
+    if (!isMissingAtomicOrderRpc(atomicError, SALES_ORDER_ATOMIC_RPC)) {
+      throw new Error(atomicError.message || '銷貨單同步失敗');
+    }
+  }
+
   if (operation === 'create') {
-    const { id, so_number, customer_id, order_date, delivery_date, delivery_method, total_amount, status, notes, items } = data;
+    const { id, so_number, customer_id, order_date, delivery_method, total_amount, status, is_paid, notes, items } = data;
 
     // 建立銷貨單主表
     const { error: saleError } = await supabase.from('sales_orders').insert({
@@ -317,6 +382,7 @@ async function syncSalesCrud(supabase: any, operation: string, data: any) {
       delivery_method,
       total_amount,
       status,
+      is_paid: Boolean(is_paid),
       notes,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -343,17 +409,19 @@ async function syncSalesCrud(supabase: any, operation: string, data: any) {
   }
 
   if (operation === 'update') {
-    const { id, so_number, customer_id, order_date, delivery_date, delivery_method, total_amount, status, notes, items } = data;
+    const { id, so_number, customer_id, order_date, delivery_method, total_amount, status, is_paid, notes, items } = data;
 
     // 更新主表
     const { error: updateError } = await supabase
       .from('sales_orders')
       .update({
+        order_no: so_number,
         customer_cno: customer_id,
         order_date,
         delivery_method,
         total_amount,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         updated_at: new Date().toISOString(),
       })

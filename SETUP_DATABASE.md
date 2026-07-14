@@ -7,7 +7,7 @@
 1. 登入 Supabase 控制台: https://supabase.com/dashboard
 2. 選擇您的專案
 3. 進入 SQL Editor（SQL 編輯器）
-4. **依序執行以下三個 SQL 腳本**：
+4. **依序執行以下 SQL 腳本**：
 
 #### 第一步：建立表格
 - 複製並執行 `scripts/001-create-tables.sql` 的所有內容
@@ -37,6 +37,11 @@
 #### 第七步（支票管理建議）：新增應收帳款支票欄位
 - 執行 `scripts/029-add-ar-check-fields.sql`
 - 新增欄位：`check_no`（支票號碼）、`check_bank`（銀行）、`check_issue_date`（開票日）
+
+#### 第八步（必要）：建立交易函式
+- 依序執行 `scripts/043-create-return-rpc-functions.sql`、`044-update-return-rpc-functions.sql`、`045-create-inventory-audit-rpc-function.sql` 與 `046-create-order-save-rpc-functions.sql`
+- `046` 會讓訂單、明細、庫存及應收／應付在同一筆資料庫交易中完成；任一步失敗時會全部回復
+- 已在使用中的舊專案升級本版本時，至少必須執行最新的 `046-create-order-save-rpc-functions.sql`
 
 ### 步驟 2: 驗證資料庫
 
@@ -79,6 +84,8 @@
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SITE_PASSWORD=your_site_password
+SITE_AUTH_SECRET=another_random_secret_with_at_least_32_characters
 ```
 
 這些值應該在 Supabase 專案設定 > API 中找到。

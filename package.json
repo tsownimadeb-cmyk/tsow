@@ -2,10 +2,13 @@
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.6.2",
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 141",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "start": "next start",
     "backup:git": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/backup-git.ps1",
     "backup:db": "powershell -ExecutionPolicy Bypass -File ./scripts/backup/backup-db.ps1",
@@ -79,9 +82,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.10",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

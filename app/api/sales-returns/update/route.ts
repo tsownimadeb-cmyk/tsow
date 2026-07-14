@@ -4,6 +4,11 @@ import { getLocalDb, addToSyncQueue } from '@/lib/local-db';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
 import { v4 as uuidv4 } from 'uuid';
 
+interface LocalSalesReturnItemRow {
+  quantity: number;
+  product_pno: string;
+}
+
 async function syncSalesReturnNow(returnId: string, totalAmount: number, items: any[]) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('update_sales_return', {
@@ -37,6 +42,7 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
+    const body = await request.json();
     const { returnId, totalAmount, items, expectedUpdatedAt } = body;
 
     if (!returnId || !items || !Array.isArray(items)) {
@@ -95,7 +101,7 @@ export async function PUT(request: NextRequest) {
       // 還原舊明細的庫存
       const oldItems = localDb
         .prepare('SELECT * FROM sales_return_items WHERE sales_return_id = ?')
-        .all(returnId);
+        .all(returnId) as LocalSalesReturnItemRow[];
 
       for (const oldItem of oldItems) {
         localDb.prepare(

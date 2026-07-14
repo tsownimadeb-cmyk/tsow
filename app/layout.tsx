@@ -35,7 +35,7 @@ export default function RootLayout({
           <Toaster />
           <PwaBootstrap />
         </ThemeProvider>
-        <Analytics />
+        {process.env.VERCEL ? <Analytics /> : null}
       </body>
     </html>
   )

@@ -6,6 +6,14 @@ const DB_NAME = "backup-prefs"
 const STORE_NAME = "directory"
 const KEY = "handle"
 
+type PermissionAwareDirectoryHandle = FileSystemDirectoryHandle & {
+  queryPermission(options?: { mode?: "read" | "readwrite" }): Promise<PermissionState>
+  requestPermission(options?: { mode?: "read" | "readwrite" }): Promise<PermissionState>
+}
+
+const withPermissionMethods = (handle: FileSystemDirectoryHandle) =>
+  handle as PermissionAwareDirectoryHandle
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1)
@@ -63,7 +71,7 @@ export function useBackupDirectory() {
     getStoredHandle().then(async (handle) => {
       if (!handle) return
       try {
-        const perm = await handle.queryPermission({ mode: "readwrite" })
+        const perm = await withPermissionMethods(handle).queryPermission({ mode: "readwrite" })
         setDirName(handle.name)
         if (perm === "granted") {
           setDirHandle(handle)
@@ -90,7 +98,7 @@ export function useBackupDirectory() {
     const handle = dirHandle ?? await getStoredHandle()
     if (!handle) return null
     try {
-      const perm = await handle.requestPermission({ mode: "readwrite" })
+      const perm = await withPermissionMethods(handle).requestPermission({ mode: "readwrite" })
       if (perm !== "granted") return null
       if (!dirHandle) {
         setDirHandle(handle)

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { addToSyncQueue, setOfflineSnapshot, getLocalDb } from '@/lib/local-db';
+import { addToSyncQueue, setOfflineSnapshot } from '@/lib/local-db';
 import { upsertPurchaseSnapshot } from '@/lib/desktop-offline-mutations';
 import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
 import { randomUUID } from 'crypto';
+import {
+  isAtomicOrderTransportError,
+  isMissingAtomicOrderRpc,
+  PURCHASE_ORDER_ATOMIC_RPC,
+} from '@/lib/order-atomic-rpc';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status = 'draft', notes, items } = body;
+    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status = 'draft', is_paid = false, notes, items } = body;
     const normalizedId = isUuid(id) ? id : randomUUID();
 
     if (await isLocalOnlyMode()) {
@@ -34,7 +39,9 @@ export async function POST(req: NextRequest) {
         supplier_id,
         order_date,
         total_amount: total_amount || 0,
+        shipping_fee: shipping_fee || 0,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         items,
       });
@@ -45,6 +52,39 @@ export async function POST(req: NextRequest) {
     try {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+      const atomicResult = await supabase.rpc(PURCHASE_ORDER_ATOMIC_RPC, {
+        p_order_id: normalizedId,
+        p_order_no: po_number,
+        p_supplier_id: supplier_id || null,
+        p_order_date: order_date,
+        p_total_amount: total_amount || 0,
+        p_shipping_fee: shipping_fee || 0,
+        p_status: status,
+        p_is_paid: Boolean(is_paid),
+        p_notes: notes || null,
+        p_items: (items || []).map((item: any) => ({
+          code: item.product_pno ?? item.code,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+        })),
+      });
+
+      if (!atomicResult.error) {
+        setOfflineSnapshot('desktop-purchases-page', null);
+        return NextResponse.json({ success: true, offline: false, atomic: true, id: normalizedId });
+      }
+
+      if (!isMissingAtomicOrderRpc(atomicResult.error, PURCHASE_ORDER_ATOMIC_RPC)) {
+        if (isAtomicOrderTransportError(atomicResult.error)) {
+          throw atomicResult.error;
+        }
+
+        return NextResponse.json(
+          { error: atomicResult.error.message || '進貨單儲存失敗' },
+          { status: 400 },
+        );
+      }
+
       // 1. 建立主表
       const { error: purchaseError } = await supabase.from('purchase_orders').insert({
         id: normalizedId,
@@ -54,6 +94,7 @@ export async function POST(req: NextRequest) {
         total_amount: total_amount || 0,
         shipping_fee: shipping_fee || 0,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -90,7 +131,9 @@ export async function POST(req: NextRequest) {
         order_date,
         delivery_date,
         total_amount,
+        shipping_fee,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         items,
       });
@@ -125,7 +168,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status, is_paid = false, notes, items } = body;
     if (!isUuid(id)) {
       return NextResponse.json({ error: 'Invalid purchase id' }, { status: 400 });
     }
@@ -137,7 +180,9 @@ export async function PUT(req: NextRequest) {
         supplier_id,
         order_date,
         total_amount: total_amount || 0,
+        shipping_fee: shipping_fee || 0,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         items,
       });
@@ -148,6 +193,39 @@ export async function PUT(req: NextRequest) {
     try {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+      const atomicResult = await supabase.rpc(PURCHASE_ORDER_ATOMIC_RPC, {
+        p_order_id: id,
+        p_order_no: po_number,
+        p_supplier_id: supplier_id || null,
+        p_order_date: order_date,
+        p_total_amount: total_amount || 0,
+        p_shipping_fee: shipping_fee || 0,
+        p_status: status,
+        p_is_paid: Boolean(is_paid),
+        p_notes: notes || null,
+        p_items: (items || []).map((item: any) => ({
+          code: item.product_pno ?? item.code,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+        })),
+      });
+
+      if (!atomicResult.error) {
+        setOfflineSnapshot('desktop-purchases-page', null);
+        return NextResponse.json({ success: true, offline: false, atomic: true, id });
+      }
+
+      if (!isMissingAtomicOrderRpc(atomicResult.error, PURCHASE_ORDER_ATOMIC_RPC)) {
+        if (isAtomicOrderTransportError(atomicResult.error)) {
+          throw atomicResult.error;
+        }
+
+        return NextResponse.json(
+          { error: atomicResult.error.message || '進貨單儲存失敗' },
+          { status: 400 },
+        );
+      }
+
       const { error: updateError } = await supabase
         .from('purchase_orders')
         .update({
@@ -157,6 +235,7 @@ export async function PUT(req: NextRequest) {
           total_amount: total_amount || 0,
           shipping_fee: shipping_fee || 0,
           status,
+          is_paid: Boolean(is_paid),
           notes,
           updated_at: new Date().toISOString(),
         })
@@ -195,7 +274,9 @@ export async function PUT(req: NextRequest) {
         order_date,
         delivery_date,
         total_amount,
+        shipping_fee,
         status,
+        is_paid: Boolean(is_paid),
         notes,
         items,
       });

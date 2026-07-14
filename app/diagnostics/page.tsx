@@ -5,9 +5,9 @@ export default async function DiagnosticsPage() {
   const supabase = await createClient()
   const localDb = getLocalDb()
 
-  let suppliersTest = { success: false, count: 0, error: null as string | null }
-  let customersTest = { success: false, count: 0, error: null as string | null }
-  let productsTest = { success: false, count: 0, error: null as string | null }
+  const suppliersTest = { success: false, count: 0, error: null as string | null }
+  const customersTest = { success: false, count: 0, error: null as string | null }
+  const productsTest = { success: false, count: 0, error: null as string | null }
   let localQueueCount = 0
   let localQueueRows: Array<{ entity: string; operation: string; retry_count: number; updated_at: number }> = []
   let localSnapshotCount = 0

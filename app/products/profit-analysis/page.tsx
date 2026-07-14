@@ -62,7 +62,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
     supabase.from("suppliers").select("id, name"),
     fetchAllProductsRows(supabase),
   ])
-  const suppliers: Supplier[] = Array.isArray(suppliersRaw) ? suppliersRaw : []
+  const suppliers: Array<Pick<Supplier, "id" | "name">> = Array.isArray(suppliersRaw) ? suppliersRaw : []
   if (productsWarning) {
     console.error("[ProductProfitAnalysisPage] products 查詢失敗:", productsWarning)
   }

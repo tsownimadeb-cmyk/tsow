@@ -21,7 +21,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
@@ -212,27 +211,6 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
     }
   }
 
-  const insertPurchaseItems = async (
-    purchaseId: string,
-    orderNo: string,
-    orderItems: OrderItem[],
-    supabase: ReturnType<typeof createClient>,
-  ) => {
-    const payload = orderItems.map((item) => ({
-      purchase_order_id: purchaseId,
-      order_no: orderNo,
-      code: item.code || null,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      subtotal: item.quantity * item.unit_price,
-    }))
-
-    const { error } = await supabase.from("purchase_order_items").insert(payload)
-    if (error) {
-      throw new Error(error.message || "無法新增進貨明細，請稍後再試")
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     // 收起行動裝置鍵盤
@@ -272,7 +250,14 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
         // 先嘗試使用離線 API（在線或離線都會試圖使用）
         const purchaseId = mode === 'edit' ? (purchase?.id || generateUuid()) : generateUuid()
-        const poNumber = generateOrderNumber()
+        const poNumber = mode === "edit"
+          ? String(purchase?.order_no || "").trim()
+          : generateOrderNumber()
+
+        if (!poNumber) {
+          toastApi.error("找不到進貨單號，無法更新")
+          return
+        }
 
         // 準備項目數據
         const purchaseItems = items.map(item => ({
@@ -292,6 +277,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
           total_amount: totalGoodsAmount,
           shipping_fee: shippingFee,
           status: 'completed',
+          is_paid: Boolean(formData.is_paid),
           notes: formData.notes,
           items: purchaseItems,
         }
@@ -312,7 +298,7 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
         }
 
         // 如果在線模式成功，進行額外的庫存和應付帳款同步
-        if (!responseData.offline && supabase) {
+        if (!responseData.offline && !responseData.atomic && supabase) {
           try {
             // 庫存計算邏輯
             const oldQuantityByCode = mode === 'edit' && purchase?.items
@@ -378,7 +364,9 @@ export function PurchaseDialog({ suppliers, products, mode, purchase, children, 
 
         toast({
           title: "成功",
-          description: responseData.offline ? "已儲存至本地，網路恢復後會同步" : "進貨單已更新",
+          description: responseData.offline
+            ? "已儲存至本地，網路恢復後會同步"
+            : mode === "edit" ? "進貨單已更新" : "進貨單已建立",
         })
 
         setIsOpen(false)

@@ -24,7 +24,7 @@ export async function fetchPurchasesRows(
       .ilike("name", `%${searchText}%`)
     const supplierIds = (supplierMatches || []).map((s: any) => s.id)
     // 組合搜尋條件
-    let orConditions = [`order_no.ilike.%${searchText}%`, `notes.ilike.%${searchText}%`]
+    const orConditions = [`order_no.ilike.%${searchText}%`, `notes.ilike.%${searchText}%`]
     if (supplierIds.length > 0) {
       orConditions.push(`supplier_id.in.(${supplierIds.join(",")})`)
     }
@@ -34,7 +34,7 @@ export async function fetchPurchasesRows(
 
   const purchaseRows = result.data || []
   const purchaseIds = purchaseRows.map((row: any) => row.id)
-  let itemsByPurchaseId: Record<string, any[]> = {}
+  const itemsByPurchaseId: Record<string, any[]> = {}
 
   if (purchaseIds.length > 0) {
     // 查詢所有明細

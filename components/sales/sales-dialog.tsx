@@ -25,6 +25,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Customer, Product, SalesOrder } from "@/lib/types"
+import { isMissingAtomicOrderRpc, SALES_ORDER_ATOMIC_RPC } from "@/lib/order-atomic-rpc"
 
 interface SalesDialogProps {
   customers: Customer[]
@@ -270,6 +271,18 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     return `${prefix}${dateStr}${random}`
   }
 
+  const generateUuid = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+      const random = Math.random() * 16 | 0
+      const value = char === "x" ? random : (random & 0x3) | 0x8
+      return value.toString(16)
+    })
+  }
+
   const syncAccountsReceivable = async (
     salesOrderId: string,
     customerCno: string | null,
@@ -424,6 +437,86 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
           }
 
           quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
+        }
+
+        // 新版資料庫會在單一 transaction 內完成單頭、明細、庫存與應收。
+        // 若應用程式先於 SQL migration 部署，僅「函式尚不存在」時才沿用下方舊流程。
+        const atomicSaleId = mode === "edit" ? String(sales?.id || "").trim() : generateUuid()
+        let atomicOrderNo = mode === "edit"
+          ? String(formData.order_no || "").trim()
+          : formData.order_no.trim() || generateOrderNumber()
+        const atomicCustomerCno = resolveCustomerCno(formData.customer_cno)
+        const atomicNotes = resolveNotesForSave(formData.notes, formData.customer_cno)
+
+        if (mode === "edit" && !atomicSaleId) {
+          toastError("找不到銷貨單 id，無法更新")
+          return
+        }
+        if (!atomicOrderNo) {
+          toastError("請輸入銷貨單號")
+          return
+        }
+
+        let shouldUseLegacyFlow = false
+        for (let retry = 0; retry < 3; retry += 1) {
+          const atomicResult = await supabase.rpc(SALES_ORDER_ATOMIC_RPC, {
+            p_order_id: atomicSaleId,
+            p_order_no: atomicOrderNo,
+            p_customer_cno: atomicCustomerCno,
+            p_delivery_method: formData.delivery_method,
+            p_order_date: formData.order_date,
+            p_status: "completed",
+            p_is_paid: Boolean(formData.is_paid),
+            p_notes: atomicNotes,
+            p_items: items.map((item) => ({
+              code: String(item.code || "").trim(),
+              quantity: Number(item.quantity),
+              unit_price: Number(item.unit_price),
+            })),
+          })
+
+          if (!atomicResult.error) {
+            toast({
+              title: "成功",
+              description: mode === "edit" ? "銷貨單更新成功" : "銷貨單建立成功",
+            })
+
+            setIsOpen(false)
+            if (mode === "create") {
+              setFormData({
+                order_no: "",
+                customer_cno: "",
+                delivery_method: "self_delivery",
+                order_date: new Date().toISOString().split("T")[0],
+                notes: "",
+                is_paid: false,
+              })
+              setItems([])
+            }
+            router.refresh()
+            return
+          }
+
+          if (isMissingAtomicOrderRpc(atomicResult.error, SALES_ORDER_ATOMIC_RPC)) {
+            shouldUseLegacyFlow = true
+            break
+          }
+
+          const shouldRetryOrderNo =
+            mode === "create" &&
+            !formData.order_no.trim() &&
+            isUniqueViolationError(atomicResult.error)
+
+          if (shouldRetryOrderNo) {
+            atomicOrderNo = generateOrderNumber()
+            continue
+          }
+
+          throw new Error(formatDbError(atomicResult.error, "無法儲存銷貨單，請稍後再試"))
+        }
+
+        if (!shouldUseLegacyFlow) {
+          throw new Error("無法產生未重複的銷貨單號，請再試一次")
         }
 
         if (mode === "edit") {

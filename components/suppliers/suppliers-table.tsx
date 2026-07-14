@@ -151,7 +151,7 @@ export function SuppliersTable({ suppliers }: SuppliersTableProps) {
       if (error) throw error
       // 查詢所有明細
       const orderIds = (orders || []).map((o: any) => o.id)
-      let itemsByOrder: Record<string, any[]> = {}
+      const itemsByOrder: Record<string, any[]> = {}
       if (orderIds.length > 0) {
         const { data: items } = await supabase
           .from("purchase_order_items")

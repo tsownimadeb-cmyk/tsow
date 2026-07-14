@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import InventoryAuditPanel from "@/components/sales/inventory-audit-panel"
 
+export const dynamic = "force-dynamic"
+
 type InventoryAuditProduct = {
   code: string
   name: string
