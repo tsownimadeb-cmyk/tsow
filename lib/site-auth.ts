@@ -2,6 +2,8 @@ const AUTH_COOKIE_NAME = "site_auth"
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 天（2592000 秒）
 const AUTH_TOKEN_VERSION = 2
 const MAX_CLOCK_SKEW_SECONDS = 5 * 60
+const MIN_AUTH_SECRET_LENGTH = 32
+const MIN_PRODUCTION_PASSWORD_LENGTH = 12
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -30,7 +32,28 @@ const timingSafeEqual = (a: string, b: string) => {
 
 const getSitePassword = () => process.env.SITE_PASSWORD || ""
 
-const getSecret = () => process.env.SITE_AUTH_SECRET || `site-auth-secret:${getSitePassword()}`
+const getSecret = () => {
+  const secret = process.env.SITE_AUTH_SECRET || ""
+  if (secret.length < MIN_AUTH_SECRET_LENGTH) {
+    throw new Error(`SITE_AUTH_SECRET must be at least ${MIN_AUTH_SECRET_LENGTH} characters.`)
+  }
+  return secret
+}
+
+export function getSiteAuthConfigurationError() {
+  const password = getSitePassword()
+  if (!password) return "SITE_PASSWORD is missing."
+  if (process.env.NODE_ENV === "production" && password.length < MIN_PRODUCTION_PASSWORD_LENGTH) {
+    return `SITE_PASSWORD must be at least ${MIN_PRODUCTION_PASSWORD_LENGTH} characters in production.`
+  }
+
+  const secret = process.env.SITE_AUTH_SECRET || ""
+  if (secret.length < MIN_AUTH_SECRET_LENGTH) {
+    return `SITE_AUTH_SECRET must be at least ${MIN_AUTH_SECRET_LENGTH} characters.`
+  }
+
+  return null
+}
 
 const encodePayload = (payload: AuthPayload) => {
   const bytes = encoder.encode(JSON.stringify(payload))
@@ -83,7 +106,12 @@ export async function verifyAuthToken(token: string | undefined | null) {
   const [payload, signature] = parts
   if (!payload || !signature) return false
 
-  const expected = await signPayload(payload)
+  let expected: string
+  try {
+    expected = await signPayload(payload)
+  } catch {
+    return false
+  }
   if (!timingSafeEqual(signature, expected)) return false
 
   const decoded = decodePayload(payload)
@@ -100,6 +128,7 @@ export async function verifyAuthToken(token: string | undefined | null) {
 }
 
 export function isPasswordCorrect(password: string) {
+  if (getSiteAuthConfigurationError()) return false
   const sitePassword = getSitePassword()
   if (!sitePassword) return false
   return timingSafeEqual(password, sitePassword)

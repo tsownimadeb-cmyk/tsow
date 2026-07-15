@@ -40,4 +40,18 @@ describe("site authentication tokens", () => {
     expect(isPasswordCorrect("test-password")).toBe(true)
     expect(isPasswordCorrect("wrong-password")).toBe(false)
   })
+
+  it("fails closed when the signing secret is missing", async () => {
+    delete process.env.SITE_AUTH_SECRET
+
+    expect(isPasswordCorrect("test-password")).toBe(false)
+    await expect(createAuthToken()).rejects.toThrow(/SITE_AUTH_SECRET/)
+  })
+
+  it("fails closed when the signing secret is too short", async () => {
+    process.env.SITE_AUTH_SECRET = "too-short"
+
+    expect(isPasswordCorrect("test-password")).toBe(false)
+    await expect(verifyAuthToken("payload.signature")).resolves.toBe(false)
+  })
 })

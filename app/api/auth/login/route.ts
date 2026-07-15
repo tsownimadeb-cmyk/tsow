@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { AUTH_COOKIE_MAX_AGE, AUTH_COOKIE_NAME, createAuthToken, isPasswordCorrect } from "@/lib/site-auth"
+import {
+  AUTH_COOKIE_MAX_AGE,
+  AUTH_COOKIE_NAME,
+  createAuthToken,
+  getSiteAuthConfigurationError,
+  isPasswordCorrect,
+} from "@/lib/site-auth"
+import { LOCAL_ONLY_COOKIE } from "@/lib/runtime-mode-server"
+import { createRouteClient } from "@/lib/supabase/route"
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
 const MAX_LOGIN_FAILURES = 5
@@ -32,6 +40,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (getSiteAuthConfigurationError()) {
+      return NextResponse.json(
+        { success: false, message: "登入服務尚未完成安全設定，請聯絡管理者。" },
+        { status: 503 },
+      )
+    }
+
     const body = (await request.json()) as { password?: string }
     const password = body?.password || ""
 
@@ -44,9 +59,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "密碼錯誤" }, { status: 401 })
     }
 
+    const response = NextResponse.json({ success: true })
+    const localOnlyCookie = request.cookies.get(LOCAL_ONLY_COOKIE)?.value
+    const localOnly = localOnlyCookie === "true" || localOnlyCookie === "1"
+      || process.env.LOCAL_ONLY_MODE === "true"
+      || process.env.LOCAL_ONLY_MODE === "1"
+      || process.env.NEXT_PUBLIC_LOCAL_ONLY_MODE === "true"
+      || process.env.NEXT_PUBLIC_LOCAL_ONLY_MODE === "1"
+
+    if (!localOnly) {
+      const email = process.env.SUPABASE_AUTH_EMAIL || ""
+      const authPassword = process.env.SUPABASE_AUTH_PASSWORD || ""
+      if (!email || !authPassword) {
+        return NextResponse.json(
+          { success: false, message: "登入服務尚未完成雲端帳號設定，請聯絡管理者。" },
+          { status: 503 },
+        )
+      }
+
+      const supabase = createRouteClient(request, response)
+      const { error } = await supabase.auth.signInWithPassword({ email, password: authPassword })
+      if (error) {
+        return NextResponse.json(
+          { success: false, message: "雲端登入失敗，請確認管理者設定。" },
+          { status: 503 },
+        )
+      }
+    }
+
     attempts.delete(clientKey)
     const token = await createAuthToken()
-    const response = NextResponse.json({ success: true })
 
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
