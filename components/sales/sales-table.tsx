@@ -14,6 +14,7 @@ import { useDebounce } from "@/hooks/use-debounce"
 import { useImeInput } from "@/hooks/use-ime-input"
 import { SalesDialog } from "@/components/sales/sales-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
+import { SALES_ORDER_DELETE_ATOMIC_RPC } from "@/lib/order-atomic-rpc"
 import type { SalesOrder, Customer, Product } from "@/lib/types"
 
 interface SalesTableProps {
@@ -281,94 +282,11 @@ export function SalesTable({
       toast({ title: "錯誤", description: "找不到主鍵 id，無法刪除", variant: "destructive" })
       return
     }
-
-
     try {
       setDeletingSaleId(saleId)
       const supabase = createClient()
-
-      // 取得銷貨明細，若 sales_order_items 為 undefined 則查詢 DB
-      let saleItems: Array<{ code: string | null; quantity: number | null }> = Array.isArray(sale.sales_order_items)
-        ? sale.sales_order_items.map((item) => ({
-            code: item.code ?? null,
-            quantity: item.quantity ?? 0,
-          }))
-        : []
-
-      if (saleItems.length === 0) {
-        const { data: items, error: itemsError } = await supabase
-          .from("sales_order_items")
-          .select("code,quantity")
-          .eq("sales_order_id", saleId)
-        if (itemsError) {
-          console.error('[DEBUG] 查詢銷貨明細失敗:', itemsError)
-          throw new Error(itemsError.message || '查詢銷貨明細失敗')
-        }
-        saleItems = (items || []).map((item) => ({
-          code: item.code ?? null,
-          quantity: item.quantity ?? 0,
-        }))
-      }
-      console.log('[DEBUG] sales_order_items:', saleItems)
-
-      const quantityByCode = new Map<string, number>()
-      for (const item of saleItems) {
-        const code = String(item.code || "").trim()
-        const quantity = Number(item.quantity ?? 0)
-        if (!code || !Number.isFinite(quantity) || quantity <= 0) continue
-        quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
-      }
-
-      await Promise.all(
-        Array.from(quantityByCode.entries()).map(async ([code, quantity]) => {
-          // DEBUG: 查詢商品現有庫存
-          const { data: product, error: productError } = await supabase
-            .from("products")
-            .select("code,stock_qty")
-            .eq("code", code)
-            .single()
-
-          console.log(`[DEBUG] 處理商品: ${code}, 目前庫存:`, product?.stock_qty, '要加回:', quantity)
-
-          if (productError || !product) {
-            console.error(`[DEBUG] 查詢商品錯誤:`, productError)
-            throw new Error(productError?.message || `找不到商品 ${code}`)
-          }
-
-          const coalescedStockQty = Number(product.stock_qty ?? 0)
-          const { error: updateInventoryError } = await supabase
-            .from("products")
-            .update({ stock_qty: coalescedStockQty + quantity })
-            .eq("code", code)
-
-          if (updateInventoryError) {
-            console.error(`[DEBUG] 更新庫存錯誤:`, updateInventoryError)
-            throw new Error(updateInventoryError.message)
-          } else {
-            console.log(`[DEBUG] 商品 ${code} 庫存已加回，更新後:`, coalescedStockQty + quantity)
-          }
-        }),
-      )
-
-      const { error: detailError } = await supabase.from("sales_order_items").delete().eq("sales_order_id", saleId)
-      if (detailError) {
-        toast({
-          title: "錯誤",
-          description: `刪除銷貨明細失敗（sales_order_items.sales_order_id）：${detailError.message}`,
-          variant: "destructive",
-        })
-        return
-      }
-
-      const { error: headerError } = await supabase.from("sales_orders").delete().eq("id", saleId)
-      if (headerError) {
-        toast({
-          title: "錯誤",
-          description: `刪除銷貨單頭失敗（sales_orders.id）：${headerError.message}`,
-          variant: "destructive",
-        })
-        return
-      }
+      const { error } = await supabase.rpc(SALES_ORDER_DELETE_ATOMIC_RPC, { p_order_id: saleId })
+      if (error) throw new Error(error.message || "資料庫未完成刪除")
 
       router.refresh()
     } catch (error) {

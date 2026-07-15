@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { PurchaseDialog } from "@/components/purchases/purchase-dialog"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
+import { PURCHASE_ORDER_DELETE_ATOMIC_RPC } from "@/lib/order-atomic-rpc"
 import type { PurchaseOrder, Supplier, Product } from "@/lib/types"
 
 interface PurchasesTableProps {
@@ -240,7 +241,6 @@ export function PurchasesTable({ purchases, suppliers, products, initialSearch =
     }
 
     const normalizedPurchaseId = String(purchase.id ?? "").trim()
-    const normalizedOrderNo = String(purchase.order_no ?? "").trim()
     if (!normalizedPurchaseId) {
       toast({ title: "錯誤", description: "找不到進貨單 id，無法刪除", variant: "destructive" })
       return
@@ -249,88 +249,10 @@ export function PurchasesTable({ purchases, suppliers, products, initialSearch =
     try {
       setDeletingPurchaseId(normalizedPurchaseId)
       const supabase = createClient()
-
-      const quantityByCode = new Map<string, number>()
-      for (const item of purchase.items || []) {
-        const code = String((item as any).code ?? "").trim()
-        const quantity = Number(item.quantity ?? 0)
-        if (!code || !Number.isFinite(quantity) || quantity <= 0) continue
-        quantityByCode.set(code, (quantityByCode.get(code) || 0) + quantity)
-      }
-
-      await Promise.all(
-        Array.from(quantityByCode.entries()).map(async ([code, quantity]) => {
-          const { data: product, error: productError } = await supabase
-            .from("products")
-            .select("code,stock_qty,purchase_qty_total")
-            .eq("code", code)
-            .single()
-
-          if (productError || !product) {
-            throw new Error(productError?.message || `找不到商品 ${code}`)
-          }
-
-          const coalescedStockQty = Number(product.stock_qty ?? 0)
-          const coalescedPurchaseTotal = Number(product.purchase_qty_total ?? 0)
-
-          const { error: updateInventoryError } = await supabase
-            .from("products")
-            .update({
-              stock_qty: Math.max(0, coalescedStockQty - quantity),
-              purchase_qty_total: Math.max(0, coalescedPurchaseTotal - quantity),
-            })
-            .eq("code", code)
-
-          if (updateInventoryError) {
-            throw new Error(updateInventoryError.message)
-          }
-        }),
-      )
-
-      let detailErrorMessage: string | null = null
-
-      if (normalizedOrderNo) {
-        const { error: detailByOrderNoError } = await supabase
-          .from("purchase_order_items")
-          .delete()
-          .eq("order_no", normalizedOrderNo)
-
-        if (detailByOrderNoError) {
-          detailErrorMessage = `order_no 刪除失敗：${detailByOrderNoError.message}`
-        }
-      }
-
-      if (!normalizedOrderNo || detailErrorMessage) {
-        const { error: detailByPurchaseIdError } = await supabase
-          .from("purchase_order_items")
-          .delete()
-          .eq("purchase_order_id", normalizedPurchaseId)
-
-        if (detailByPurchaseIdError) {
-          const fallbackMessage = `purchase_order_id 刪除失敗：${detailByPurchaseIdError.message}`
-          const message = detailErrorMessage ? `${detailErrorMessage}；${fallbackMessage}` : fallbackMessage
-          toast({
-            title: "錯誤",
-            description: `刪除進貨明細失敗：${message}`,
-            variant: "destructive",
-          })
-          return
-        }
-      }
-
-      const { error: headerError } = await supabase
-        .from("purchase_orders")
-        .delete()
-        .eq("id", normalizedPurchaseId)
-
-      if (headerError) {
-        toast({
-          title: "錯誤",
-          description: `刪除進貨單頭失敗（purchase_orders.id）：${headerError.message}`,
-          variant: "destructive",
-        })
-        return
-      }
+      const { error } = await supabase.rpc(PURCHASE_ORDER_DELETE_ATOMIC_RPC, {
+        p_order_id: normalizedPurchaseId,
+      })
+      if (error) throw new Error(error.message || "資料庫未完成刪除")
 
       router.refresh()
     } catch (error) {

@@ -1,5 +1,7 @@
 export const SALES_ORDER_ATOMIC_RPC = "save_sales_order_atomic"
 export const PURCHASE_ORDER_ATOMIC_RPC = "save_purchase_order_atomic"
+export const SALES_ORDER_DELETE_ATOMIC_RPC = "delete_sales_order_atomic"
+export const PURCHASE_ORDER_DELETE_ATOMIC_RPC = "delete_purchase_order_atomic"
 
 type RpcErrorLike = {
   code?: string | null
