@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getLocalDb, addToSyncQueue } from '@/lib/local-db';
+import { getLocalDb } from '@/lib/local-db';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
+import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
 import { v4 as uuidv4 } from 'uuid';
 
 interface LocalSalesReturnItemRow {
@@ -52,8 +53,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // 0. 線上版本檢查：避免覆蓋其他裝置最新資料
-    try {
+    if (!(await isLocalOnlyMode())) {
       if (expectedUpdatedAt) {
         const supabase = await createClient();
         const { data: latest, error: latestError } = await supabase
@@ -62,7 +62,8 @@ export async function PUT(request: NextRequest) {
           .eq('id', returnId)
           .single();
 
-        if (!latestError && latest?.updated_at) {
+        if (latestError) throw latestError
+        if (latest?.updated_at) {
           const remoteIso = new Date(latest.updated_at).toISOString();
           const expectedIso = new Date(expectedUpdatedAt).toISOString();
           if (remoteIso !== expectedIso) {
@@ -79,22 +80,17 @@ export async function PUT(request: NextRequest) {
           }
         }
       }
-    } catch {
-      // 若無法連線雲端，仍允許先寫本地與離線佇列
-    }
 
-    // 1️⃣ 先更新本地資料庫（離線可用）；若本機 DB 不可用則直接寫雲端。
-    let localDb: ReturnType<typeof getLocalDb>;
-    try {
-      localDb = getLocalDb();
-    } catch {
-      await syncSalesReturnNow(returnId, totalAmount, items);
+      await syncSalesReturnNow(returnId, totalAmount, items)
       return NextResponse.json({
         success: true,
         message: '已同步到雲端',
         offline: false,
-      });
+      })
     }
+
+    // 純本機模式才可寫入 SQLite；雲端模式絕不把 Vercel 暫存目錄當成離線佇列。
+    const localDb = getLocalDb();
 
     localDb.exec('BEGIN TRANSACTION');
     try {
@@ -156,13 +152,11 @@ export async function PUT(request: NextRequest) {
       throw e;
     }
 
-    // 2️⃣ 異步同步到遠端 Supabase
-    syncToSupabaseAsync(returnId, totalAmount, items, expectedUpdatedAt);
-
     return NextResponse.json({
       success: true,
-      message: '已保存到本地，將自動同步到雲端',
+      message: '已保存到本機',
       offline: true,
+      localOnly: true,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -170,69 +164,4 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * 異步同步到 Supabase（不阻塞用戶操作）
- */
-async function syncToSupabaseAsync(
-  returnId: string,
-  totalAmount: number,
-  items: any[],
-  expectedUpdatedAt?: string
-) {
-  setImmediate(async () => {
-    try {
-      const supabase = await createClient();
-
-      if (expectedUpdatedAt) {
-        const { data: latest, error: latestError } = await supabase
-          .from('sales_returns')
-          .select('updated_at')
-          .eq('id', returnId)
-          .single();
-
-        if (!latestError && latest?.updated_at) {
-          const remoteIso = new Date(latest.updated_at).toISOString();
-          const expectedIso = new Date(expectedUpdatedAt).toISOString();
-          if (remoteIso !== expectedIso) {
-            throw new Error('VERSION_CONFLICT');
-          }
-        }
-      }
-
-      // 調用 RPC 函數
-      const { error } = await supabase.rpc('update_sales_return', {
-        p_return_id: returnId,
-        p_total_amount: totalAmount,
-        p_items: JSON.stringify(
-          items.map((item) => ({
-            product_code: item.productPno,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            reason: item.reason || null,
-          }))
-        ),
-      });
-
-      if (error) throw error;
-
-      // 標記為已同步
-      const localDb = getLocalDb();
-      localDb
-        .prepare(
-          'UPDATE sales_returns SET synced = TRUE, sync_timestamp = ? WHERE id = ?'
-        )
-        .run(Date.now(), returnId);
-    } catch (error: any) {
-      // 添加到同步隊列，稍後重試
-      addToSyncQueue(
-        'update',
-        'sales_returns',
-        { returnId, totalAmount, items, expectedUpdatedAt },
-        returnId
-      );
-      console.error('Sync to Supabase failed, queued for retry:', error);
-    }
-  });
 }

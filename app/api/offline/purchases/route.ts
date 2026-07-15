@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { addToSyncQueue, setOfflineSnapshot } from '@/lib/local-db';
+import { createClient } from '@/lib/supabase/server';
 import { upsertPurchaseSnapshot } from '@/lib/desktop-offline-mutations';
 import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
@@ -10,9 +9,6 @@ import {
   isMissingAtomicOrderRpc,
   PURCHASE_ORDER_ATOMIC_RPC,
 } from '@/lib/order-atomic-rpc';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function isUuid(value: unknown) {
   if (typeof value !== 'string') return false;
@@ -29,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status = 'draft', is_paid = false, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status = 'draft', is_paid = false, notes, items } = body;
     const normalizedId = isUuid(id) ? id : randomUUID();
 
     if (await isLocalOnlyMode()) {
@@ -50,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     // 嘗試線上操作
     try {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const supabase = await createClient();
 
       const atomicResult = await supabase.rpc(PURCHASE_ORDER_ATOMIC_RPC, {
         p_order_id: normalizedId,
@@ -70,7 +66,6 @@ export async function POST(req: NextRequest) {
       });
 
       if (!atomicResult.error) {
-        setOfflineSnapshot('desktop-purchases-page', null);
         return NextResponse.json({ success: true, offline: false, atomic: true, id: normalizedId });
       }
 
@@ -119,39 +114,12 @@ export async function POST(req: NextRequest) {
         if (itemsError) throw itemsError;
       }
 
-      // 3. 更新本機快照
-      setOfflineSnapshot('desktop-purchases-page', null);
-
       return NextResponse.json({ success: true, offline: false, id: normalizedId });
     } catch (onlineError: any) {
-      const queueId = addToSyncQueue('create', 'purchases', {
-        id: normalizedId,
-        po_number,
-        supplier_id,
-        order_date,
-        delivery_date,
-        total_amount,
-        shipping_fee,
-        status,
-        is_paid: Boolean(is_paid),
-        notes,
-        items,
-      });
-
-      if (!queueId) {
-        return NextResponse.json(
-          { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
-          { status: 502 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        offline: true,
-        queueId,
-        message: 'Saved locally, will sync when online',
-        id: normalizedId,
-      });
+      return NextResponse.json(
+        { success: false, error: onlineError?.message || '雲端儲存失敗，操作已保留在瀏覽器等待重試。' },
+        { status: 502 },
+      );
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -168,7 +136,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, delivery_date, total_amount, shipping_fee, status, is_paid = false, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status, is_paid = false, notes, items } = body;
     if (!isUuid(id)) {
       return NextResponse.json({ error: 'Invalid purchase id' }, { status: 400 });
     }
@@ -191,7 +159,7 @@ export async function PUT(req: NextRequest) {
 
     // 嘗試線上操作
     try {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const supabase = await createClient();
 
       const atomicResult = await supabase.rpc(PURCHASE_ORDER_ATOMIC_RPC, {
         p_order_id: id,
@@ -211,7 +179,6 @@ export async function PUT(req: NextRequest) {
       });
 
       if (!atomicResult.error) {
-        setOfflineSnapshot('desktop-purchases-page', null);
         return NextResponse.json({ success: true, offline: false, atomic: true, id });
       }
 
@@ -262,37 +229,12 @@ export async function PUT(req: NextRequest) {
         if (itemsError) throw itemsError;
       }
 
-      // 3. 更新快照
-      setOfflineSnapshot('desktop-purchases-page', null);
-
       return NextResponse.json({ success: true, offline: false });
     } catch (onlineError: any) {
-      const queueId = addToSyncQueue('update', 'purchases', {
-        id,
-        po_number,
-        supplier_id,
-        order_date,
-        delivery_date,
-        total_amount,
-        shipping_fee,
-        status,
-        is_paid: Boolean(is_paid),
-        notes,
-        items,
-      });
-
-      if (!queueId) {
-        return NextResponse.json(
-          { error: onlineError?.message || '線上儲存失敗，且本機離線儲存不可用' },
-          { status: 502 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        offline: true,
-        message: 'Saved locally, will sync when online',
-      });
+      return NextResponse.json(
+        { success: false, error: onlineError?.message || '雲端儲存失敗，操作已保留在瀏覽器等待重試。' },
+        { status: 502 },
+      );
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

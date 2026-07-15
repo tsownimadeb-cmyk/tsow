@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { addToSyncQueue } from "@/lib/local-db"
 import { removeCustomerSnapshot, upsertCustomerSnapshot } from "@/lib/desktop-offline-mutations"
 import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
 import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
@@ -84,22 +83,15 @@ export async function POST(request: NextRequest) {
       insertPayload[mapped.legacyCodeColumn] = mapped.nextCode
     }
 
-    const { data, error } = await supabase.from("customers").insert(insertPayload).select("*").single()
+    const { error } = await supabase.from("customers").insert(insertPayload).select("*").single()
     if (error) throw error
 
-    upsertCustomerSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    const queueId = addToSyncQueue("create", "customers", payload, payload?.code)
-    if (!queueId) {
-      return NextResponse.json(
-        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
-        { status: 502 }
-      )
-    }
-
-    upsertCustomerSnapshot(payload)
-    return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
+    return NextResponse.json(
+      { success: false, message: error?.message || "雲端儲存失敗，操作已保留在瀏覽器等待重試。" },
+      { status: 502 },
+    )
   }
 }
 
@@ -168,7 +160,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("customers")
       .update(mapped.payload)
       .eq(mapped.keyColumn, nextCode)
@@ -177,19 +169,12 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error
 
-    upsertCustomerSnapshot(data || payload)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    const queueId = addToSyncQueue("update", "customers", { code, targetCode: code, payload }, code)
-    if (!queueId) {
-      return NextResponse.json(
-        { success: false, message: error?.message || "線上儲存失敗，且本機離線儲存不可用" },
-        { status: 502 }
-      )
-    }
-
-    upsertCustomerSnapshot({ code: payload?.code || code, ...payload })
-    return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
+    return NextResponse.json(
+      { success: false, message: error?.message || "雲端儲存失敗，操作已保留在瀏覽器等待重試。" },
+      { status: 502 },
+    )
   }
 }
 
@@ -217,18 +202,11 @@ export async function DELETE(request: NextRequest) {
     const { error } = await supabase.from("customers").delete().eq("code", code)
     if (error) throw error
 
-    removeCustomerSnapshot(code)
     return NextResponse.json({ success: true, offline: false })
   } catch (error: any) {
-    const queueId = addToSyncQueue("delete", "customers", { code }, code)
-    if (!queueId) {
-      return NextResponse.json(
-        { success: false, message: error?.message || "線上刪除失敗，且本機離線儲存不可用" },
-        { status: 502 }
-      )
-    }
-
-    removeCustomerSnapshot(code)
-    return NextResponse.json({ success: true, offline: true, message: error?.message || "queued" })
+    return NextResponse.json(
+      { success: false, message: error?.message || "雲端刪除失敗，操作已保留在瀏覽器等待重試。" },
+      { status: 502 },
+    )
   }
 }

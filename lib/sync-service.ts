@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   getLocalDb,
   getPendingSyncQueue,
@@ -11,9 +11,6 @@ import {
   SALES_ORDER_ATOMIC_RPC,
 } from './order-atomic-rpc';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
 interface SyncQueueItem {
   id: string;
   operation: string;
@@ -25,7 +22,7 @@ interface SyncQueueItem {
 /**
  * 同步待機隊列中的所有未同步項目
  */
-export async function syncPendingChanges() {
+export async function syncPendingChanges(supabase: SupabaseClient) {
   const queue = getPendingSyncQueue() as SyncQueueItem[];
 
   if (queue.length === 0) {
@@ -35,12 +32,6 @@ export async function syncPendingChanges() {
 
   let synced = 0;
   let failed = 0;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   for (const item of queue) {
     try {
@@ -453,19 +444,19 @@ async function syncSalesCrud(supabase: any, operation: string, data: any) {
 /**
  * 監聽網路狀態並自動同步（客戶端使用）
  */
-export function setupOfflineSync() {
+export function setupOfflineSync(supabase: SupabaseClient) {
   if (typeof window === 'undefined') return;
 
   // 監聽網路恢復
   window.addEventListener('online', () => {
     console.log('Network restored, syncing pending changes...');
-    syncPendingChanges();
+    syncPendingChanges(supabase);
   });
 
   // 定期檢查（每 30 秒）
   setInterval(() => {
     if (navigator.onLine) {
-      syncPendingChanges().catch(console.error);
+      syncPendingChanges(supabase).catch(console.error);
     }
   }, 30000);
 }

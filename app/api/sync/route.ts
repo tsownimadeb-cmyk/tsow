@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncPendingChanges } from '@/lib/sync-service';
 import { isLocalOnlyMode } from '@/lib/runtime-mode-server';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/site-auth';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * 手動觸發同步
@@ -29,7 +30,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await syncPendingChanges();
+    const supabase = await createClient();
+    const result = await syncPendingChanges(supabase);
 
     return NextResponse.json({
       success: true,
