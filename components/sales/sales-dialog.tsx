@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Search, Trash2, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
@@ -55,6 +55,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   const [isPending, startTransition] = useTransition()
   const [internalOpen, setInternalOpen] = useState(false)
   const [customerNameSearch, setCustomerNameSearch] = useState("")
+  const [isCustomerSearchOpen, setIsCustomerSearchOpen] = useState(false)
+  const customerSearchInputRef = useRef<HTMLInputElement>(null)
 
   const isControlled = open !== undefined
   const isOpen = isControlled ? open : internalOpen
@@ -148,8 +150,15 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
   useEffect(() => {
     if (!isOpen) {
       setCustomerNameSearch("")
+      setIsCustomerSearchOpen(false)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    if (isCustomerSearchOpen) {
+      customerSearchInputRef.current?.focus()
+    }
+  }, [isCustomerSearchOpen])
 
   useEffect(() => {
     if (mode === "edit") {
@@ -784,6 +793,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   onValueChange={(value) => {
                     setFormData({ ...formData, customer_cno: value })
                     setCustomerNameSearch("")
+                    setIsCustomerSearchOpen(false)
                   }}
                 >
                   <SelectTrigger id="customer" className="h-10">
@@ -803,15 +813,35 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                     )}
                   </SelectContent>
                 </Select>
-                <Input
-                  id="customer-name-search"
-                  type="text"
-                  aria-label="搜尋客戶名稱"
-                  placeholder="搜尋客戶名稱"
-                  className="h-10 sm:w-44 sm:flex-none"
-                  value={customerNameSearch}
-                  onChange={(e) => setCustomerNameSearch(e.target.value)}
-                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 flex-none"
+                  aria-label={isCustomerSearchOpen ? "收起搜尋客戶名稱" : "開啟搜尋客戶名稱"}
+                  aria-controls="customer-name-search"
+                  aria-expanded={isCustomerSearchOpen}
+                  onClick={() => {
+                    if (isCustomerSearchOpen) {
+                      setCustomerNameSearch("")
+                    }
+                    setIsCustomerSearchOpen((current) => !current)
+                  }}
+                >
+                  {isCustomerSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+                </Button>
+                {isCustomerSearchOpen ? (
+                  <Input
+                    ref={customerSearchInputRef}
+                    id="customer-name-search"
+                    type="text"
+                    aria-label="搜尋客戶名稱"
+                    placeholder="搜尋客戶名稱"
+                    className="h-10 sm:w-44 sm:flex-none"
+                    value={customerNameSearch}
+                    onChange={(e) => setCustomerNameSearch(e.target.value)}
+                  />
+                ) : null}
               </div>
             </div>
             {/* 散客按鈕 */}
@@ -824,6 +854,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                 onClick={() => {
                   setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })
                   setCustomerNameSearch("")
+                  setIsCustomerSearchOpen(false)
                 }}
               >
                 散客
