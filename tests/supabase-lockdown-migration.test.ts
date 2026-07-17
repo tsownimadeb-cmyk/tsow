@@ -14,25 +14,16 @@ describe("Supabase authenticated-only migration", () => {
     expect(sql).toMatch(/REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon/i)
   })
 
-  it("covers every business table including returns and accounts", () => {
-    for (const table of [
-      "products",
-      "customers",
-      "suppliers",
-      "purchase_orders",
-      "purchase_order_items",
-      "purchase_returns",
-      "purchase_return_items",
-      "sales_orders",
-      "sales_order_items",
-      "sales_returns",
-      "sales_return_items",
-      "accounts_receivable",
-      "accounts_payable",
-      "ar_receipts",
-    ]) {
-      expect(sql).toContain(`'${table}'`)
-    }
+  it("discovers and protects every public base or partitioned table", () => {
+    expect(sql).toMatch(/JOIN pg_namespace n ON n\.oid = c\.relnamespace/i)
+    expect(sql).toMatch(/n\.nspname = 'public'/i)
+    expect(sql).toMatch(/c\.relkind IN \('r', 'p'\)/i)
+    expect(sql).toMatch(/ALTER TABLE public\.%I ENABLE ROW LEVEL SECURITY/i)
+    expect(sql).toMatch(/No public tables were found to protect/i)
+  })
+
+  it("makes the payable statement view obey the caller's permissions", () => {
+    expect(sql).toMatch(/ALTER VIEW public\.supplier_statement_payable SET \(security_invoker = true\)/i)
   })
 
   it("creates policies only for authenticated users", () => {

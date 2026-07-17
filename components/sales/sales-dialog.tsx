@@ -778,14 +778,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             {/* 客戶選擇器 */}
             <div className="flex-1">
               <Label htmlFor="customer" className="mb-1 block text-sm font-medium">客戶</Label>
-              <div className="space-y-2">
-                <Input
-                  id="customer-name-search"
-                  type="text"
-                  placeholder="搜尋客戶名稱"
-                  value={customerNameSearch}
-                  onChange={(e) => setCustomerNameSearch(e.target.value)}
-                />
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Select
                   value={customerSelectValue}
                   onValueChange={(value) => {
@@ -810,6 +803,15 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                     )}
                   </SelectContent>
                 </Select>
+                <Input
+                  id="customer-name-search"
+                  type="text"
+                  aria-label="搜尋客戶名稱"
+                  placeholder="搜尋客戶名稱"
+                  className="h-10 sm:w-44 sm:flex-none"
+                  value={customerNameSearch}
+                  onChange={(e) => setCustomerNameSearch(e.target.value)}
+                />
               </div>
             </div>
             {/* 散客按鈕 */}
