@@ -8,6 +8,16 @@ import { ProductDialog } from "./product-dialog"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { ProductListRow } from "@/lib/products"
@@ -36,6 +46,10 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
   const debouncedSearch = useDebounce(searchText, 250)
   const [isPending, startTransition] = useTransition()
   const lastInitialSearchRef = useRef(initialSearch)
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkPrices, setBulkPrices] = useState({ base_price: "", price: "", sale_price: "" })
 
   useEffect(() => {
     const previousInitialSearch = lastInitialSearchRef.current
@@ -95,6 +109,87 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
     )
   })()
   const isSearching = searchText !== debouncedSearch || isPending
+  const visibleCodes = filteredProducts
+    .map((product) => String(product.code || "").trim())
+    .filter(Boolean)
+  const selectedVisibleCount = visibleCodes.filter((code) => selectedCodes.has(code)).length
+  const allVisibleSelected = visibleCodes.length > 0 && selectedVisibleCount === visibleCodes.length
+
+  useEffect(() => {
+    const availableCodes = new Set(products.map((product) => String(product.code || "").trim()).filter(Boolean))
+    setSelectedCodes((current) => {
+      const next = new Set(Array.from(current).filter((code) => availableCodes.has(code)))
+      return next.size === current.size ? current : next
+    })
+  }, [products])
+
+  const setProductSelected = (code: string, selected: boolean) => {
+    setSelectedCodes((current) => {
+      const next = new Set(current)
+      if (selected) next.add(code)
+      else next.delete(code)
+      return next
+    })
+  }
+
+  const setAllVisibleSelected = (selected: boolean) => {
+    setSelectedCodes((current) => {
+      const next = new Set(current)
+      for (const code of visibleCodes) {
+        if (selected) next.add(code)
+        else next.delete(code)
+      }
+      return next
+    })
+  }
+
+  const handleBulkPriceUpdate = async () => {
+    const prices: Record<string, number> = {}
+    for (const [field, rawValue] of Object.entries(bulkPrices)) {
+      if (!rawValue.trim()) continue
+      const value = Number(rawValue)
+      if (!Number.isFinite(value) || value < 0) {
+        toast({ title: "錯誤", description: "價格必須是大於或等於 0 的數字", variant: "destructive" })
+        return
+      }
+      prices[field] = value
+    }
+
+    if (Object.keys(prices).length === 0) {
+      toast({ title: "錯誤", description: "請至少輸入一項要修改的價格", variant: "destructive" })
+      return
+    }
+
+    try {
+      setBulkSaving(true)
+      const response = await fetch("/api/offline/products/batch", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: Array.from(selectedCodes), prices }),
+      })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || `HTTP ${response.status}`)
+      }
+
+      toast({
+        title: "更新成功",
+        description: `已同步更新 ${result.updatedCount || selectedCodes.size} 項商品價格`,
+      })
+      setBulkDialogOpen(false)
+      setBulkPrices({ base_price: "", price: "", sale_price: "" })
+      setSelectedCodes(new Set())
+      router.refresh()
+    } catch (error: any) {
+      toast({
+        title: "批量更新失敗",
+        description: error?.message || "商品價格未變更，請稍後重試",
+        variant: "destructive",
+      })
+    } finally {
+      setBulkSaving(false)
+    }
+  }
 
   const handleDelete = async (record: ProductListRow) => {
     const isConfirmed = window.confirm("確定要刪除此商品嗎？")
@@ -157,6 +252,28 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
         <div className="px-3 sm:px-6 py-2 text-xs text-gray-500">搜尋中...</div>
       )}
 
+      <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-blue-50/60 px-3 py-3 sm:px-6">
+        <Checkbox
+          id="select-visible-products"
+          checked={allVisibleSelected ? true : selectedVisibleCount > 0 ? "indeterminate" : false}
+          onCheckedChange={(checked) => setAllVisibleSelected(checked === true)}
+          disabled={visibleCodes.length === 0}
+        />
+        <Label htmlFor="select-visible-products" className="cursor-pointer text-sm">
+          選取目前清單
+        </Label>
+        <span className="text-sm text-muted-foreground">已選 {selectedCodes.size} 項</span>
+        <Button
+          type="button"
+          size="sm"
+          className="ml-auto"
+          disabled={selectedCodes.size === 0}
+          onClick={() => setBulkDialogOpen(true)}
+        >
+          批量編輯價格
+        </Button>
+      </div>
+
       {/* 桌面版標題列 */}
       <div className="hidden md:grid grid-cols-12 items-center gap-2 border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">
         <div className="col-span-2">
@@ -200,7 +317,18 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
           <Accordion type="single" collapsible className="hidden md:block w-full">
             {filteredProducts.map((p, index) => (
               <AccordionItem key={p.code || `product-row-${index}`} value={String(p.code || `product-row-${index}`)}>
-                <AccordionTrigger className="px-6 hover:no-underline">
+                <AccordionTrigger
+                  className="px-3 pr-6 hover:no-underline"
+                  leadingContent={p.code ? (
+                    <div className="flex items-center pl-6">
+                      <Checkbox
+                        aria-label={`選取商品 ${p.code}`}
+                        checked={selectedCodes.has(p.code)}
+                        onCheckedChange={(checked) => setProductSelected(p.code, checked === true)}
+                      />
+                    </div>
+                  ) : null}
+                >
                   <div className="grid w-full grid-cols-12 items-center gap-2 text-left">
                     <div className="col-span-2 text-sm font-mono text-gray-600">{p.code}</div>
                     <div className="col-span-3 text-sm font-bold text-gray-900">{p.name}</div>
@@ -284,7 +412,17 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
             {filteredProducts.map((p, index) => {
               const isLowStock = Number(p.stock_qty) < Number(p.safety_stock || 0)
               return (
-                <details key={p.code || `product-mobile-${index}`} className="group">
+                <div key={p.code || `product-mobile-${index}`} className="flex items-stretch">
+                  <div className="flex items-center pl-3">
+                    {p.code ? (
+                      <Checkbox
+                        aria-label={`選取商品 ${p.code}`}
+                        checked={selectedCodes.has(p.code)}
+                        onCheckedChange={(checked) => setProductSelected(p.code, checked === true)}
+                      />
+                    ) : null}
+                  </div>
+                  <details className="group min-w-0 flex-1">
                   <summary className="flex items-center justify-between px-3 py-3 cursor-pointer list-none">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -360,12 +498,76 @@ export function ProductsTable({ products, initialSearch = "", sortBy = "code", s
                       </Button>
                     </div>
                   </div>
-                </details>
+                  </details>
+                </div>
               )
             })}
           </div>
         </>
       )}
+
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量編輯商品價格</DialogTitle>
+            <DialogDescription>
+              將相同價格套用到已選取的 {selectedCodes.size} 項商品。留空的欄位不會變更。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-24 overflow-y-auto rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-600">
+            {Array.from(selectedCodes).join("、")}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="bulk-base-price">預設進貨單價</Label>
+              <Input
+                id="bulk-base-price"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="保持原值"
+                value={bulkPrices.base_price}
+                onChange={(event) => setBulkPrices({ ...bulkPrices, base_price: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bulk-list-price">定價</Label>
+              <Input
+                id="bulk-list-price"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="保持原值"
+                value={bulkPrices.price}
+                onChange={(event) => setBulkPrices({ ...bulkPrices, price: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bulk-sale-price">特價</Label>
+              <Input
+                id="bulk-sale-price"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="保持原值"
+                value={bulkPrices.sale_price}
+                onChange={(event) => setBulkPrices({ ...bulkPrices, sale_price: event.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setBulkDialogOpen(false)} disabled={bulkSaving}>
+              取消
+            </Button>
+            <Button type="button" onClick={handleBulkPriceUpdate} disabled={bulkSaving}>
+              {bulkSaving ? "更新中..." : `更新 ${selectedCodes.size} 項商品`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
