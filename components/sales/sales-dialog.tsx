@@ -818,6 +818,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
                   variant="outline"
                   size="icon"
                   className="h-10 w-10 flex-none"
+                  tabIndex={-1}
                   aria-label={isCustomerSearchOpen ? "收起搜尋客戶名稱" : "開啟搜尋客戶名稱"}
                   aria-controls="customer-name-search"
                   aria-expanded={isCustomerSearchOpen}
@@ -850,6 +851,7 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
               <Button
                 type="button"
                 className="h-10"
+                tabIndex={-1}
                 variant={formData.customer_cno === WALK_IN_CUSTOMER_VALUE ? "default" : "outline"}
                 onClick={() => {
                   setFormData({ ...formData, customer_cno: WALK_IN_CUSTOMER_VALUE })
