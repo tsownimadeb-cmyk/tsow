@@ -37,7 +37,6 @@ export type ProductListRowWithProfit = ProductListRow & {
 type ProfitAnalysisOptions = {
   startDate?: string
   endDate?: string
-  fallbackUnitCostByCode?: ReadonlyMap<string, number>
 }
 
 const IN_FILTER_CHUNK_SIZE = 200
@@ -222,9 +221,9 @@ export async function fetchProductProfitSummaryByCode(
 
 // ─── FIFO helpers ─────────────────────────────────────────────────────────────
 
-export type FifoBatch = { orderedAt: string; remainingQty: number; landedUnitCost: number }
+type FifoBatch = { orderedAt: string; remainingQty: number; landedUnitCost: number }
 
-export function consumeFifo(batches: FifoBatch[], qty: number): number {
+function consumeFifo(batches: FifoBatch[], qty: number): number {
   let remaining = qty
   let cogs = 0
   for (const batch of batches) {
@@ -235,23 +234,6 @@ export function consumeFifo(batches: FifoBatch[], qty: number): number {
     remaining -= used
   }
   return cogs
-}
-
-export function seedInferredOpeningBatch(
-  batches: FifoBatch[],
-  totalSalesQty: number,
-  fallbackUnitCost: number,
-) {
-  const totalPurchasedQty = batches.reduce((sum, batch) => sum + Math.max(0, batch.remainingQty), 0)
-  const inferredConsumedOpeningQty = Math.max(0, totalSalesQty - totalPurchasedQty)
-  if (inferredConsumedOpeningQty <= 0) return 0
-
-  batches.unshift({
-    orderedAt: "0000-00-00",
-    remainingQty: inferredConsumedOpeningQty,
-    landedUnitCost: Math.max(0, fallbackUnitCost),
-  })
-  return inferredConsumedOpeningQty
 }
 
 // ─── fetchProductProfitAnalysisByCode (FIFO) ──────────────────────────────────
@@ -430,26 +412,6 @@ export async function fetchProductProfitAnalysisByCode(
 
   // Sort chronologically so FIFO depletion happens in the right order
   activeSalesItems.sort((a, b) => a.order_date.localeCompare(b.order_date))
-
-  // Some products already had stock when transaction history began. If all-time
-  // completed sales exceed recorded purchases, the difference is consumed opening
-  // inventory. Seed it as the oldest FIFO batch so early sales consume it first;
-  // otherwise later report periods can incorrectly receive zero cost.
-  const allTimeSalesQtyByCode = new Map<string, number>()
-  for (const row of activeSalesItems) {
-    const code = normalizeCode(String(row.code || ""))
-    const qty = toNumber(row.quantity)
-    if (!code || qty <= 0) continue
-    allTimeSalesQtyByCode.set(code, (allTimeSalesQtyByCode.get(code) || 0) + qty)
-  }
-
-  for (const code of normalizedCodes) {
-    const batches = fifoBatchesByCode.get(code) ?? []
-    const fallbackUnitCost = toNumber(options?.fallbackUnitCostByCode?.get(code))
-      || toNumber(latestPurchasePriceByCode.get(code))
-    seedInferredOpeningBatch(batches, toNumber(allTimeSalesQtyByCode.get(code)), fallbackUnitCost)
-    fifoBatchesByCode.set(code, batches)
-  }
 
   // ── Step 3: FIFO matching – iterate all time, count only period sales ─────────
 

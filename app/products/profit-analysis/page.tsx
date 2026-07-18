@@ -75,16 +75,9 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
   })
 
   const productCodes = filteredProducts.map((product) => String(product.code || ""))
-  const fallbackUnitCostByCode = new Map(
-    filteredProducts.map((product) => [
-      normalizeCode(product.code),
-      toNumber(product.base_price ?? product.purchase_price ?? product.cost),
-    ]),
-  )
   const { summaryByCode, warning: profitWarning } = await fetchProductProfitAnalysisByCode(supabase, productCodes, {
     startDate: startDate || undefined,
     endDate: endDate || undefined,
-    fallbackUnitCostByCode,
   })
 
   if (profitWarning) {
