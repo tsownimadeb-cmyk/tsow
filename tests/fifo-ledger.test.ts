@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { calculateFifoSaleCosts } from "../lib/fifo-ledger"
+import { calculateFifoSaleCosts, resolveFifoPurchaseUnitCost } from "../lib/fifo-ledger"
 
 describe("FIFO ledger", () => {
+  it("uses a confirmed override for a historical zero-cost purchase", () => {
+    expect(resolveFifoPurchaseUnitCost(0, 471)).toBe(471)
+    expect(resolveFifoPurchaseUnitCost(570, null)).toBe(570)
+  })
+
   it("matches the user's mixed-batch example", () => {
     const result = calculateFifoSaleCosts({
       openingQty: 0,

@@ -1,6 +1,12 @@
 import type { Product as ProductType } from "@/lib/types"
 import { isCompletedPurchaseStatus } from "@/lib/purchase-status"
-import { calculateFifoSaleCosts, type FifoPurchase, type FifoReturn, type FifoSale } from "@/lib/fifo-ledger"
+import {
+  calculateFifoSaleCosts,
+  resolveFifoPurchaseUnitCost,
+  type FifoPurchase,
+  type FifoReturn,
+  type FifoSale,
+} from "@/lib/fifo-ledger"
 
 export type ProductListRow = Pick<
   ProductType,
@@ -295,6 +301,29 @@ export async function fetchProductProfitAnalysisByCode(
 
   const purchaseOrderMap = new Map(purchaseOrders.map((o) => [String(o.id), o]))
 
+  const purchaseCostOverrideByOrderAndCode = new Map<string, number>()
+  try {
+    const promisedOverrides = chunkArray(normalizedCodes, IN_FILTER_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows(supabase, "fifo_purchase_cost_overrides", "purchase_order_id,product_code,unit_cost", {
+        inColumn: "product_code",
+        inValues: chunk,
+        pageSize: 1000,
+      }),
+    )
+    const overrideResults = await Promise.all(promisedOverrides)
+    for (const rows of overrideResults) {
+      for (const row of rows || []) {
+        const code = normalizeCode(row.product_code)
+        const orderId = String(row.purchase_order_id || "")
+        if (code && orderId) {
+          purchaseCostOverrideByOrderAndCode.set(`${orderId}::${code}`, toNumber(row.unit_cost))
+        }
+      }
+    }
+  } catch (err: any) {
+    warningMessages.push(err?.message || "無法讀取 FIFO 進貨成本校正資料")
+  }
+
   // Compute goods sub-total per purchase order for proportional shipping allocation
   const goodsTotalByOrderId = new Map<string, number>()
   for (const row of purchaseItems) {
@@ -324,7 +353,11 @@ export async function fetchProductProfitAnalysisByCode(
     const fallbackGoodsTotal = goodsTotal
     const allocationBase = orderTotalAmount > 0 ? orderTotalAmount : fallbackGoodsTotal
     const allocatedShipping = allocationBase > 0 ? (goodsAmt / allocationBase) * shippingFee : 0
-    const landedUnitCost = qty > 0 ? (goodsAmt + allocatedShipping) / qty : 0
+    const calculatedUnitCost = qty > 0 ? (goodsAmt + allocatedShipping) / qty : 0
+    const landedUnitCost = resolveFifoPurchaseUnitCost(
+      calculatedUnitCost,
+      purchaseCostOverrideByOrderAndCode.get(`${orderId}::${code}`),
+    )
     const batches = purchaseBatchesByCode.get(code) ?? []
     batches.push({ orderedAt: String(order.order_date || ""), quantity: qty, unitCost: landedUnitCost })
     purchaseBatchesByCode.set(code, batches)

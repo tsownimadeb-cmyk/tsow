@@ -32,6 +32,11 @@ const positiveNumber = (value: unknown) => {
   return Number.isFinite(number) && number > 0 ? number : 0
 }
 
+export const resolveFifoPurchaseUnitCost = (calculatedUnitCost: unknown, confirmedOverride: unknown) => {
+  const override = positiveNumber(confirmedOverride)
+  return override > 0 ? override : positiveNumber(calculatedUnitCost)
+}
+
 /**
  * Matches sales to inventory available on the business date.
  * Opening inventory is oldest and can carry a confirmed historical cost. When
