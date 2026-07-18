@@ -27,12 +27,13 @@ const positiveNumber = (value: unknown) => {
 
 /**
  * Matches sales to inventory available on the business date.
- * Opening inventory is oldest and deliberately has an unknown cost. Purchases
- * on the same date are available before sales. Future purchases never repair an
- * earlier sale silently; that sale remains marked as having an unknown cost.
+ * Opening inventory is oldest and can carry a confirmed historical cost. When
+ * that cost is missing it remains unresolved. Purchases on the same date are
+ * available before sales. Future purchases never repair an earlier sale.
  */
 export function calculateFifoSaleCosts(input: {
   openingQty: number
+  openingUnitCost?: number | null
   purchases: FifoPurchase[]
   sales: FifoSale[]
 }): Map<string, FifoSaleCost> {
@@ -58,7 +59,8 @@ export function calculateFifoSaleCosts(input: {
   const queue: WorkingBatch[] = []
   const openingQty = positiveNumber(input.openingQty)
   if (openingQty > 0) {
-    queue.push({ remainingQty: openingQty, unitCost: null })
+    const openingUnitCost = positiveNumber(input.openingUnitCost)
+    queue.push({ remainingQty: openingQty, unitCost: openingUnitCost > 0 ? openingUnitCost : null })
   }
 
   const result = new Map<string, FifoSaleCost>()

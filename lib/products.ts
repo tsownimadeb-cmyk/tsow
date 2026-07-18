@@ -407,10 +407,11 @@ export async function fetchProductProfitAnalysisByCode(
   // Sort chronologically so FIFO depletion happens in the right order
   activeSalesItems.sort((a, b) => a.order_date.localeCompare(b.order_date))
 
-  // Infer inventory that existed before transaction history began. Its cost is
-  // intentionally unknown, but its quantity keeps later purchase batches in
-  // the correct FIFO position after the opening stock has sold out.
+  // Use a confirmed opening FIFO balance when available. Otherwise infer the
+  // quantity that existed before transaction history began and leave its cost
+  // unresolved so later purchase batches stay in the correct FIFO position.
   const stockQtyByCode = new Map<string, number>()
+  const openingBalanceByCode = new Map<string, { quantity: number; unitCost: number }>()
   const movementHistoryUncertainCodes = new Set<string>()
   try {
     const stockRows = await fetchAllRows(supabase, "products", "code,stock_qty", {
@@ -424,7 +425,10 @@ export async function fetchProductProfitAnalysisByCode(
       if (code) stockQtyByCode.set(code, toNumber(row.stock_qty))
     }
 
-    const [adjustments, purchaseReturnItems, salesReturnItems] = await Promise.all([
+    const [openingBalances, adjustments, purchaseReturnItems, salesReturnItems] = await Promise.all([
+      fetchAllRows(supabase, "fifo_opening_balances", "product_code,quantity,unit_cost", {
+        pageSize: 1000,
+      }),
       fetchAllRows(supabase, "stock_adjustments", "product_code", {
         pageSize: 1000,
       }),
@@ -435,6 +439,13 @@ export async function fetchProductProfitAnalysisByCode(
         pageSize: 1000,
       }),
     ])
+
+    for (const row of openingBalances) {
+      const code = normalizeCode(row.product_code)
+      const quantity = toNumber(row.quantity)
+      const unitCost = toNumber(row.unit_cost)
+      if (code && quantity > 0 && unitCost > 0) openingBalanceByCode.set(code, { quantity, unitCost })
+    }
 
     for (const row of adjustments) {
       const code = normalizeCode(row.product_code)
@@ -469,16 +480,14 @@ export async function fetchProductProfitAnalysisByCode(
   const fifoCostByEventId = new Map<string, { cogs: number; unknownQty: number }>()
   for (const code of normalizedCodes) {
     const canInferOpening = !movementHistoryUncertainCodes.has(code) && stockQtyByCode.has(code)
-    const openingQty = canInferOpening
-      ? Math.max(
-          0,
-          toNumber(stockQtyByCode.get(code))
-            + toNumber(totalSalesQtyByCode.get(code))
-            - toNumber(totalPurchasedQtyByCode.get(code)),
-        )
+    const confirmedOpening = openingBalanceByCode.get(code)
+    const inferredOpeningQty = canInferOpening
+      ? Math.max(0, toNumber(stockQtyByCode.get(code)) + toNumber(totalSalesQtyByCode.get(code)) - toNumber(totalPurchasedQtyByCode.get(code)))
       : 0
+    const openingQty = confirmedOpening?.quantity ?? inferredOpeningQty
     const costs = calculateFifoSaleCosts({
       openingQty,
+      openingUnitCost: confirmedOpening?.unitCost ?? null,
       purchases: purchaseBatchesByCode.get(code) ?? [],
       sales: salesEventsByCode.get(code) ?? [],
     })

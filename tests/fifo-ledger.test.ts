@@ -57,4 +57,15 @@ describe("FIFO ledger", () => {
     expect(result.get("before-july")?.unknownQty).toBe(105)
     expect(result.get("july")).toEqual({ cogs: 157_824, unknownQty: 0 })
   })
+
+  it("uses a confirmed cost for opening FIFO inventory", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 105,
+      openingUnitCost: 576,
+      purchases: [{ orderedAt: "2026-04-13", quantity: 985, unitCost: 576 }],
+      sales: [{ id: "opening-sale", orderedAt: "2026-01-01", quantity: 105 }],
+    })
+
+    expect(result.get("opening-sale")).toEqual({ cogs: 60_480, unknownQty: 0 })
+  })
 })
