@@ -9,6 +9,7 @@ import {
   isMissingAtomicOrderRpc,
   PURCHASE_ORDER_ATOMIC_RPC,
 } from '@/lib/order-atomic-rpc';
+import { purchaseStatusForSave } from '@/lib/purchase-status';
 
 function isUuid(value: unknown) {
   if (typeof value !== 'string') return false;
@@ -25,7 +26,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status = 'draft', is_paid = false, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, is_paid = false, notes, items } = body;
+    const status = purchaseStatusForSave();
     const normalizedId = isUuid(id) ? id : randomUUID();
 
     if (await isLocalOnlyMode()) {
@@ -136,7 +138,8 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, status, is_paid = false, notes, items } = body;
+    const { id, po_number, supplier_id, order_date, total_amount, shipping_fee, is_paid = false, notes, items } = body;
+    const status = purchaseStatusForSave();
     if (!isUuid(id)) {
       return NextResponse.json({ error: 'Invalid purchase id' }, { status: 400 });
     }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Download, Settings, Upload } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { recalculateProductCostsByCodes } from "@/lib/product-cost-recalculation"
+import { CONFIRMED_PURCHASE_STATUS } from "@/lib/purchase-status"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -512,7 +513,7 @@ async function createPurchaseOrderByOrderNo(
     order_date: orderDate || null,
     supplier_id: supplierId,
     total_amount: 0,
-    status: "pending",
+    status: CONFIRMED_PURCHASE_STATUS,
     is_paid: false,
   }
 
@@ -869,7 +870,7 @@ export function PurchasesBatchActions() {
             order_date: normalizeDateInput(sampleRow.purchase_date) || null,
             supplier_id: String(sampleRow.vendor_code || "").trim() || null,
             total_amount: 0,
-            status: "pending",
+            status: CONFIRMED_PURCHASE_STATUS,
             is_paid: false,
           }
         })
@@ -878,7 +879,7 @@ export function PurchasesBatchActions() {
           order_date: string | null
           supplier_id: string | null
           total_amount: number
-          status: string
+          status: typeof CONFIRMED_PURCHASE_STATUS
           is_paid: boolean
         } => Boolean(row))
 
@@ -960,6 +961,7 @@ export function PurchasesBatchActions() {
         order_no: orderNo,
         order_date: header.order_date || null,
         supplier_id: header.supplier_id,
+        status: CONFIRMED_PURCHASE_STATUS,
         is_paid: header.is_paid,
         shipping_fee: header.shipping_fee,
       }))

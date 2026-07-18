@@ -3,6 +3,7 @@ import JSZip from "jszip"
 import Papa from "papaparse"
 import { createClient } from "@/lib/supabase/server"
 import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
+import { CONFIRMED_PURCHASE_STATUS } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -396,7 +397,9 @@ export async function POST(request: NextRequest) {
         order_date: asNullableString(row.order_date),
         total_amount: asNumber(row.total_amount, 0),
         shipping_fee: row.shipping_fee === null || row.shipping_fee === undefined ? null : asNumber(row.shipping_fee, 0),
-        status: asNullableString(row.status) || "pending",
+        status: String(asNullableString(row.status) || "").trim().toLowerCase() === "cancelled"
+          ? "cancelled"
+          : CONFIRMED_PURCHASE_STATUS,
         is_paid: row.is_paid === null || row.is_paid === undefined ? null : Boolean(row.is_paid),
         notes: asNullableString(row.notes),
       }))

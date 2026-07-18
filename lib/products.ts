@@ -1,4 +1,5 @@
 import type { Product as ProductType } from "@/lib/types"
+import { isCompletedPurchaseStatus } from "@/lib/purchase-status"
 
 export type ProductListRow = Pick<
   ProductType,
@@ -287,11 +288,11 @@ export async function fetchProductProfitAnalysisByCode(
   }
 
   const purchaseOrderIds = Array.from(new Set(purchaseItems.map((r) => String(r.purchase_order_id || "")).filter(Boolean)))
-  type PurchaseOrderRow = { id: string; order_date: string; shipping_fee: number; total_amount?: number }
+  type PurchaseOrderRow = { id: string; order_date: string; shipping_fee: number; total_amount?: number; status: string }
   const purchaseOrders: PurchaseOrderRow[] = []
   try {
     const promisedOrders = chunkArray(purchaseOrderIds, IN_FILTER_CHUNK_SIZE).map((chunk) =>
-      fetchAllRows(supabase, "purchase_orders", "id,order_date,shipping_fee,total_amount", {
+      fetchAllRows(supabase, "purchase_orders", "id,order_date,shipping_fee,total_amount,status", {
         inColumn: "id",
         inValues: chunk,
         pageSize: 1000,
@@ -323,7 +324,7 @@ export async function fetchProductProfitAnalysisByCode(
     if (!code || !codeSet.has(code)) continue
     const orderId = String(row.purchase_order_id || "")
     const order = purchaseOrderMap.get(orderId)
-    if (!order) continue
+    if (!order || !isCompletedPurchaseStatus(order.status)) continue
     const qty = toNumber(row.quantity)
     if (qty <= 0) continue
     const sub = toNumber(row.subtotal)

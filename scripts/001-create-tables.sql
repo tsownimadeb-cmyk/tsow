@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
   order_date DATE DEFAULT CURRENT_DATE,
   total_amount DECIMAL(12, 2) DEFAULT 0,
-  status VARCHAR(20) DEFAULT 'pending',
+  status VARCHAR(20) DEFAULT 'completed',
   is_paid BOOLEAN DEFAULT false,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
