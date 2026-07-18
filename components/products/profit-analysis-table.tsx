@@ -108,6 +108,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
     }
 
     base.sort((a, b) => {
+      if (a.fifo_cost_complete !== b.fifo_cost_complete) {
+        return a.fifo_cost_complete ? -1 : 1
+      }
       const aVal = Number(a[sortKey] || 0)
       const bVal = Number(b[sortKey] || 0)
       return sortDir === "desc" ? bVal - aVal : aVal - bVal
@@ -117,7 +120,12 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
   }, [products, searchText, selectedSupplierId, supplierMap, sortKey, sortDir])
 
   const stats = useMemo(() => {
-    const soldProducts = filteredProducts.filter((product) => Number(product.sales_qty_total || 0) > 0)
+    const incompleteProducts = filteredProducts.filter(
+      (product) => Number(product.sales_qty_total || 0) > 0 && !product.fifo_cost_complete,
+    )
+    const soldProducts = filteredProducts.filter(
+      (product) => Number(product.sales_qty_total || 0) > 0 && product.fifo_cost_complete,
+    )
     const totalCashGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.cash_gross_profit || 0), 0)
     const totalGrossProfit = soldProducts.reduce((sum, product) => sum + Number(product.gross_profit || 0), 0)
     const totalCashReceived = soldProducts.reduce((sum, product) => sum + Number(product.cash_received_total || 0), 0)
@@ -133,6 +141,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
       totalCashReceived,
       totalSalesAmount,
       topProduct,
+      incompleteProducts,
     }
   }, [filteredProducts])
 
@@ -150,6 +159,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
 
   return (
     <div className="space-y-4 max-w-full">
+      {stats.incompleteProducts.length > 0 ? (
+        <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800">
+          有 {stats.incompleteProducts.length} 個商品的 FIFO 成本仍待補，這些商品暫不納入毛利合計，避免把未知成本當成 0 元。
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
@@ -277,6 +291,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
               </TableRow>
             ) : (
               filteredProducts.map((product) => {
+                const fifoCostComplete = product.fifo_cost_complete
                 const grossProfit = Number(product.gross_profit || 0)
                 const grossMargin = Number(product.gross_margin || 0)
                 const cashGrossProfit = Number(product.cash_gross_profit || 0)
@@ -295,9 +310,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                 const isGoldenProduct = cashGrossMargin > 0.2
                 const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
                 const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-                const rowStatusLabel = isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
-                const rowStatusClassName = isGoldenProduct
-                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                const rowStatusLabel = !fifoCostComplete ? "成本待補" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+                const rowStatusClassName = !fifoCostComplete
+                  ? "bg-violet-100 text-violet-700 border-violet-200"
+                  : isGoldenProduct
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
                   : isReceivableRisk
                     ? "bg-amber-100 text-amber-700 border-amber-200"
                     : isLowOrNegativeMargin
@@ -329,17 +346,17 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                       <TableCell className="text-right text-blue-600">{formatCurrency(cashReceived)}</TableCell>
                       <TableCell className="text-right text-slate-700">{formatCurrency(salesAmount)}</TableCell>
                       <TableCell className="text-right">
-                        <span className={cashGrossProfit >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-red-600"}>
-                          {formatCurrency(cashGrossProfit)}
+                        <span className={fifoCostComplete ? (cashGrossProfit >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-red-600") : "font-semibold text-violet-700"}>
+                          {fifoCostComplete ? formatCurrency(cashGrossProfit) : "待補成本"}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className={grossProfit >= 0 ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>
-                          {formatCurrency(grossProfit)}
+                        <span className={fifoCostComplete ? (grossProfit >= 0 ? "font-semibold text-emerald-700" : "font-semibold text-red-600") : "font-semibold text-violet-700"}>
+                          {fifoCostComplete ? formatCurrency(grossProfit) : "待補成本"}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-col items-end gap-1">
+                        {fifoCostComplete ? <div className="flex flex-col items-end gap-1">
                           <span className={`font-semibold ${marginTheme.text}`}>{formatPercent(cashGrossMargin)}</span>
                           <div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200">
                             <div
@@ -347,7 +364,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                               style={{ width: `${Math.max(0, Math.min(100, cashGrossMargin * 100))}%` }}
                             />
                           </div>
-                        </div>
+                        </div> : <span className="font-semibold text-violet-700">—</span>}
                       </TableCell>
                     </TableRow>
                     {isExpanded ? (
@@ -377,25 +394,29 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">銷貨成本（FIFO）</p>
-                              <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
-                              <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
+                              <p className={`mt-1 text-right font-semibold ${fifoCostComplete ? "text-slate-700" : "text-violet-700"}`}>
+                                {fifoCostComplete ? formatCurrency(product.cogs_total) : "尚有成本待補"}
+                              </p>
+                              {!fifoCostComplete && product.fifo_unknown_qty > 0 ? (
+                                <p className="mt-1 text-right text-[10px] text-violet-600">成本不明 {formatAmount(product.fifo_unknown_qty)} 包</p>
+                              ) : null}
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">實收現金毛利</p>
                               <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                                {formatCurrency(cashGrossProfit)}
+                                {fifoCostComplete ? formatCurrency(cashGrossProfit) : "—"}
                               </p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">應收現金毛利</p>
                               <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                                {formatCurrency(grossProfit)}
+                                {fifoCostComplete ? formatCurrency(grossProfit) : "—"}
                               </p>
                             </div>
                             <div className="rounded-md border border-slate-200 bg-white p-3">
                               <p className="text-xs text-slate-500">應收毛利率</p>
                               <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>
-                                {formatPercent(grossMargin)}
+                                {fifoCostComplete ? formatPercent(grossMargin) : "—"}
                               </p>
                             </div>
                           </div>
@@ -415,6 +436,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
           <div className="rounded-md border bg-white py-8 text-center text-sm text-gray-400">查無符合的商品，請調整搜尋條件。</div>
         ) : (
           filteredProducts.map((product) => {
+            const fifoCostComplete = product.fifo_cost_complete
             const grossProfit = Number(product.gross_profit || 0)
             const grossMargin = Number(product.gross_margin || 0)
             const cashGrossProfit = Number(product.cash_gross_profit || 0)
@@ -433,9 +455,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             const isGoldenProduct = cashGrossMargin > 0.2
             const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
             const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-            const cardStatusLabel = isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
-            const cardStatusClassName = isGoldenProduct
-              ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+            const cardStatusLabel = !fifoCostComplete ? "成本待補" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+            const cardStatusClassName = !fifoCostComplete
+              ? "bg-violet-100 text-violet-700 border-violet-200"
+              : isGoldenProduct
+                ? "bg-emerald-100 text-emerald-700 border-emerald-200"
               : isReceivableRisk
                 ? "bg-amber-100 text-amber-700 border-amber-200"
                 : isLowOrNegativeMargin
@@ -470,17 +494,21 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                   </div>
                   <div className="mt-2 flex justify-between text-sm">
                     <span className="text-gray-500">實收現金毛利</span>
-                    <span className="text-right font-semibold text-emerald-600">{formatCurrency(cashGrossProfit)}</span>
+                    <span className={fifoCostComplete ? "text-right font-semibold text-emerald-600" : "text-right font-semibold text-violet-700"}>
+                      {fifoCostComplete ? formatCurrency(cashGrossProfit) : "待補成本"}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">應收現金毛利</span>
                     <span className={`text-right font-semibold ${grossProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>
-                      {formatCurrency(grossProfit)}
+                      {fifoCostComplete ? formatCurrency(grossProfit) : "待補成本"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">實收毛利率</span>
-                    <span className={`font-semibold ${marginTheme.text}`}>{formatPercent(cashGrossMargin)}</span>
+                    <span className={`font-semibold ${fifoCostComplete ? marginTheme.text : "text-violet-700"}`}>
+                      {fifoCostComplete ? formatPercent(cashGrossMargin) : "—"}
+                    </span>
                   </div>
                   <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                     <div
@@ -520,25 +548,29 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">銷貨成本（FIFO）</p>
-                        <p className="mt-1 text-right font-semibold text-slate-700">{formatCurrency(product.cogs_total)}</p>
-                        <p className="mt-1 text-right text-[10px] text-slate-400">原 FIFO 成本 {formatCurrency(product.fifo_cogs_total)}</p>
+                        <p className={`mt-1 text-right font-semibold ${fifoCostComplete ? "text-slate-700" : "text-violet-700"}`}>
+                          {fifoCostComplete ? formatCurrency(product.cogs_total) : "尚有成本待補"}
+                        </p>
+                        {!fifoCostComplete && product.fifo_unknown_qty > 0 ? (
+                          <p className="mt-1 text-right text-[10px] text-violet-600">成本不明 {formatAmount(product.fifo_unknown_qty)} 包</p>
+                        ) : null}
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">實收現金毛利</p>
                         <p className={`mt-1 text-right font-semibold ${cashGrossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {formatCurrency(cashGrossProfit)}
+                          {fifoCostComplete ? formatCurrency(cashGrossProfit) : "—"}
                         </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">應收現金毛利</p>
                         <p className={`mt-1 text-right font-semibold ${grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {formatCurrency(grossProfit)}
+                          {fifoCostComplete ? formatCurrency(grossProfit) : "—"}
                         </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-white p-3">
                         <p className="text-xs text-slate-500">應收毛利率</p>
                         <p className={`mt-1 text-right font-semibold ${getMarginTheme(grossMargin).text}`}>
-                          {formatPercent(grossMargin)}
+                          {fifoCostComplete ? formatPercent(grossMargin) : "—"}
                         </p>
                       </div>
                     </div>
