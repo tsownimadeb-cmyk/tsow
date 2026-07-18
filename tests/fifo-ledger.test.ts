@@ -68,4 +68,30 @@ describe("FIFO ledger", () => {
 
     expect(result.get("opening-sale")).toEqual({ cogs: 60_480, unknownQty: 0 })
   })
+
+  it("restores a sales return at the original sale FIFO cost", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-04-01", quantity: 10, unitCost: 500 }],
+      sales: [
+        { id: "original", orderedAt: "2026-04-08", quantity: 10 },
+        { id: "resold", orderedAt: "2026-05-06", quantity: 3 },
+      ],
+      returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
+    })
+
+    expect(result.get("returned")).toEqual({ cogs: 1_500, unknownQty: 0 })
+    expect(result.get("resold")).toEqual({ cogs: 1_500, unknownQty: 0 })
+  })
+
+  it("keeps a return unresolved when the original sale cost was incomplete", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [],
+      sales: [{ id: "original", orderedAt: "2026-04-08", quantity: 3 }],
+      returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
+    })
+
+    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 3 })
+  })
 })

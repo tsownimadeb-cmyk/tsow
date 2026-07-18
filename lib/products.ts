@@ -1,6 +1,6 @@
 import type { Product as ProductType } from "@/lib/types"
 import { isCompletedPurchaseStatus } from "@/lib/purchase-status"
-import { calculateFifoSaleCosts, type FifoPurchase, type FifoSale } from "@/lib/fifo-ledger"
+import { calculateFifoSaleCosts, type FifoPurchase, type FifoReturn, type FifoSale } from "@/lib/fifo-ledger"
 
 export type ProductListRow = Pick<
   ProductType,
@@ -406,6 +406,11 @@ export async function fetchProductProfitAnalysisByCode(
 
   // Sort chronologically so FIFO depletion happens in the right order
   activeSalesItems.sort((a, b) => a.order_date.localeCompare(b.order_date))
+  const saleEventIdByOrderAndCode = new Map<string, string>()
+  for (const row of activeSalesItems) {
+    const key = `${String(row.sales_order_id || "")}::${normalizeCode(row.code)}`
+    if (!saleEventIdByOrderAndCode.has(key)) saleEventIdByOrderAndCode.set(key, row.fifo_event_id)
+  }
 
   // Use a confirmed opening FIFO balance when available. Otherwise infer the
   // quantity that existed before transaction history began and leave its cost
@@ -413,6 +418,16 @@ export async function fetchProductProfitAnalysisByCode(
   const stockQtyByCode = new Map<string, number>()
   const openingBalanceByCode = new Map<string, { quantity: number; unitCost: number }>()
   const movementHistoryUncertainCodes = new Set<string>()
+  type SalesReturnItemWithDate = {
+    fifo_event_id: string
+    original_sale_event_id: string
+    product_code: string
+    quantity: number
+    unit_price: number
+    amount: number
+    return_date: string
+  }
+  const activeSalesReturnItems: SalesReturnItemWithDate[] = []
   try {
     const stockRows = await fetchAllRows(supabase, "products", "code,stock_qty", {
       inColumn: "code",
@@ -425,17 +440,20 @@ export async function fetchProductProfitAnalysisByCode(
       if (code) stockQtyByCode.set(code, toNumber(row.stock_qty))
     }
 
-    const [openingBalances, adjustments, purchaseReturnItems, salesReturnItems] = await Promise.all([
+    const [openingBalances, adjustments, purchaseReturnItems, salesReturns, salesReturnItems] = await Promise.all([
       fetchAllRows(supabase, "fifo_opening_balances", "product_code,quantity,unit_cost", {
         pageSize: 1000,
       }),
-      fetchAllRows(supabase, "stock_adjustments", "product_code", {
+      fetchAllRows(supabase, "stock_adjustments", "id,product_code,adjustment_qty,fifo_resolution,fifo_unit_cost", {
         pageSize: 1000,
       }),
       fetchAllRows(supabase, "purchase_return_items", "product_code,product_id", {
         pageSize: 1000,
       }),
-      fetchAllRows(supabase, "sales_return_items", "product_code,product_id", {
+      fetchAllRows(supabase, "sales_returns", "id,sales_order_id,return_date", {
+        pageSize: 1000,
+      }),
+      fetchAllRows(supabase, "sales_return_items", "id,sales_return_id,product_code,product_id,quantity,unit_price,amount", {
         pageSize: 1000,
       }),
     ])
@@ -449,11 +467,38 @@ export async function fetchProductProfitAnalysisByCode(
 
     for (const row of adjustments) {
       const code = normalizeCode(row.product_code)
-      if (codeSet.has(code)) movementHistoryUncertainCodes.add(code)
+      const isResolvedOpening =
+        String(row.fifo_resolution || "") === "opening_balance" &&
+        toNumber(row.adjustment_qty) > 0 &&
+        toNumber(row.fifo_unit_cost) > 0 &&
+        openingBalanceByCode.has(code)
+      if (codeSet.has(code) && !isResolvedOpening) movementHistoryUncertainCodes.add(code)
     }
-    for (const row of [...purchaseReturnItems, ...salesReturnItems]) {
+    for (const row of purchaseReturnItems) {
       const code = normalizeCode(row.product_code || row.product_id)
       if (codeSet.has(code)) movementHistoryUncertainCodes.add(code)
+    }
+
+    const salesReturnMap = new Map(salesReturns.map((row) => [String(row.id || ""), row]))
+    for (const row of salesReturnItems) {
+      const code = normalizeCode(row.product_code || row.product_id)
+      if (!code || !codeSet.has(code)) continue
+      const header = salesReturnMap.get(String(row.sales_return_id || ""))
+      const originalSaleEventId = saleEventIdByOrderAndCode.get(`${String(header?.sales_order_id || "")}::${code}`)
+      const quantity = toNumber(row.quantity)
+      if (!header || !originalSaleEventId || quantity <= 0) {
+        movementHistoryUncertainCodes.add(code)
+        continue
+      }
+      activeSalesReturnItems.push({
+        fifo_event_id: `sales-return:${String(row.id || "")}`,
+        original_sale_event_id: originalSaleEventId,
+        product_code: code,
+        quantity,
+        unit_price: toNumber(row.unit_price),
+        amount: toNumber(row.amount),
+        return_date: String(header.return_date || ""),
+      })
     }
   } catch (err: any) {
     for (const code of normalizedCodes) movementHistoryUncertainCodes.add(code)
@@ -466,7 +511,9 @@ export async function fetchProductProfitAnalysisByCode(
   }
 
   const totalSalesQtyByCode = new Map<string, number>()
+  const totalSalesReturnQtyByCode = new Map<string, number>()
   const salesEventsByCode = new Map<string, FifoSale[]>()
+  const salesReturnEventsByCode = new Map<string, FifoReturn[]>()
   for (const row of activeSalesItems) {
     const code = normalizeCode(row.code)
     const qty = toNumber(row.quantity)
@@ -476,13 +523,31 @@ export async function fetchProductProfitAnalysisByCode(
     events.push({ id: row.fifo_event_id, orderedAt: row.order_date, quantity: qty })
     salesEventsByCode.set(code, events)
   }
+  for (const row of activeSalesReturnItems) {
+    const code = normalizeCode(row.product_code)
+    totalSalesReturnQtyByCode.set(code, (totalSalesReturnQtyByCode.get(code) || 0) + row.quantity)
+    const events = salesReturnEventsByCode.get(code) ?? []
+    events.push({
+      id: row.fifo_event_id,
+      originalSaleId: row.original_sale_event_id,
+      orderedAt: row.return_date,
+      quantity: row.quantity,
+    })
+    salesReturnEventsByCode.set(code, events)
+  }
 
   const fifoCostByEventId = new Map<string, { cogs: number; unknownQty: number }>()
   for (const code of normalizedCodes) {
     const canInferOpening = !movementHistoryUncertainCodes.has(code) && stockQtyByCode.has(code)
     const confirmedOpening = openingBalanceByCode.get(code)
     const inferredOpeningQty = canInferOpening
-      ? Math.max(0, toNumber(stockQtyByCode.get(code)) + toNumber(totalSalesQtyByCode.get(code)) - toNumber(totalPurchasedQtyByCode.get(code)))
+      ? Math.max(
+          0,
+          toNumber(stockQtyByCode.get(code)) +
+            toNumber(totalSalesQtyByCode.get(code)) -
+            toNumber(totalPurchasedQtyByCode.get(code)) -
+            toNumber(totalSalesReturnQtyByCode.get(code)),
+        )
       : 0
     const openingQty = confirmedOpening?.quantity ?? inferredOpeningQty
     const costs = calculateFifoSaleCosts({
@@ -490,6 +555,7 @@ export async function fetchProductProfitAnalysisByCode(
       openingUnitCost: confirmedOpening?.unitCost ?? null,
       purchases: purchaseBatchesByCode.get(code) ?? [],
       sales: salesEventsByCode.get(code) ?? [],
+      returns: salesReturnEventsByCode.get(code) ?? [],
     })
     for (const [eventId, cost] of costs.entries()) fifoCostByEventId.set(eventId, cost)
   }
@@ -537,6 +603,28 @@ export async function fetchProductProfitAnalysisByCode(
     const trackedByCode = trackedByOrderAndCode.get(salesOrderId) ?? new Map<string, number>()
     trackedByCode.set(code, (trackedByCode.get(code) || 0) + salesAmt)
     trackedByOrderAndCode.set(salesOrderId, trackedByCode)
+  }
+
+  for (const row of activeSalesReturnItems) {
+    const code = normalizeCode(row.product_code)
+    if (!code || !isInPeriod(row.return_date)) continue
+    const returnAmount = row.amount > 0 ? row.amount : row.quantity * row.unit_price
+    const fifoCost = fifoCostByEventId.get(row.fifo_event_id) ?? { cogs: 0, unknownQty: row.quantity }
+    const current = summaryByCode.get(code) ?? {
+      sales_qty_total: 0,
+      sales_amount_total: 0,
+      cash_received_total: 0,
+      fifo_cogs_total: 0,
+      fifo_unknown_qty: 0,
+      fifo_cost_complete: !movementHistoryUncertainCodes.has(code),
+      latest_purchase_price: latestPurchasePriceByCode.get(code) ?? 0,
+    }
+    current.sales_qty_total -= row.quantity
+    current.sales_amount_total -= returnAmount
+    current.fifo_cogs_total -= fifoCost.cogs
+    current.fifo_unknown_qty += fifoCost.unknownQty
+    current.fifo_cost_complete = current.fifo_cost_complete && fifoCost.unknownQty <= 0
+    summaryByCode.set(code, current)
   }
 
   // ── Step 4: Cash collection ratio → cash_received_total ──────────────────────
