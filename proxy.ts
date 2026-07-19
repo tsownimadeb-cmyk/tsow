@@ -34,8 +34,8 @@ export async function proxy(request: NextRequest) {
     const refreshResponse = NextResponse.next({ request: { headers: request.headers } })
     try {
       const supabase = createRouteClient(request, refreshResponse)
-      const { data, error } = await supabase.auth.getUser()
-      if (error || !data.user) return NextResponse.next()
+      const { data, error } = await supabase.auth.getClaims()
+      if (error || !data?.claims?.sub) return NextResponse.next()
 
       const redirect = NextResponse.redirect(new URL("/", request.url))
       refreshResponse.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
@@ -51,8 +51,8 @@ export async function proxy(request: NextRequest) {
   const response = NextResponse.next({ request: { headers: request.headers } })
   try {
     const supabase = createRouteClient(request, response)
-    const { data, error } = await supabase.auth.getUser()
-    if (error || !data.user) return unauthorized(request)
+    const { data, error } = await supabase.auth.getClaims()
+    if (error || !data?.claims?.sub) return unauthorized(request)
   } catch {
     return unauthorized(request)
   }

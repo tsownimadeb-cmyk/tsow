@@ -61,6 +61,7 @@ export default function WelcomePage() {
           <Link
             key={item.href}
             href={item.href}
+            prefetch={false}
             className="group rounded-xl border border-border bg-card p-5 transition-colors hover:bg-accent/60"
           >
             <div className="mb-4 inline-flex rounded-lg border border-border bg-background p-2">

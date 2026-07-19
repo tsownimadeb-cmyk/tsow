@@ -75,18 +75,6 @@ const AP_CHECK_STATUS_TAG = "[AP_CHECK_STATUS]"
 const AR_CHECK_LINKED_TAG = "[AR_CHECK_LINKED]"
 const AR_CHECK_STATUS_TAG = "[AR_CHECK_STATUS]"
 
-const PREFETCH_PATHS = [
-  "/products",
-  "/products/profit-analysis",
-  "/purchases",
-  "/sales",
-  "/inventory-audit",
-  "/customers",
-  "/suppliers",
-  "/accounts-receivable",
-  "/accounts-payable",
-]
-
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
@@ -153,28 +141,6 @@ export function Sidebar() {
   useEffect(() => {
     void loadDueCheckCount()
   }, [])
-
-  useEffect(() => {
-    const browserWindow = window as unknown as Pick<Window, "setTimeout" | "clearTimeout"> & {
-      requestIdleCallback?: (callback: IdleRequestCallback) => number
-      cancelIdleCallback?: (handle: number) => void
-    }
-    const requestIdle = browserWindow.requestIdleCallback?.bind(window)
-    const cancelIdle = browserWindow.cancelIdleCallback?.bind(window)
-    const prefetch = () => {
-      PREFETCH_PATHS.forEach((href) => {
-        void router.prefetch(href)
-      })
-    }
-
-    if (requestIdle && cancelIdle) {
-      const handle = requestIdle(prefetch)
-      return () => cancelIdle(handle)
-    }
-
-    const handle = browserWindow.setTimeout(prefetch, 150)
-    return () => browserWindow.clearTimeout(handle)
-  }, [router])
 
   useEffect(() => {
     setLocalOnlyMode(isLocalOnlyMode())
@@ -643,6 +609,7 @@ export function Sidebar() {
         <Link
           key={item.name}
           href={item.href}
+          prefetch={false}
           onMouseEnter={() => handleLinkPrefetch(item.href)}
           onFocus={() => handleLinkPrefetch(item.href)}
           onClick={() => { if (isMobile) setCollapsed(true) }}
