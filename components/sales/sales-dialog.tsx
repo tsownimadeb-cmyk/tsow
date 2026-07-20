@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast"
 import { formatCurrencyOneDecimal } from "@/lib/utils"
 import type { Customer, Product, SalesOrder } from "@/lib/types"
 import { isMissingAtomicOrderRpc, SALES_ORDER_ATOMIC_RPC } from "@/lib/order-atomic-rpc"
+import { getSalesOrderNumberBase, suggestNextSalesOrderNumber } from "@/lib/sales-order-number-series"
 
 interface SalesDialogProps {
   customers: Customer[]
@@ -292,6 +293,32 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
     })
   }
 
+  const findNextSalesOrderNumber = async (
+    supabase: ReturnType<typeof createClient>,
+    requestedOrderNumber: string,
+  ) => {
+    const base = getSalesOrderNumberBase(requestedOrderNumber)
+    if (!base) {
+      throw new Error("無法判斷銷貨單號的續號")
+    }
+
+    const escapedBase = base.replace(/[\\%_]/g, "\\$&")
+    const { data, error } = await supabase
+      .from("sales_orders")
+      .select("order_no")
+      .like("order_no", `${escapedBase}%`)
+      .limit(1000)
+
+    if (error) {
+      throw new Error(error.message || "無法查詢銷貨單號的下一個續號")
+    }
+
+    return suggestNextSalesOrderNumber(
+      requestedOrderNumber,
+      (data || []).map((row) => String(row.order_no || "")),
+    )
+  }
+
   const syncAccountsReceivable = async (
     salesOrderId: string,
     customerCno: string | null,
@@ -467,7 +494,8 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
         }
 
         let shouldUseLegacyFlow = false
-        for (let retry = 0; retry < 3; retry += 1) {
+        let confirmedAutomaticSuffix = false
+        for (let retry = 0; retry < 5; retry += 1) {
           const atomicResult = await supabase.rpc(SALES_ORDER_ATOMIC_RPC, {
             p_order_id: atomicSaleId,
             p_order_no: atomicOrderNo,
@@ -511,13 +539,32 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             break
           }
 
-          const shouldRetryOrderNo =
-            mode === "create" &&
-            !formData.order_no.trim() &&
-            isUniqueViolationError(atomicResult.error)
+          const isDuplicateCreateOrderNumber = mode === "create" && isUniqueViolationError(atomicResult.error)
 
-          if (shouldRetryOrderNo) {
+          if (isDuplicateCreateOrderNumber && !formData.order_no.trim()) {
             atomicOrderNo = generateOrderNumber()
+            continue
+          }
+
+          if (isDuplicateCreateOrderNumber) {
+            const requestedOrderNumber = atomicOrderNo
+            const suggestedOrderNumber = await findNextSalesOrderNumber(supabase, requestedOrderNumber)
+
+            if (!suggestedOrderNumber) {
+              throw new Error("無法產生銷貨單號的下一個續號")
+            }
+
+            if (!confirmedAutomaticSuffix) {
+              const accepted = window.confirm(
+                `銷貨單號 ${requestedOrderNumber} 已存在。\n\n系統建議改用 ${suggestedOrderNumber}。\n按「確定」後會保留目前內容，並直接建立銷貨單。`,
+              )
+
+              if (!accepted) return
+              confirmedAutomaticSuffix = true
+            }
+
+            atomicOrderNo = suggestedOrderNumber
+            setFormData((current) => ({ ...current, order_no: suggestedOrderNumber }))
             continue
           }
 
@@ -643,10 +690,11 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
         let finalOrderNumber = formData.order_no.trim() || generateOrderNumber()
         let order: any = null
         let orderError: unknown = null
+        let confirmedLegacyAutomaticSuffix = false
         const customerCno = resolveCustomerCno(formData.customer_cno)
         const notesForSave = resolveNotesForSave(formData.notes, formData.customer_cno)
 
-        for (let retry = 0; retry < 3; retry += 1) {
+        for (let retry = 0; retry < 5; retry += 1) {
           const result = await supabase
             .from("sales_orders")
             .insert({
@@ -669,15 +717,29 @@ export function SalesDialog({ customers, products, mode, sales, children, open, 
             break
           }
 
-          const shouldRetryWithNewOrderNo =
-            !formData.order_no.trim() &&
-            isUniqueViolationError(orderError)
-
-          if (!shouldRetryWithNewOrderNo) {
+          if (!isUniqueViolationError(orderError)) {
             break
           }
 
-          finalOrderNumber = generateOrderNumber()
+          if (!formData.order_no.trim()) {
+            finalOrderNumber = generateOrderNumber()
+            continue
+          }
+
+          const requestedOrderNumber = finalOrderNumber
+          const suggestedOrderNumber = await findNextSalesOrderNumber(supabase, requestedOrderNumber)
+          if (!suggestedOrderNumber) break
+
+          if (!confirmedLegacyAutomaticSuffix) {
+            const accepted = window.confirm(
+              `銷貨單號 ${requestedOrderNumber} 已存在。\n\n系統建議改用 ${suggestedOrderNumber}。\n按「確定」後會保留目前內容，並直接建立銷貨單。`,
+            )
+            if (!accepted) return
+            confirmedLegacyAutomaticSuffix = true
+          }
+
+          finalOrderNumber = suggestedOrderNumber
+          setFormData((current) => ({ ...current, order_no: suggestedOrderNumber }))
         }
 
         if (orderError || !order) {
