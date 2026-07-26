@@ -99,4 +99,18 @@ describe("FIFO ledger", () => {
 
     expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 3 })
   })
+
+  it("treats a dated inventory increase as a FIFO batch from that date", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-07-26", quantity: 7, unitCost: 360 }],
+      sales: [
+        { id: "before-adjustment", orderedAt: "2026-07-25", quantity: 1 },
+        { id: "after-adjustment", orderedAt: "2026-07-27", quantity: 2 },
+      ],
+    })
+
+    expect(result.get("before-adjustment")).toEqual({ cogs: 0, unknownQty: 1 })
+    expect(result.get("after-adjustment")).toEqual({ cogs: 720, unknownQty: 0 })
+  })
 })

@@ -477,7 +477,7 @@ export async function fetchProductProfitAnalysisByCode(
       fetchAllRows(supabase, "fifo_opening_balances", "product_code,quantity,unit_cost", {
         pageSize: 1000,
       }),
-      fetchAllRows(supabase, "stock_adjustments", "id,product_code,adjustment_qty,fifo_resolution,fifo_unit_cost", {
+      fetchAllRows(supabase, "stock_adjustments", "id,product_code,adjustment_qty,created_at,fifo_resolution,fifo_unit_cost", {
         pageSize: 1000,
       }),
       fetchAllRows(supabase, "purchase_return_items", "product_code,product_id", {
@@ -500,12 +500,34 @@ export async function fetchProductProfitAnalysisByCode(
 
     for (const row of adjustments) {
       const code = normalizeCode(row.product_code)
+      const adjustmentQty = toNumber(row.adjustment_qty)
+      const adjustmentUnitCost = toNumber(row.fifo_unit_cost)
+      const fifoResolution = String(row.fifo_resolution || "")
       const isResolvedOpening =
-        String(row.fifo_resolution || "") === "opening_balance" &&
-        toNumber(row.adjustment_qty) > 0 &&
-        toNumber(row.fifo_unit_cost) > 0 &&
+        fifoResolution === "opening_balance" &&
+        adjustmentQty > 0 &&
+        adjustmentUnitCost > 0 &&
         openingBalanceByCode.has(code)
-      if (codeSet.has(code) && !isResolvedOpening) movementHistoryUncertainCodes.add(code)
+      const isResolvedDatedIncrease =
+        fifoResolution === "dated_increase" &&
+        adjustmentQty > 0 &&
+        adjustmentUnitCost > 0 &&
+        Boolean(String(row.created_at || "").trim())
+
+      if (codeSet.has(code) && isResolvedDatedIncrease) {
+        const batches = purchaseBatchesByCode.get(code) ?? []
+        batches.push({
+          orderedAt: String(row.created_at || "").slice(0, 10),
+          quantity: adjustmentQty,
+          unitCost: adjustmentUnitCost,
+        })
+        purchaseBatchesByCode.set(code, batches)
+      } else if (codeSet.has(code) && !isResolvedOpening) {
+        movementHistoryUncertainCodes.add(code)
+      }
+    }
+    for (const batches of purchaseBatchesByCode.values()) {
+      batches.sort((left, right) => left.orderedAt.localeCompare(right.orderedAt))
     }
     for (const row of purchaseReturnItems) {
       const code = normalizeCode(row.product_code || row.product_id)
