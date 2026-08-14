@@ -110,8 +110,9 @@ export function calculateFifoSaleCosts(input: {
     if (event.type === "return") {
       const returnableQty = positiveNumber(remainingReturnableQty.get(event.originalSaleId))
       const restoredQty = Math.min(event.quantity, returnableQty)
+      const hasKnownSaleCost = completedSaleUnitCost.has(event.originalSaleId)
       const saleUnitCost = completedSaleUnitCost.get(event.originalSaleId) ?? 0
-      const knownQty = saleUnitCost > 0 ? restoredQty : 0
+      const knownQty = hasKnownSaleCost ? restoredQty : 0
       const unknownQty = event.quantity - knownQty
 
       if (knownQty > 0) queue.push({ remainingQty: knownQty, unitCost: saleUnitCost })
@@ -134,7 +135,9 @@ export function calculateFifoSaleCosts(input: {
       }
 
       const used = Math.min(remaining, batch.remainingQty)
-      if (batch.unitCost === null || batch.unitCost <= 0) {
+      // A purchase price of 0 is a valid, confirmed cost for free goods.
+      // Only a missing cost is unresolved.
+      if (batch.unitCost === null) {
         unknownQty += used
       } else {
         cogs += used * batch.unitCost

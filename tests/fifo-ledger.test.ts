@@ -35,6 +35,16 @@ describe("FIFO ledger", () => {
     expect(result.get("sale")).toEqual({ cogs: 57_600, unknownQty: 0 })
   })
 
+  it("treats a zero-cost purchase as a confirmed free-goods batch", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-07-01", quantity: 10, unitCost: 0 }],
+      sales: [{ id: "gift-sale", orderedAt: "2026-07-02", quantity: 10 }],
+    })
+
+    expect(result.get("gift-sale")).toEqual({ cogs: 0, unknownQty: 0 })
+  })
+
   it("does not borrow a future purchase for an earlier sale", () => {
     const result = calculateFifoSaleCosts({
       openingQty: 0,
@@ -87,6 +97,21 @@ describe("FIFO ledger", () => {
 
     expect(result.get("returned")).toEqual({ cogs: 1_500, unknownQty: 0 })
     expect(result.get("resold")).toEqual({ cogs: 1_500, unknownQty: 0 })
+  })
+
+  it("keeps returned free goods at a confirmed zero FIFO cost", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-04-01", quantity: 10, unitCost: 0 }],
+      sales: [
+        { id: "original", orderedAt: "2026-04-08", quantity: 10 },
+        { id: "resold", orderedAt: "2026-05-06", quantity: 3 },
+      ],
+      returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
+    })
+
+    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 0 })
+    expect(result.get("resold")).toEqual({ cogs: 0, unknownQty: 0 })
   })
 
   it("keeps a return unresolved when the original sale cost was incomplete", () => {
