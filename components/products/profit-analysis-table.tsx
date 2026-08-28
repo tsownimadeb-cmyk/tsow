@@ -108,9 +108,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
     }
 
     base.sort((a, b) => {
-      if (a.fifo_cost_complete !== b.fifo_cost_complete) {
-        return a.fifo_cost_complete ? -1 : 1
-      }
+      const costRank = (product: ProductListRowWithProfit) =>
+        !product.fifo_cost_complete ? 2 : Number(product.fifo_provisional_qty || 0) > 0 ? 1 : 0
+      if (costRank(a) !== costRank(b)) return costRank(a) - costRank(b)
       const aVal = Number(a[sortKey] || 0)
       const bVal = Number(b[sortKey] || 0)
       return sortDir === "desc" ? bVal - aVal : aVal - bVal
@@ -122,6 +122,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
   const stats = useMemo(() => {
     const incompleteProducts = filteredProducts.filter(
       (product) => Number(product.sales_qty_total || 0) > 0 && !product.fifo_cost_complete,
+    )
+    const provisionalProducts = filteredProducts.filter(
+      (product) => Number(product.sales_qty_total || 0) > 0 && product.fifo_cost_complete && Number(product.fifo_provisional_qty || 0) > 0,
     )
     const soldProducts = filteredProducts.filter(
       (product) => Number(product.sales_qty_total || 0) > 0 && product.fifo_cost_complete,
@@ -142,6 +145,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
       totalSalesAmount,
       topProduct,
       incompleteProducts,
+      provisionalProducts,
     }
   }, [filteredProducts])
 
@@ -162,6 +166,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
       {stats.incompleteProducts.length > 0 ? (
         <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800">
           有 {stats.incompleteProducts.length} 個商品的 FIFO 成本仍待補，這些商品暫不納入毛利合計，避免把未知成本當成 0 元。
+        </div>
+      ) : null}
+      {stats.provisionalProducts.length > 0 ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          有 {stats.provisionalProducts.length} 個商品使用負庫存暫估成本，已納入毛利合計；補登進貨後會自動依實際 FIFO 成本重算。
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -292,6 +301,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             ) : (
               filteredProducts.map((product) => {
                 const fifoCostComplete = product.fifo_cost_complete
+                const fifoCostProvisional = fifoCostComplete && Number(product.fifo_provisional_qty || 0) > 0
                 const grossProfit = Number(product.gross_profit || 0)
                 const grossMargin = Number(product.gross_margin || 0)
                 const cashGrossProfit = Number(product.cash_gross_profit || 0)
@@ -310,9 +320,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                 const isGoldenProduct = cashGrossMargin > 0.2
                 const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
                 const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-                const rowStatusLabel = !fifoCostComplete ? "成本待補" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+                const rowStatusLabel = !fifoCostComplete ? "成本待補" : fifoCostProvisional ? "成本暫估" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
                 const rowStatusClassName = !fifoCostComplete
                   ? "bg-violet-100 text-violet-700 border-violet-200"
+                  : fifoCostProvisional
+                    ? "bg-amber-100 text-amber-700 border-amber-200"
                   : isGoldenProduct
                     ? "bg-emerald-100 text-emerald-700 border-emerald-200"
                   : isReceivableRisk
@@ -397,6 +409,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                               <p className={`mt-1 text-right font-semibold ${fifoCostComplete ? "text-slate-700" : "text-violet-700"}`}>
                                 {fifoCostComplete ? formatCurrency(product.cogs_total) : "尚有成本待補"}
                               </p>
+                              {fifoCostProvisional ? (
+                                <p className="mt-1 text-right text-[10px] text-amber-600">暫估 {formatAmount(product.fifo_provisional_qty)} 包，補登進貨後自動重算</p>
+                              ) : null}
                               {!fifoCostComplete && product.fifo_unknown_qty > 0 ? (
                                 <p className="mt-1 text-right text-[10px] text-violet-600">成本不明 {formatAmount(product.fifo_unknown_qty)} 包</p>
                               ) : null}
@@ -437,6 +452,7 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
         ) : (
           filteredProducts.map((product) => {
             const fifoCostComplete = product.fifo_cost_complete
+            const fifoCostProvisional = fifoCostComplete && Number(product.fifo_provisional_qty || 0) > 0
             const grossProfit = Number(product.gross_profit || 0)
             const grossMargin = Number(product.gross_margin || 0)
             const cashGrossProfit = Number(product.cash_gross_profit || 0)
@@ -455,9 +471,11 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
             const isGoldenProduct = cashGrossMargin > 0.2
             const isReceivableRisk = grossMargin >= 0.2 && cashCollectionRatio < 0.5
             const isLowOrNegativeMargin = grossMargin <= 0.08 || grossMargin < 0 || cashGrossMargin < 0
-            const cardStatusLabel = !fifoCostComplete ? "成本待補" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
+            const cardStatusLabel = !fifoCostComplete ? "成本待補" : fifoCostProvisional ? "成本暫估" : isGoldenProduct ? "金雞母" : isReceivableRisk ? "欠款風險" : isLowOrNegativeMargin ? "低毛利" : "一般"
             const cardStatusClassName = !fifoCostComplete
               ? "bg-violet-100 text-violet-700 border-violet-200"
+              : fifoCostProvisional
+                ? "bg-amber-100 text-amber-700 border-amber-200"
               : isGoldenProduct
                 ? "bg-emerald-100 text-emerald-700 border-emerald-200"
               : isReceivableRisk
@@ -551,6 +569,9 @@ export function ProfitAnalysisTable({ products, suppliers }: ProfitAnalysisTable
                         <p className={`mt-1 text-right font-semibold ${fifoCostComplete ? "text-slate-700" : "text-violet-700"}`}>
                           {fifoCostComplete ? formatCurrency(product.cogs_total) : "尚有成本待補"}
                         </p>
+                        {fifoCostProvisional ? (
+                          <p className="mt-1 text-right text-[10px] text-amber-600">暫估 {formatAmount(product.fifo_provisional_qty)} 包，補登進貨後自動重算</p>
+                        ) : null}
                         {!fifoCostComplete && product.fifo_unknown_qty > 0 ? (
                           <p className="mt-1 text-right text-[10px] text-violet-600">成本不明 {formatAmount(product.fifo_unknown_qty)} 包</p>
                         ) : null}

@@ -21,8 +21,8 @@ describe("FIFO ledger", () => {
       ],
     })
 
-    expect(result.get("first")).toEqual({ cogs: 24_000, unknownQty: 0 })
-    expect(result.get("second")).toEqual({ cogs: 20_200, unknownQty: 0 })
+    expect(result.get("first")).toEqual({ cogs: 24_000, unknownQty: 0, provisionalQty: 0 })
+    expect(result.get("second")).toEqual({ cogs: 20_200, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("uses purchases before sales on the same business date", () => {
@@ -32,7 +32,7 @@ describe("FIFO ledger", () => {
       sales: [{ id: "sale", orderedAt: "2026-07-01", quantity: 100 }],
     })
 
-    expect(result.get("sale")).toEqual({ cogs: 57_600, unknownQty: 0 })
+    expect(result.get("sale")).toEqual({ cogs: 57_600, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("treats a zero-cost purchase as a confirmed free-goods batch", () => {
@@ -42,17 +42,67 @@ describe("FIFO ledger", () => {
       sales: [{ id: "gift-sale", orderedAt: "2026-07-02", quantity: 10 }],
     })
 
-    expect(result.get("gift-sale")).toEqual({ cogs: 0, unknownQty: 0 })
+    expect(result.get("gift-sale")).toEqual({ cogs: 0, unknownQty: 0, provisionalQty: 0 })
   })
 
-  it("does not borrow a future purchase for an earlier sale", () => {
+  it("uses the remaining free batch before the paid batch", () => {
+    const paidUnitCost = 58.62037037037037
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [
+        { orderedAt: "2026-08-11", quantity: 600, unitCost: 0 },
+        { orderedAt: "2026-08-11", quantity: 200, unitCost: paidUnitCost },
+      ],
+      sales: [
+        { id: "earlier-sales", orderedAt: "2026-08-26", quantity: 382 },
+        { id: "target-sale", orderedAt: "2026-08-28", quantity: 300 },
+      ],
+    })
+
+    expect(result.get("target-sale")?.unknownQty).toBe(0)
+    expect(result.get("target-sale")?.provisionalQty).toBe(0)
+    expect(result.get("target-sale")?.cogs).toBeCloseTo(82 * paidUnitCost, 6)
+  })
+
+  it("uses a later-entered purchase to settle an earlier negative sale", () => {
     const result = calculateFifoSaleCosts({
       openingQty: 0,
       purchases: [{ orderedAt: "2026-07-03", quantity: 100, unitCost: 576 }],
       sales: [{ id: "sale", orderedAt: "2026-07-01", quantity: 100 }],
     })
 
-    expect(result.get("sale")).toEqual({ cogs: 0, unknownQty: 100 })
+    expect(result.get("sale")).toEqual({ cogs: 57_600, unknownQty: 0, provisionalQty: 0 })
+  })
+
+  it("uses the last known cost provisionally while inventory remains negative", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-07-01", quantity: 10, unitCost: 500 }],
+      sales: [{ id: "sale", orderedAt: "2026-07-02", quantity: 15 }],
+    })
+
+    expect(result.get("sale")).toEqual({ cogs: 7_500, unknownQty: 0, provisionalQty: 5 })
+  })
+
+  it("uses a configured fallback when there is no earlier receipt", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      fallbackUnitCost: 400,
+      purchases: [],
+      sales: [{ id: "sale", orderedAt: "2026-07-02", quantity: 3 }],
+    })
+
+    expect(result.get("sale")).toEqual({ cogs: 1_200, unknownQty: 0, provisionalQty: 3 })
+  })
+
+  it("keeps only the unmatched remainder provisional after a partial later receipt", () => {
+    const result = calculateFifoSaleCosts({
+      openingQty: 0,
+      purchases: [{ orderedAt: "2026-07-03", quantity: 6, unitCost: 600 }],
+      sales: [{ id: "sale", orderedAt: "2026-07-01", quantity: 10 }],
+    })
+
+    expect(result.get("sale")).toEqual({ cogs: 6_000, unknownQty: 0, provisionalQty: 4 })
   })
 
   it("consumes unknown opening stock first without leaking it into July", () => {
@@ -70,7 +120,7 @@ describe("FIFO ledger", () => {
     })
 
     expect(result.get("before-july")?.unknownQty).toBe(105)
-    expect(result.get("july")).toEqual({ cogs: 157_824, unknownQty: 0 })
+    expect(result.get("july")).toEqual({ cogs: 157_824, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("uses a confirmed cost for opening FIFO inventory", () => {
@@ -81,7 +131,7 @@ describe("FIFO ledger", () => {
       sales: [{ id: "opening-sale", orderedAt: "2026-01-01", quantity: 105 }],
     })
 
-    expect(result.get("opening-sale")).toEqual({ cogs: 60_480, unknownQty: 0 })
+    expect(result.get("opening-sale")).toEqual({ cogs: 60_480, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("restores a sales return at the original sale FIFO cost", () => {
@@ -95,8 +145,8 @@ describe("FIFO ledger", () => {
       returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
     })
 
-    expect(result.get("returned")).toEqual({ cogs: 1_500, unknownQty: 0 })
-    expect(result.get("resold")).toEqual({ cogs: 1_500, unknownQty: 0 })
+    expect(result.get("returned")).toEqual({ cogs: 1_500, unknownQty: 0, provisionalQty: 0 })
+    expect(result.get("resold")).toEqual({ cogs: 1_500, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("keeps returned free goods at a confirmed zero FIFO cost", () => {
@@ -110,8 +160,8 @@ describe("FIFO ledger", () => {
       returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
     })
 
-    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 0 })
-    expect(result.get("resold")).toEqual({ cogs: 0, unknownQty: 0 })
+    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 0, provisionalQty: 0 })
+    expect(result.get("resold")).toEqual({ cogs: 0, unknownQty: 0, provisionalQty: 0 })
   })
 
   it("keeps a return unresolved when the original sale cost was incomplete", () => {
@@ -122,7 +172,7 @@ describe("FIFO ledger", () => {
       returns: [{ id: "returned", originalSaleId: "original", orderedAt: "2026-05-05", quantity: 3 }],
     })
 
-    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 3 })
+    expect(result.get("returned")).toEqual({ cogs: 0, unknownQty: 3, provisionalQty: 0 })
   })
 
   it("treats a dated inventory increase as a FIFO batch from that date", () => {
@@ -135,7 +185,7 @@ describe("FIFO ledger", () => {
       ],
     })
 
-    expect(result.get("before-adjustment")).toEqual({ cogs: 0, unknownQty: 1 })
-    expect(result.get("after-adjustment")).toEqual({ cogs: 720, unknownQty: 0 })
+    expect(result.get("before-adjustment")).toEqual({ cogs: 360, unknownQty: 0, provisionalQty: 0 })
+    expect(result.get("after-adjustment")).toEqual({ cogs: 720, unknownQty: 0, provisionalQty: 0 })
   })
 })

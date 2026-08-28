@@ -26,6 +26,7 @@ export interface ProductProfitAnalysisSummary extends ProductProfitSummary {
   cash_received_total: number
   fifo_cogs_total: number
   fifo_unknown_qty: number
+  fifo_provisional_qty: number
   fifo_cost_complete: boolean
   latest_purchase_price: number
 }
@@ -36,6 +37,7 @@ export type ProductListRowWithProfit = ProductListRow & {
   cogs_total: number
   fifo_cogs_total: number
   fifo_unknown_qty: number
+  fifo_provisional_qty: number
   fifo_cost_complete: boolean
   gross_profit: number
   gross_margin: number
@@ -449,8 +451,11 @@ export async function fetchProductProfitAnalysisByCode(
   // quantity that existed before transaction history began and leave its cost
   // unresolved so later purchase batches stay in the correct FIFO position.
   const stockQtyByCode = new Map<string, number>()
+  const fallbackCostByCode = new Map<string, number>()
   const openingBalanceByCode = new Map<string, { quantity: number; unitCost: number }>()
   const movementHistoryUncertainCodes = new Set<string>()
+  const fifoDecreaseEventsByCode = new Map<string, FifoSale[]>()
+  const fifoDecreaseQtyByCode = new Map<string, number>()
   type SalesReturnItemWithDate = {
     fifo_event_id: string
     original_sale_event_id: string
@@ -462,7 +467,7 @@ export async function fetchProductProfitAnalysisByCode(
   }
   const activeSalesReturnItems: SalesReturnItemWithDate[] = []
   try {
-    const stockRows = await fetchAllRows(supabase, "products", "code,stock_qty", {
+    const stockRows = await fetchAllRows(supabase, "products", "code,stock_qty,cost", {
       inColumn: "code",
       inValues: normalizedCodes,
       pageSize: 1000,
@@ -470,7 +475,11 @@ export async function fetchProductProfitAnalysisByCode(
     })
     for (const row of stockRows) {
       const code = normalizeCode(row.code)
-      if (code) stockQtyByCode.set(code, toNumber(row.stock_qty))
+      if (code) {
+        stockQtyByCode.set(code, toNumber(row.stock_qty))
+        const fallbackCost = toNumber(row.cost)
+        if (fallbackCost > 0) fallbackCostByCode.set(code, fallbackCost)
+      }
     }
 
     const [openingBalances, adjustments, purchaseReturnItems, salesReturns, salesReturnItems] = await Promise.all([
@@ -513,6 +522,10 @@ export async function fetchProductProfitAnalysisByCode(
         adjustmentQty > 0 &&
         adjustmentUnitCost > 0 &&
         Boolean(String(row.created_at || "").trim())
+      const isResolvedDatedDecrease =
+        fifoResolution === "dated_decrease" &&
+        adjustmentQty < 0 &&
+        Boolean(String(row.created_at || "").trim())
 
       if (codeSet.has(code) && isResolvedDatedIncrease) {
         const batches = purchaseBatchesByCode.get(code) ?? []
@@ -522,6 +535,16 @@ export async function fetchProductProfitAnalysisByCode(
           unitCost: adjustmentUnitCost,
         })
         purchaseBatchesByCode.set(code, batches)
+      } else if (codeSet.has(code) && isResolvedDatedDecrease) {
+        const quantity = Math.abs(adjustmentQty)
+        const events = fifoDecreaseEventsByCode.get(code) ?? []
+        events.push({
+          id: `stock-adjustment:${String(row.id || "")}`,
+          orderedAt: String(row.created_at || ""),
+          quantity,
+        })
+        fifoDecreaseEventsByCode.set(code, events)
+        fifoDecreaseQtyByCode.set(code, (fifoDecreaseQtyByCode.get(code) || 0) + quantity)
       } else if (codeSet.has(code) && !isResolvedOpening) {
         movementHistoryUncertainCodes.add(code)
       }
@@ -591,7 +614,7 @@ export async function fetchProductProfitAnalysisByCode(
     salesReturnEventsByCode.set(code, events)
   }
 
-  const fifoCostByEventId = new Map<string, { cogs: number; unknownQty: number }>()
+  const fifoCostByEventId = new Map<string, { cogs: number; unknownQty: number; provisionalQty: number }>()
   for (const code of normalizedCodes) {
     const canInferOpening = !movementHistoryUncertainCodes.has(code) && stockQtyByCode.has(code)
     const confirmedOpening = openingBalanceByCode.get(code)
@@ -600,7 +623,8 @@ export async function fetchProductProfitAnalysisByCode(
           0,
           toNumber(stockQtyByCode.get(code)) +
             toNumber(totalSalesQtyByCode.get(code)) -
-            toNumber(totalPurchasedQtyByCode.get(code)) -
+            toNumber(totalPurchasedQtyByCode.get(code)) +
+            toNumber(fifoDecreaseQtyByCode.get(code)) -
             toNumber(totalSalesReturnQtyByCode.get(code)),
         )
       : 0
@@ -608,8 +632,11 @@ export async function fetchProductProfitAnalysisByCode(
     const costs = calculateFifoSaleCosts({
       openingQty,
       openingUnitCost: confirmedOpening?.unitCost ?? null,
+      fallbackUnitCost: latestPurchasePriceByCode.has(code)
+        ? latestPurchasePriceByCode.get(code)
+        : fallbackCostByCode.get(code) ?? null,
       purchases: purchaseBatchesByCode.get(code) ?? [],
-      sales: salesEventsByCode.get(code) ?? [],
+      sales: [...(salesEventsByCode.get(code) ?? []), ...(fifoDecreaseEventsByCode.get(code) ?? [])],
       returns: salesReturnEventsByCode.get(code) ?? [],
     })
     for (const [eventId, cost] of costs.entries()) fifoCostByEventId.set(eventId, cost)
@@ -630,7 +657,7 @@ export async function fetchProductProfitAnalysisByCode(
     const up = toNumber(row.unit_price)
     const salesAmt = sub > 0 ? sub : qty * up
 
-    const fifoCost = fifoCostByEventId.get(row.fifo_event_id) ?? { cogs: 0, unknownQty: qty }
+    const fifoCost = fifoCostByEventId.get(row.fifo_event_id) ?? { cogs: 0, unknownQty: qty, provisionalQty: 0 }
 
     if (!Number.isFinite(salesAmt) || salesAmt <= 0) continue
 
@@ -645,6 +672,7 @@ export async function fetchProductProfitAnalysisByCode(
       cash_received_total: 0,
       fifo_cogs_total: 0,
       fifo_unknown_qty: 0,
+      fifo_provisional_qty: 0,
       fifo_cost_complete: !movementHistoryUncertainCodes.has(code),
       latest_purchase_price: latestPurchasePriceByCode.get(code) ?? 0,
     }
@@ -652,6 +680,7 @@ export async function fetchProductProfitAnalysisByCode(
     current.sales_amount_total += salesAmt
     current.fifo_cogs_total += fifoCost.cogs
     current.fifo_unknown_qty += fifoCost.unknownQty
+    current.fifo_provisional_qty += fifoCost.provisionalQty
     current.fifo_cost_complete = current.fifo_cost_complete && fifoCost.unknownQty <= 0
     summaryByCode.set(code, current)
 
@@ -664,13 +693,14 @@ export async function fetchProductProfitAnalysisByCode(
     const code = normalizeCode(row.product_code)
     if (!code || !isInPeriod(row.return_date)) continue
     const returnAmount = row.amount > 0 ? row.amount : row.quantity * row.unit_price
-    const fifoCost = fifoCostByEventId.get(row.fifo_event_id) ?? { cogs: 0, unknownQty: row.quantity }
+    const fifoCost = fifoCostByEventId.get(row.fifo_event_id) ?? { cogs: 0, unknownQty: row.quantity, provisionalQty: 0 }
     const current = summaryByCode.get(code) ?? {
       sales_qty_total: 0,
       sales_amount_total: 0,
       cash_received_total: 0,
       fifo_cogs_total: 0,
       fifo_unknown_qty: 0,
+      fifo_provisional_qty: 0,
       fifo_cost_complete: !movementHistoryUncertainCodes.has(code),
       latest_purchase_price: latestPurchasePriceByCode.get(code) ?? 0,
     }
@@ -678,6 +708,7 @@ export async function fetchProductProfitAnalysisByCode(
     current.sales_amount_total -= returnAmount
     current.fifo_cogs_total -= fifoCost.cogs
     current.fifo_unknown_qty += fifoCost.unknownQty
+    current.fifo_provisional_qty += fifoCost.provisionalQty
     current.fifo_cost_complete = current.fifo_cost_complete && fifoCost.unknownQty <= 0
     summaryByCode.set(code, current)
   }

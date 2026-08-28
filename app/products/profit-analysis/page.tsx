@@ -92,6 +92,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
     const cashReceivedTotal = toNumber(summary?.cash_received_total)
     const fifoCogsTotal = toNumber(summary?.fifo_cogs_total)
     const fifoUnknownQty = toNumber(summary?.fifo_unknown_qty)
+    const fifoProvisionalQty = toNumber(summary?.fifo_provisional_qty)
     const fifoCostComplete = summary?.fifo_cost_complete ?? true
     const latestPurchasePrice = toNumber(summary?.latest_purchase_price)
     const cogsTotal = fifoCogsTotal
@@ -109,6 +110,7 @@ export default async function ProductProfitAnalysisPage({ searchParams }: Produc
       cogs_total: cogsTotal,
       fifo_cogs_total: fifoCogsTotal,
       fifo_unknown_qty: fifoUnknownQty,
+      fifo_provisional_qty: fifoProvisionalQty,
       fifo_cost_complete: fifoCostComplete,
       gross_profit: grossProfit,
       gross_margin: grossMargin,
