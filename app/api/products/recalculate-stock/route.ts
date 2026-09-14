@@ -4,6 +4,8 @@ import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/site-auth"
 import {
   calculateProductStock,
   fetchAllRows,
+  type StockAdjustmentRow,
+  type StockOpeningBalanceRow,
   type PurchaseReturnStockItemRow,
   type PurchaseStockItemRow,
   type SalesReturnStockItemRow,
@@ -30,6 +32,8 @@ export async function POST(request: NextRequest) {
     // 每張表都以穩定欄位分頁讀取，避免 PostgREST 單次回傳上限造成漏算。
     const [
       products,
+      openingBalances,
+      stockAdjustments,
       purchaseOrders,
       purchaseItems,
       salesOrders,
@@ -44,6 +48,18 @@ export async function POST(request: NextRequest) {
         select: "code",
         orderBy: "code",
         label: "取得商品清單",
+      }),
+      fetchAllRows<StockOpeningBalanceRow>(supabase, {
+        table: "fifo_opening_balances",
+        select: "product_code,quantity",
+        orderBy: "product_code",
+        label: "取得期初庫存",
+      }),
+      fetchAllRows<StockAdjustmentRow>(supabase, {
+        table: "stock_adjustments",
+        select: "product_code,adjustment_qty,fifo_resolution",
+        orderBy: "id",
+        label: "取得庫存調整",
       }),
       fetchAllRows<StockOrderRow>(supabase, {
         table: "purchase_orders",
@@ -77,7 +93,7 @@ export async function POST(request: NextRequest) {
       }),
       fetchAllRows<PurchaseReturnStockItemRow>(supabase, {
         table: "purchase_return_items",
-        select: "id,purchase_return_id,product_id,quantity",
+        select: "id,purchase_return_id,product_id,product_code,quantity",
         orderBy: "id",
         label: "取得進貨退回明細",
       }),
@@ -89,7 +105,7 @@ export async function POST(request: NextRequest) {
       }),
       fetchAllRows<SalesReturnStockItemRow>(supabase, {
         table: "sales_return_items",
-        select: "id,sales_return_id,product_code,quantity",
+        select: "id,sales_return_id,product_id,product_code,quantity",
         orderBy: "id",
         label: "取得銷貨退回明細",
       }),
@@ -102,6 +118,8 @@ export async function POST(request: NextRequest) {
     // 先在記憶體完成全部驗證與計算；任何資料問題都會在寫入前中止。
     const { updates, stats } = calculateProductStock({
       products,
+      openingBalances,
+      stockAdjustments,
       purchaseOrders,
       purchaseItems,
       salesOrders,

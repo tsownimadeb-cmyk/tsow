@@ -9,6 +9,8 @@ import {
 function baseInput(overrides: Partial<StockRecalculationInput> = {}): StockRecalculationInput {
   return {
     products: [{ code: "A" }],
+    openingBalances: [],
+    stockAdjustments: [],
     purchaseOrders: [],
     purchaseItems: [],
     salesOrders: [],
@@ -25,6 +27,12 @@ describe("calculateProductStock", () => {
   it("uses completed documents and returns to produce the expected stock", () => {
     const result = calculateProductStock(baseInput({
       products: [{ code: "A" }, { code: "B" }],
+      openingBalances: [{ product_code: "A", quantity: 5 }],
+      stockAdjustments: [
+        { product_code: "A", adjustment_qty: 2, fifo_resolution: "dated_increase" },
+        { product_code: "A", adjustment_qty: -1, fifo_resolution: "dated_decrease" },
+        { product_code: "A", adjustment_qty: 999, fifo_resolution: "opening_balance" },
+      ],
       purchaseOrders: [
         { id: "p1", order_no: "PO-1", status: "completed" },
         { id: "p2", order_no: "PO-2", status: "cancelled" },
@@ -64,11 +72,13 @@ describe("calculateProductStock", () => {
     }))
 
     expect(result.updates).toEqual([
-      { code: "A", stock_qty: 6, purchase_qty_total: 10 },
+      { code: "A", stock_qty: 12, purchase_qty_total: 10 },
       { code: "B", stock_qty: 4, purchase_qty_total: 4 },
     ])
     expect(result.stats).toEqual({
       products: 2,
+      openingBalances: 1,
+      datedStockAdjustments: 2,
       completedPurchaseItems: 2,
       completedSalesItems: 1,
       completedPurchaseReturnItems: 1,
@@ -92,6 +102,14 @@ describe("calculateProductStock", () => {
   it("rejects case-insensitive duplicate product codes", () => {
     expect(() => calculateProductStock(baseInput({ products: [{ code: "A" }, { code: " a " }] })))
       .toThrow(/忽略大小寫後重複/)
+  })
+
+  it("rejects a dated adjustment whose sign contradicts its direction", () => {
+    expect(() => calculateProductStock(baseInput({
+      stockAdjustments: [
+        { product_code: "A", adjustment_qty: -1, fifo_resolution: "dated_increase" },
+      ],
+    }))).toThrow(/調整方向與數量正負不一致/)
   })
 })
 

@@ -6,6 +6,17 @@ export type StockProductRow = {
   code: unknown
 }
 
+export type StockOpeningBalanceRow = {
+  product_code: unknown
+  quantity: unknown
+}
+
+export type StockAdjustmentRow = {
+  product_code: unknown
+  adjustment_qty: unknown
+  fifo_resolution: unknown
+}
+
 export type StockOrderRow = {
   id: unknown
   order_no?: unknown
@@ -35,14 +46,16 @@ export type StockReturnRow = {
 export type PurchaseReturnStockItemRow = {
   id?: unknown
   purchase_return_id: unknown
-  product_id: unknown
+  product_id?: unknown
+  product_code?: unknown
   quantity: unknown
 }
 
 export type SalesReturnStockItemRow = {
   id?: unknown
   sales_return_id: unknown
-  product_code: unknown
+  product_code?: unknown
+  product_id?: unknown
   quantity: unknown
 }
 
@@ -54,6 +67,8 @@ export type ProductStockUpdate = {
 
 export type StockRecalculationStats = {
   products: number
+  openingBalances: number
+  datedStockAdjustments: number
   completedPurchaseItems: number
   completedSalesItems: number
   completedPurchaseReturnItems: number
@@ -62,6 +77,8 @@ export type StockRecalculationStats = {
 
 export type StockRecalculationInput = {
   products: StockProductRow[]
+  openingBalances: StockOpeningBalanceRow[]
+  stockAdjustments: StockAdjustmentRow[]
   purchaseOrders: StockOrderRow[]
   purchaseItems: PurchaseStockItemRow[]
   salesOrders: StockOrderRow[]
@@ -104,6 +121,14 @@ function requirePositiveQuantity(value: unknown, description: string): number {
   const quantity = Number(value)
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Error(`${description} 的數量必須是大於 0 的有效數字`)
+  }
+  return quantity
+}
+
+function requireFiniteQuantity(value: unknown, description: string): number {
+  const quantity = Number(value)
+  if (!Number.isFinite(quantity)) {
+    throw new Error(`${description} 的數量必須是有效數字`)
   }
   return quantity
 }
@@ -199,9 +224,9 @@ export async function fetchAllRows<T>(
 }
 
 /**
- * Calculates inventory from completed business documents only:
- * completed purchases - completed sales - completed purchase returns
- * + completed sales returns.
+ * Calculates inventory from the complete ledger:
+ * FIFO opening balance + completed purchases - completed sales
+ * - completed purchase returns + completed sales returns + dated adjustments.
  *
  * purchase_qty_total remains the gross quantity from completed purchases,
  * matching the field's existing "total purchased" meaning.
@@ -248,12 +273,40 @@ export function calculateProductStock(input: StockRecalculationInput): {
   const sold = new Map<string, number>()
   const returnedToSupplier = new Map<string, number>()
   const returnedByCustomer = new Map<string, number>()
+  const opening = new Map<string, number>()
+  const adjusted = new Map<string, number>()
   const stats: StockRecalculationStats = {
     products: input.products.length,
+    openingBalances: 0,
+    datedStockAdjustments: 0,
     completedPurchaseItems: 0,
     completedSalesItems: 0,
     completedPurchaseReturnItems: 0,
     completedSalesReturnItems: 0,
+  }
+
+  for (const row of input.openingBalances) {
+    const description = "fifo_opening_balances"
+    const code = requireKnownProductCode(row.product_code, productByNormalizedCode, description)
+    addQuantity(opening, code, requirePositiveQuantity(row.quantity, description))
+    stats.openingBalances += 1
+  }
+
+  for (const row of input.stockAdjustments) {
+    const resolution = normalizeKey(row.fifo_resolution)
+    if (resolution !== "dated_increase" && resolution !== "dated_decrease") continue
+
+    const description = "stock_adjustments"
+    const code = requireKnownProductCode(row.product_code, productByNormalizedCode, description)
+    const quantity = requireFiniteQuantity(row.adjustment_qty, description)
+    if (quantity === 0) {
+      throw new Error(`${description} 的日期調整數量不可為 0`)
+    }
+    if ((resolution === "dated_increase" && quantity < 0) || (resolution === "dated_decrease" && quantity > 0)) {
+      throw new Error(`${description} 的調整方向與數量正負不一致`)
+    }
+    addQuantity(adjusted, code, quantity)
+    stats.datedStockAdjustments += 1
   }
 
   for (const item of input.purchaseItems) {
@@ -311,7 +364,8 @@ export function calculateProductStock(input: StockRecalculationInput): {
     }
     if (status !== COMPLETED_STATUS) continue
 
-    const code = requireKnownProductCode(item.product_id, productByNormalizedCode, description)
+    const returnProductCode = normalizeKey(item.product_code) ? item.product_code : item.product_id
+    const code = requireKnownProductCode(returnProductCode, productByNormalizedCode, description)
     addQuantity(returnedToSupplier, code, requirePositiveQuantity(item.quantity, description))
     stats.completedPurchaseReturnItems += 1
   }
@@ -328,7 +382,8 @@ export function calculateProductStock(input: StockRecalculationInput): {
     }
     if (status !== COMPLETED_STATUS) continue
 
-    const code = requireKnownProductCode(item.product_code, productByNormalizedCode, description)
+    const returnProductCode = normalizeKey(item.product_code) ? item.product_code : item.product_id
+    const code = requireKnownProductCode(returnProductCode, productByNormalizedCode, description)
     addQuantity(returnedByCustomer, code, requirePositiveQuantity(item.quantity, description))
     stats.completedSalesReturnItems += 1
   }
@@ -337,10 +392,12 @@ export function calculateProductStock(input: StockRecalculationInput): {
     .map(([normalizedCode, originalCode]) => {
       const purchaseQty = purchased.get(normalizedCode) ?? 0
       const stockQty =
+        (opening.get(normalizedCode) ?? 0) +
         purchaseQty -
         (sold.get(normalizedCode) ?? 0) -
         (returnedToSupplier.get(normalizedCode) ?? 0) +
-        (returnedByCustomer.get(normalizedCode) ?? 0)
+        (returnedByCustomer.get(normalizedCode) ?? 0) +
+        (adjusted.get(normalizedCode) ?? 0)
 
       return {
         code: originalCode,

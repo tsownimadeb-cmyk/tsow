@@ -6,6 +6,10 @@ const migration = readFileSync(
   join(process.cwd(), "scripts", "048-create-order-delete-rpc-functions.sql"),
   "utf8",
 )
+const inventoryRepairMigration = readFileSync(
+  join(process.cwd(), "scripts", "060-repair-inventory-delete-reconciliation.sql"),
+  "utf8",
+)
 const salesTable = readFileSync(join(process.cwd(), "components", "sales", "sales-table.tsx"), "utf8")
 const purchasesTable = readFileSync(
   join(process.cwd(), "components", "purchases", "purchases-table.tsx"),
@@ -43,5 +47,18 @@ describe("atomic order deletion", () => {
     expect(purchasesTable).toContain("PURCHASE_ORDER_DELETE_ATOMIC_RPC")
     expect(salesTable).not.toContain("coalescedStockQty + quantity")
     expect(purchasesTable).not.toContain("Math.max(0, coalescedStockQty - quantity)")
+  })
+
+  it("recalculates deleted sales from the complete ledger instead of incrementing stale stock", () => {
+    expect(inventoryRepairMigration).toContain("inventory_ledger_stock(v_code)")
+    expect(inventoryRepairMigration).toContain("fifo_opening_balances")
+    expect(inventoryRepairMigration).toContain("dated_increase")
+    expect(inventoryRepairMigration).not.toContain("SET stock_qty = v_stock + v_item.quantity")
+  })
+
+  it("backs up and verifies the one-time inventory reconciliation", () => {
+    expect(inventoryRepairMigration).toContain("inventory_reconciliation_log")
+    expect(inventoryRepairMigration).toContain("2026-09-15-delete-recovery")
+    expect(inventoryRepairMigration).toContain("Inventory reconciliation verification failed")
   })
 })
