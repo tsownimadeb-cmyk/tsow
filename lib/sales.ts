@@ -62,52 +62,59 @@ async function findMatchingSalesOrderIdsByProduct(
   const likeKeyword = escapeLikeValue(productKeyword)
   let warning: string | null = null
 
-  const { data: matchedProducts, error: productsError } = await supabase
-    .from("products")
-    .select("code")
-    .or(`code.ilike.%${likeKeyword}%,name.ilike.%${likeKeyword}%`)
-    .limit(200)
+  const matchedCodes = new Set<string>()
+  for (let rangeFrom = 0; ; rangeFrom += MATCH_QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("code")
+      .or(`code.ilike.%${likeKeyword}%,name.ilike.%${likeKeyword}%`)
+      .order("code")
+      .range(rangeFrom, rangeFrom + MATCH_QUERY_PAGE_SIZE - 1)
 
-  if (productsError) {
-    warning = productsError.message || warning
+    if (error) {
+      warning = error.message || warning
+      break
+    }
+
+    for (const product of data || []) {
+      const code = String(product.code || "").trim()
+      if (code) matchedCodes.add(code)
+    }
+    if ((data || []).length < MATCH_QUERY_PAGE_SIZE) break
   }
 
-  const matchedCodes: string[] = Array.from(
-    new Set(
-      (matchedProducts || [])
-        .map((product: { code?: string | null }) => String(product.code || "").trim())
-        .filter(Boolean),
-    ),
-  )
-
-  const filters = [`code.ilike.%${likeKeyword}%`]
-  if (matchedCodes.length > 0) {
-    filters.push(`code.in.(${matchedCodes.map(quoteInValue).join(",")})`)
-  }
-
+  // Keep requests small even when a product name matches many product codes.
+  const filters = [
+    `code.ilike.%${likeKeyword}%`,
+    ...chunkArray(Array.from(matchedCodes), ORDER_FILTER_CHUNK_SIZE)
+      .map((codes) => `code.in.(${codes.map(quoteInValue).join(",")})`),
+  ]
   const orderIds = new Set<string>()
 
-  for (let rangeFrom = 0; ; rangeFrom += MATCH_QUERY_PAGE_SIZE) {
-    const rangeTo = rangeFrom + MATCH_QUERY_PAGE_SIZE - 1
-    const itemsResult: PostgrestSingleResponse<any> = await supabase
-      .from("sales_order_items")
-      .select("sales_order_id")
-      .or(filters.join(","))
-      .range(rangeFrom, rangeTo)
+  for (const filter of filters) {
+    for (let rangeFrom = 0; ; rangeFrom += MATCH_QUERY_PAGE_SIZE) {
+      const rangeTo = rangeFrom + MATCH_QUERY_PAGE_SIZE - 1
+      const itemsResult: PostgrestSingleResponse<any> = await supabase
+        .from("sales_order_items")
+        .select("sales_order_id")
+        .or(filter)
+        .order("id")
+        .range(rangeFrom, rangeTo)
 
-    if (itemsResult.error) {
-      warning = itemsResult.error.message || warning
-      break
-    }
+      if (itemsResult.error) {
+        warning = itemsResult.error.message || warning
+        break
+      }
 
-    const batch = itemsResult.data || []
-    for (const item of batch) {
-      const salesOrderId = String(item.sales_order_id || "").trim()
-      if (salesOrderId) orderIds.add(salesOrderId)
-    }
+      const batch = itemsResult.data || []
+      for (const item of batch) {
+        const salesOrderId = String(item.sales_order_id || "").trim()
+        if (salesOrderId) orderIds.add(salesOrderId)
+      }
 
-    if (batch.length < MATCH_QUERY_PAGE_SIZE) {
-      break
+      if (batch.length < MATCH_QUERY_PAGE_SIZE) {
+        break
+      }
     }
   }
 

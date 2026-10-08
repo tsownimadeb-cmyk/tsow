@@ -8,6 +8,8 @@ import { Printer } from "lucide-react"
 import { fetchSalesRows, normalizeSales } from "@/lib/sales"
 import { DESKTOP_OFFLINE_KEYS, loadDesktopPageSnapshot, saveDesktopPageSnapshot } from "@/lib/desktop-offline-cache"
 import { isLocalOnlyMode } from "@/lib/runtime-mode-server"
+import { filterSalesOrders } from "@/lib/sales-search"
+import { ErrorToast } from "@/components/ui/error-toast"
 
 export default async function SalesPage(props: any) {
   const searchParams = await props.searchParams;
@@ -44,6 +46,7 @@ export default async function SalesPage(props: any) {
   let total = 0;
   let totalPages = 1;
   let missingLocalSnapshot = false;
+  const errorMessages: string[] = [];
 
   if (localOnly) {
     isOffline = true;
@@ -72,6 +75,7 @@ export default async function SalesPage(props: any) {
 
     if (salesWarning) {
       console.error("[SalesPage] 查詢 sales_orders 失敗:", salesWarning);
+      errorMessages.push("銷貨單搜尋未完成，請稍後重試。");
     }
 
     sales = normalizeSales(salesRaw || []);
@@ -96,6 +100,13 @@ export default async function SalesPage(props: any) {
     }
   }
 
+  if (isOffline) {
+    const matchedSales = filterSalesOrders(sales, customers, products, searchText, productSearchText);
+    total = matchedSales.length;
+    totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    sales = matchedSales.slice(from, to + 1);
+  }
+
   // 產生分頁 URL
   function getPageUrl(targetPage: number) {
     const params = new URLSearchParams();
@@ -112,6 +123,7 @@ export default async function SalesPage(props: any) {
 
   return (
     <div className="space-y-6">
+      <ErrorToast messages={errorMessages} />
       {isOffline && (
         <div className="px-4 py-3 bg-amber-100 border border-amber-300 rounded text-amber-800 text-sm font-medium">
           ⚠️ 目前離線模式，顯示本地快照資料
