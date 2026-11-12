@@ -87,10 +87,7 @@ const shiftDateKeyByYear = (dateKey: string, yearOffset: number) => {
 }
 
 interface PurchasesAnalysisPageProps {
-  searchParams?: {
-    startDate?: string | string[]
-    endDate?: string | string[]
-  } | Promise<{
+  searchParams?: Promise<{
     startDate?: string | string[]
     endDate?: string | string[]
   }>

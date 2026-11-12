@@ -94,19 +94,7 @@ const formatDate = (value: string | null) => {
 }
 
 interface CustomerPurchaseHistoryPageProps {
-  searchParams?:
-    | {
-        customer?: string
-        customerKeyword?: string
-        customerCode?: string
-        startDate?: string
-        endDate?: string
-        showSummary?: string
-        page?: string
-        summarySortBy?: string
-        summarySortDir?: string
-      }
-    | Promise<{
+  searchParams?: Promise<{
         customer?: string
         customerKeyword?: string
         customerCode?: string

@@ -1,4 +1,7 @@
 import type { PostgrestSingleResponse } from "@supabase/supabase-js"
+import { isMissingAtomicOrderRpc } from "./order-atomic-rpc"
+
+export const SALES_ORDER_SEARCH_RPC = "search_sales_orders_page"
 
 const ITEM_CHUNK_SIZE = 200
 const ORDER_FILTER_CHUNK_SIZE = 50
@@ -133,6 +136,38 @@ export async function fetchSalesRows(
 ): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
   const keyword = searchText.trim()
   const productKeyword = productSearchText.trim()
+
+  if (keyword || productKeyword) {
+    const { data, error } = await supabase.rpc(SALES_ORDER_SEARCH_RPC, {
+      p_search: keyword,
+      p_product_search: productKeyword,
+      p_offset: from,
+      p_limit: to - from + 1,
+    })
+
+    if (!error) {
+      return { rows: data?.rows || [], totalCount: Number(data?.total_count || 0), warning: null }
+    }
+
+    // Keep searches working while the application and migration roll out separately.
+    // Permission, transport and SQL errors must not silently use the slower query.
+    if (!isMissingAtomicOrderRpc(error, SALES_ORDER_SEARCH_RPC)) {
+      return { rows: [], totalCount: 0, warning: error.message || "銷貨搜尋失敗" }
+    }
+  }
+
+  return fetchSalesRowsLegacy(supabase, from, to, keyword, productKeyword)
+}
+
+async function fetchSalesRowsLegacy(
+  supabase: any,
+  from: number,
+  to: number,
+  searchText: string,
+  productSearchText: string,
+): Promise<{ rows: any[]; totalCount: number; warning: string | null }> {
+  const keyword = searchText.trim()
+  const productKeyword = productSearchText.trim()
   const likeKeyword = escapeLikeValue(keyword)
   const selectText = "id,order_no,customer_cno,delivery_method,order_date,total_amount,status,is_paid,notes,created_at,updated_at"
   let warning: string | null = null
@@ -186,6 +221,7 @@ export async function fetchSalesRows(
       .select(selectText, { count: "exact" })
       .order("order_date", { ascending: false })
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, to)
 
     if (keywordFilters.length > 0) {

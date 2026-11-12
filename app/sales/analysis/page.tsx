@@ -76,9 +76,7 @@ const diffDays = (start: Date, end: Date) => {
 }
 
 interface SalesAnalysisPageProps {
-  searchParams?: {
-    year?: string
-  } | Promise<{
+  searchParams?: Promise<{
     year?: string
   }>
 }

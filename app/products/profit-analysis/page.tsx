@@ -30,10 +30,7 @@ const toNumber = (value: unknown) => {
 }
 
 interface ProductProfitAnalysisPageProps {
-  searchParams?: {
-    startDate?: string
-    endDate?: string
-  } | Promise<{
+  searchParams?: Promise<{
     startDate?: string
     endDate?: string
   }>

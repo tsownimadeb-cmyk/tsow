@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { fetchSalesRows } from "../lib/sales"
+import { describe, expect, it, vi } from "vitest"
+import { fetchSalesRows, SALES_ORDER_SEARCH_RPC } from "../lib/sales"
 import { filterSalesOrders } from "../lib/sales-search"
 import type { SalesOrder } from "../lib/types"
 
@@ -62,6 +62,7 @@ describe("cached sales product search", () => {
 // Simulate the API's row cap, filtering and pagination, rather than returning canned results.
 function database(tables: Record<string, Record<string, any>[]>, errorTable?: string) {
   return {
+    rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Search RPC is not installed" } }),
     from(table: string) {
       let rows = [...(tables[table] || [])]
       let from = 0
@@ -99,7 +100,7 @@ function database(tables: Record<string, Record<string, any>[]>, errorTable?: st
   }
 }
 
-describe("online sales product search", () => {
+describe("legacy online sales search during migration rollout", () => {
   function fixtures(rows: SalesOrder[], productRows = products) {
     return { products: productRows, customers, sales_orders: rows, sales_order_items: rows.flatMap((row) => row.items || []) }
   }
@@ -140,5 +141,46 @@ describe("online sales product search", () => {
   it("reports a product query failure instead of claiming search succeeded", async () => {
     const result = await fetchSalesRows(database(fixtures([sale("1", "P001")]), "products"), 0, 19, "", "麥片")
     expect(result.warning).toBe("query failed")
+  })
+})
+
+describe("database-paginated sales search", () => {
+  it("requests only the current page and returns its full details and total count", async () => {
+    const rows = [sale("page-two", "P001")]
+    const supabase = {
+      rpc: vi.fn().mockResolvedValue({ data: { rows, total_count: 50000 }, error: null }),
+      from: vi.fn(() => { throw new Error("Search must not download all matching orders") }),
+    }
+    expect(await fetchSalesRows(supabase, 20, 39, " 王先生 ", " 麥片 "))
+      .toEqual({ rows, totalCount: 50000, warning: null })
+    expect(supabase.rpc).toHaveBeenCalledExactlyOnceWith(SALES_ORDER_SEARCH_RPC, {
+      p_search: "王先生", p_product_search: "麥片", p_offset: 20, p_limit: 20,
+    })
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
+
+  it("uses database search for customer-only searches too", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { rows: [], total_count: 0 }, error: null })
+    expect(await fetchSalesRows({ rpc }, 0, 19, "王先生"))
+      .toEqual({ rows: [], totalCount: 0, warning: null })
+    expect(rpc).toHaveBeenCalledWith(SALES_ORDER_SEARCH_RPC, {
+      p_search: "王先生", p_product_search: "", p_offset: 0, p_limit: 20,
+    })
+  })
+
+  it.each(["42501", "P0001", "57014"])("reports error %s without bypassing the new RPC", async (code) => {
+    const supabase = {
+      rpc: vi.fn().mockResolvedValue({ data: null, error: { code, message: "query failed" } }),
+      from: vi.fn(),
+    }
+    expect(await fetchSalesRows(supabase, 0, 19, "", "麥片"))
+      .toEqual({ rows: [], totalCount: 0, warning: "query failed" })
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
+
+  it("does not invoke search RPC for an unfiltered listing", async () => {
+    const db = database({ sales_orders: [sale("1", "P001")], sales_order_items: [] })
+    expect((await fetchSalesRows(db)).totalCount).toBe(1)
+    expect(db.rpc).not.toHaveBeenCalled()
   })
 })
