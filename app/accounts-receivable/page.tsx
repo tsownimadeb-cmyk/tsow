@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { ARTableClient } from "@/components/accounts-receivable/ar-table-client"
-import { CustomerStatementReceivablePanel } from "@/components/accounts-receivable/customer-statement-receivable-panel"
-import type { AccountsReceivable, Customer } from "@/lib/types"
+import { fetchCompleteArRows, getArOrderBalance, paginateArCustomers } from "@/lib/ar-query"
+import type { AccountsReceivable, Customer, SalesOrder } from "@/lib/types"
 import Link from "next/link"
 
 export const metadata = {
@@ -22,7 +22,7 @@ export default async function ARPage(props: any) {
     if (searchParams && typeof searchParams === "object") {
       const rawPage = searchParams.page
       const parsed = Number(Array.isArray(rawPage) ? rawPage[0] : rawPage)
-      if (!Number.isNaN(parsed) && parsed > 0) page = parsed
+      if (Number.isSafeInteger(parsed) && parsed > 0) page = parsed
 
       const rawSearch = searchParams.search
       searchText = String(Array.isArray(rawSearch) ? rawSearch[0] : rawSearch || "").trim()
@@ -33,9 +33,6 @@ export default async function ARPage(props: any) {
         viewMode = "all"
       }
     }
-
-    const from = (page - 1) * PAGE_SIZE
-    const to = from + PAGE_SIZE - 1
 
     const supabase = await createClient()
 
@@ -91,21 +88,17 @@ export default async function ARPage(props: any) {
       return chunks
     }
 
-    let salesQuery = supabase
-      .from("sales_orders")
-      .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at", { count: "exact" })
-
-    if (viewMode === "unpaid") {
-      salesQuery = salesQuery.eq("is_paid", false)
-    }
+    let salesFilters = ""
 
     if (searchText !== "") {
       const likeKeyword = escapeLikeValue(searchText)
-      const { data: matchedCustomers } = await supabase
+      const { data: matchedCustomers, error: customerSearchError } = await supabase
         .from("customers")
         .select("*")
         .or(`code.ilike.%${likeKeyword}%,name.ilike.%${likeKeyword}%`)
         .limit(200)
+
+      if (customerSearchError) throw new Error("客戶搜尋未完整載入，請重新整理後再操作")
 
       const matchedCodes = Array.from(
         new Set(
@@ -127,97 +120,93 @@ export default async function ARPage(props: any) {
         filters.push(`customer_cno.in.(${matchedCodes.map(quoteInValue).join(",")})`)
       }
 
-      salesQuery = salesQuery.or(filters.join(","))
+      salesFilters = filters.join(",")
     }
 
-    salesQuery = salesQuery
-      .order("customer_cno", { ascending: true, nullsFirst: false })
-      .order("order_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .range(from, to)
+    // Read order headers and balances first; paginate customer groups before loading details.
+    const matchingOrders = await fetchCompleteArRows<SalesOrder>(() => {
+      let query = supabase.from("sales_orders")
+        .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at", { count: "exact" })
+      if (viewMode === "unpaid") query = query.eq("is_paid", false)
+      if (salesFilters) query = query.or(salesFilters)
+      return query.order("id", { ascending: true })
+    }, "應收單據")
+    const matchingOrderIds = matchingOrders.map((order) => order.id)
 
-    const { data: salesOrders, error: salesError, count: salesOrderCount } = await salesQuery
+    const arRows: Array<Record<string, any>> = []
+    let arErrorMessage: string | null = null
 
-    if (salesError) {
-      console.error("Error fetching sales orders:", salesError)
-      return (
-        <div className="p-6">
-          <h1 className="text-3xl font-bold mb-6">應收帳款管理</h1>
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-2">
-            <p className="text-destructive font-semibold">無法載入銷貨資料</p>
-            <p className="text-sm text-destructive/80">{salesError.message}</p>
-          </div>
-        </div>
-      )
-    }
-
-    const primarySalesOrders = salesOrders || []
-    const total = salesOrderCount ?? 0
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-
-    const currentPageCustomerCodes = Array.from(
-      new Set(
-        primarySalesOrders
-          .map((so) => String(so.customer_cno || "").trim())
-          .filter(Boolean),
-      ),
-    )
-
-    const relatedUnpaidSalesOrders: typeof primarySalesOrders = []
-    if (currentPageCustomerCodes.length) {
-      const customerChunks = chunkArray(currentPageCustomerCodes, CHUNK_SIZE)
-      const relatedSalesResults = await Promise.allSettled(
-        customerChunks.map((customerChunk) => {
-          let relatedSalesQuery = supabase
-            .from("sales_orders")
-            .select("id,order_no,customer_cno,order_date,total_amount,status,is_paid,notes,created_at,updated_at")
-            .in("customer_cno", customerChunk)
-
-          if (viewMode === "unpaid") {
-            relatedSalesQuery = relatedSalesQuery.eq("is_paid", false)
-          }
-
-          return relatedSalesQuery
-            .order("customer_cno", { ascending: true, nullsFirst: false })
-            .order("order_date", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false })
-        }),
+    if (matchingOrderIds.length) {
+      const arIdChunks = chunkArray(matchingOrderIds, CHUNK_SIZE)
+      const arResults = await Promise.allSettled(
+        arIdChunks.map((idChunk) =>
+          supabase
+            .from("accounts_receivable")
+            .select("*")
+            .in("sales_order_id", idChunk),
+        ),
       )
 
-      relatedSalesResults.forEach((result, index) => {
-        const customerChunk = customerChunks[index] || []
+      arResults.forEach((result, index) => {
+        const idChunk = arIdChunks[index] || []
+
         if (result.status === "rejected") {
-          logSupabaseChunkError("Error fetching related unpaid sales orders", result.reason, {
-            chunkSize: customerChunk.length,
-            sampleCustomerCode: customerChunk[0] || null,
+          if (!arErrorMessage) {
+            arErrorMessage = "讀取 accounts_receivable 分段資料失敗"
+          }
+          logSupabaseChunkError("Error fetching accounts_receivable chunk", result.reason, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
           })
           return
         }
 
-        const { data: chunkOrders, error: chunkError } = result.value
+        const { data: chunkRows, error: chunkError } = result.value
         if (chunkError) {
-          logSupabaseChunkError("Error fetching related unpaid sales orders", chunkError, {
-            chunkSize: customerChunk.length,
-            sampleCustomerCode: customerChunk[0] || null,
+          if (!arErrorMessage) {
+            arErrorMessage = chunkError.message || "讀取 accounts_receivable 分段資料失敗"
+          }
+          logSupabaseChunkError("Error fetching accounts_receivable chunk", chunkError, {
+            chunkSize: idChunk.length,
+            sampleSalesOrderId: idChunk[0] || null,
           })
           return
         }
 
-        if (chunkOrders?.length) {
-          relatedUnpaidSalesOrders.push(...chunkOrders)
+        if (chunkRows?.length) {
+          arRows.push(...chunkRows)
         }
       })
     }
 
-    const mergedSalesOrders = Array.from(
-      new Map(
-        [...primarySalesOrders, ...relatedUnpaidSalesOrders].map((so) => [String(so.id), so]),
-      ).values(),
-    ).sort(
-      (a, b) => new Date(String(b.created_at || 0)).getTime() - new Date(String(a.created_at || 0)).getTime(),
-    )
+    if (arErrorMessage) {
+      throw new Error("應收帳款未完整載入，請重新整理後再操作")
+    }
 
-    const salesOrderIds = mergedSalesOrders.map((so) => so.id)
+    const arMap = arRows.reduce<Map<string, any>>((map, row) => {
+      if (!row.sales_order_id) return map
+
+      const current = map.get(row.sales_order_id)
+      if (!current) {
+        map.set(row.sales_order_id, row)
+        return map
+      }
+
+      const currentUpdatedAt = new Date(current.updated_at || current.created_at || 0).getTime()
+      const candidateUpdatedAt = new Date(row.updated_at || row.created_at || 0).getTime()
+
+      if (candidateUpdatedAt > currentUpdatedAt) {
+        map.set(row.sales_order_id, row)
+      }
+
+      return map
+    }, new Map<string, any>())
+
+    const customerPage = paginateArCustomers(matchingOrders, arMap, page, PAGE_SIZE, viewMode)
+    page = customerPage.page
+    const { total, totalPages } = customerPage
+    const mergedSalesOrders = customerPage.orders
+    const salesOrderIds = mergedSalesOrders.map((order) => order.id)
 
     const salesOrderItems: Array<Record<string, unknown>> = []
     let salesOrderItemsFetchFailed = false
@@ -384,79 +373,12 @@ export default async function ARPage(props: any) {
       return map
     }, new Map<string, Array<Record<string, unknown>>>())
 
-    const arRows: Array<Record<string, any>> = []
-    let arErrorMessage: string | null = null
-
-    if (salesOrderIds.length) {
-      const arIdChunks = chunkArray(salesOrderIds, CHUNK_SIZE)
-      const arResults = await Promise.allSettled(
-        arIdChunks.map((idChunk) =>
-          supabase
-            .from("accounts_receivable")
-            .select("*")
-            .in("sales_order_id", idChunk),
-        ),
-      )
-
-      arResults.forEach((result, index) => {
-        const idChunk = arIdChunks[index] || []
-
-        if (result.status === "rejected") {
-          if (!arErrorMessage) {
-            arErrorMessage = "讀取 accounts_receivable 分段資料失敗"
-          }
-          logSupabaseChunkError("Error fetching accounts_receivable chunk", result.reason, {
-            chunkSize: idChunk.length,
-            sampleSalesOrderId: idChunk[0] || null,
-          })
-          return
-        }
-
-        const { data: chunkRows, error: chunkError } = result.value
-        if (chunkError) {
-          if (!arErrorMessage) {
-            arErrorMessage = chunkError.message || "讀取 accounts_receivable 分段資料失敗"
-          }
-          logSupabaseChunkError("Error fetching accounts_receivable chunk", chunkError, {
-            chunkSize: idChunk.length,
-            sampleSalesOrderId: idChunk[0] || null,
-          })
-          return
-        }
-
-        if (chunkRows?.length) {
-          arRows.push(...chunkRows)
-        }
-      })
-    }
-
-    if (arErrorMessage) {
-      console.error("Error fetching accounts_receivable:", arErrorMessage)
-    }
-
-    const arMap = arRows.reduce((map, row) => {
-      if (!row.sales_order_id) return map
-
-      const current = map.get(row.sales_order_id)
-      if (!current) {
-        map.set(row.sales_order_id, row)
-        return map
-      }
-
-      const currentUpdatedAt = new Date(current.updated_at || current.created_at || 0).getTime()
-      const candidateUpdatedAt = new Date(row.updated_at || row.created_at || 0).getTime()
-
-      if (candidateUpdatedAt > currentUpdatedAt) {
-        map.set(row.sales_order_id, row)
-      }
-
-      return map
-    }, new Map<string, any>())
-
-    const { data: customers } = await supabase
+    const { data: customers, error: customersError } = await supabase
       .from("customers")
       .select("*")
       .order("code", { ascending: true })
+
+    if (customersError) throw new Error("客戶資料未完整載入，請重新整理後再操作")
 
     const customersList = (customers || []) as Array<Customer & { cno?: string | null }>
     const customerMap = new Map(
@@ -476,30 +398,7 @@ export default async function ARPage(props: any) {
     const enrichedRecords: AccountsReceivable[] = mergedSalesOrders
       .map((so) => {
         const existing = arMap.get(so.id)
-        const salesTotalAmount = Number(so.total_amount)
-        const effectiveCustomerCno = existing?.customer_cno ?? so.customer_cno ?? null
-        const existingAmountDue = existing ? Number(existing.amount_due ?? existing.total_amount ?? salesTotalAmount) : salesTotalAmount
-        const amountDue = !Number.isFinite(existingAmountDue) || existingAmountDue <= 0 ? salesTotalAmount : existingAmountDue
-
-        const existingPaidAmount = existing
-          ? Number(existing.paid_amount ?? (so.is_paid ? amountDue : 0))
-          : so.is_paid
-            ? amountDue
-            : 0
-
-        let paidAmount = Number.isFinite(existingPaidAmount)
-          ? existingPaidAmount
-          : so.is_paid
-            ? amountDue
-            : 0
-
-        if (so.is_paid && paidAmount <= 0) {
-          paidAmount = amountDue
-        }
-
-        if (paidAmount > amountDue) {
-          paidAmount = amountDue
-        }
+        const { amountDue, paidAmount, customerCode } = getArOrderBalance(so, existing)
 
         const status: AccountsReceivable["status"] = so.is_paid
           ? "paid"
@@ -507,7 +406,7 @@ export default async function ARPage(props: any) {
             ? "partially_paid"
             : "unpaid"
 
-        const normalizedCustomerCno = String(effectiveCustomerCno || "").trim()
+        const normalizedCustomerCno = customerCode
         const normalizedCustomerKey = normalizeCode(normalizedCustomerCno)
 
         return {
@@ -552,7 +451,7 @@ export default async function ARPage(props: any) {
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-3xl font-bold">應收帳款管理</h1>
-          <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄（每頁 {PAGE_SIZE} 筆）</p>
+          <p className="text-muted-foreground mt-2">管理銷貨應收帳款記錄（每頁 {PAGE_SIZE} 位客戶，同一客戶單據不拆頁）</p>
         </div>
 
         {/* <CustomerStatementReceivablePanel /> */}
@@ -617,7 +516,7 @@ export default async function ARPage(props: any) {
           >
             上一頁
           </Link>
-          <span>第 {page} 頁 / 共 {totalPages} 頁（共 {total} 筆）</span>
+          <span>第 {page} 頁 / 共 {totalPages} 頁（共 {total} 位客戶）</span>
           <Link
             href={getPageUrl(page + 1)}
             aria-disabled={page >= totalPages}
@@ -627,6 +526,8 @@ export default async function ARPage(props: any) {
             下一頁
           </Link>
           <form method="get" action="/accounts-receivable" className="flex items-center gap-2">
+            <input type="hidden" name="search" value={searchText} />
+            <input type="hidden" name="view" value={viewMode} />
             <input
               type="number"
               name="page"

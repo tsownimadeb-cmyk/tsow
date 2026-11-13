@@ -188,6 +188,9 @@ export function ARTable({
   const normalizeCustomerKey = (value: unknown) => String(value ?? "").trim().toUpperCase()
 
   const filteredRecords = useMemo(() => {
+    // The server has already filtered and paginated these customer groups.
+    // Re-filtering a completed search can drop cards and disagree with its total.
+    if (search === initialSearch) return records
     const keyword = normalizeSearchValue(search)
     if (!keyword) return records
 
@@ -211,7 +214,7 @@ export function ARTable({
 
       return searchTargets.some((value) => normalizeSearchValue(value).includes(keyword))
     })
-  }, [records, search])
+  }, [records, search, initialSearch])
 
   const isSearching = search !== debouncedSearch || isPending
 
